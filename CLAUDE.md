@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 ## Proje
-Tedarikçi sözleşmelerini şirketin kendi kural setine göre inceleyen bir agent sistemi (`CASE.md`).
+Tedarikçi sözleşmelerini şirketin kendi kural setine göre inceleyen bir agent sistemi (`docs/CASE.md`).
 Her kural için sonuç uygun / uygun değil / bulunamadı olur ve sözleşmeden birebir alıntıyla
 kanıtlanır; uygun olmayan maddeler için değişiklik taslağı yazılır, belirsiz bulgular avukata
 bırakılır. Python, LangChain `create_agent`, LangGraph ve LangSmith ile kurulur; varsayılan model
@@ -13,6 +13,7 @@ sağlayıcısı Groq, çevrimdışı mod Ollama'dır. İki kurgusal şirketin (t
 ## Hangi konu hangi dokümanda
 | Dosya | İçerik |
 |---|---|
+| `docs/CASE.md` | Case'in asıl metni: istenenler ve teslim edilecekler; gereksinimlerin kaynağı |
 | `docs/spec.md` | Ne ve neden: senaryolar, gereksinimler, kapsam dışı, bilinen sınırlar, açık sorular |
 | `docs/architecture.md` | Katmanlar, veri akışı, API uçları, karar şeması, rapor, roller, veri nereye gidiyor, ADR'ler |
 | `docs/agent_design.md` | Graph, 5 tool, prompt, doğrulama sinyalleri, maskeleme, enjeksiyon, hata davranışı, audit olayları |
@@ -30,6 +31,10 @@ docker compose run --rm app python -m evals.run          # eval (önce/sonra tab
 uv run ruff check . && uv run ruff format --check .      # lint + format kontrolü
 uv run mypy src                                          # type-check
 ```
+
+## Commit mesajları
+İngilizce yazılır; conventional commits biçimindedir (`feat:`, `fix:`, `docs:`, `test:`, `chore:`).
+Ayrıntı: `docs/code_standards.md` "Git".
 
 ## Asla çiğnenmeyecek kurallar
 - **Tenant ayrımı:** tenant ve rol yalnızca API anahtarından çözülür; istekteki hiçbir alandan

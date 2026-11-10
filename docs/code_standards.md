@@ -105,6 +105,7 @@
 
 ## Git
 - Conventional commits: `feat:`, `fix:`, `docs:`, `test:`, `chore:`.
+- Commit mesajları İngilizce yazılır.
 - `data/tenants/*/*.db` commit edilmez (`.gitignore`; PII eşlemesi içerir).
 - Çalışma zamanı çıktılarından yalnızca `evals/results/` commit edilir.
 
