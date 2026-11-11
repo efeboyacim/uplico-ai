@@ -14,8 +14,10 @@
   saf fonksiyonlardır; Adım 8 bunları çağırır. Adım 5: `src/prepare/pii.py` yazıldı
   (`mask(text, mapping) -> (maskeli metin, yeni eşleme)` ve `unmask(text, mapping)`, ikisi de saf);
   bu sırada alınan kararlar (ad dizisinin durma kuralları, unvan ayırma, temiz ayrılmayan dizi,
-  yer tutucu türleri, birebir yazım eşitliği, tekrar çağrılabilirlik, fazla maskeleme sınırları)
-  `agent_design.md` §5'e işlendi. Adım 8 için not: adlar imza bloğunda bulunup tüm metinde
+  yer tutucu türleri, birebir yazım eşitliği, tekrar çağrılabilirlik, fazla maskeleme sınırları,
+  bilinen adın harf büyüklüğüne ve boşluk biçimine bakılmadan aranması, sözcük içi tire ve kesme
+  işareti, dörtlü gruplarla yazılmış IBAN'ın kapsama alınması) `agent_design.md` §5'e işlendi;
+  IBAN kapsamı ayrıca `architecture.md` §6, `spec.md` ve `evals.md`'deki listelere yansıtıldı. Adım 8 için not: adlar imza bloğunda bulunup tüm metinde
   değiştirildiğinden `prepare_contract` eşlemeyi önce tüm metinle kurar, sonra her maddeyi o
   eşlemeyle maskeler; maskeleme görünmez karakterleri çıkarılmış kopyada çalışır (araya gizli
   karakter konmuş TCKN kaçmasın).
