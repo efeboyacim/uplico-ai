@@ -12,11 +12,12 @@
 ## Hata yönetimi
 - Çıplak `except:` yok; yakalanan hata ya ele alınır ya da loglanıp yeniden fırlatılır.
 - Bir kural agent'ının hatası `review_rule` düğümünde yakalanır ve `no_finding` bulgusuna çevrilir.
-  İki istisna yakalanmaz, yeniden fırlatılır ve inceleme `failed` olur: sağlayıcı kimlik doğrulama
-  hatası (401) ve audit yazımından gelen `sqlite3.Error` (eksik kayıtla tamamlanmış inceleme olmaz).
+  İki istisna yakalanmaz, yeniden fırlatılır ve inceleme `failed` olur: sağlayıcı kimlik ya da
+  yapılandırma hatası (Groq 401 / 403 / 404, Ollama 404) ve audit yazımından gelen `sqlite3.Error`
+  (eksik kayıtla tamamlanmış inceleme olmaz).
 - API hataları FastAPI `HTTPException` ile döner: tanınmayan anahtar **401**, yetersiz rol **403**,
   başka tenant'ın kaynağı **404** (403 değil), yanlış durum **409**, geçersiz gövde **422**,
-  sağlayıcı kimlik hatası **502**.
+  sağlayıcı kimlik ya da yapılandırma hatası **502**.
 - Doğrulanamayan bulgu ya da taslak silinmez; `needs_review` ve sebebiyle işaretlenir.
 - Son karardan önce rapor istenirse **409** döner.
 

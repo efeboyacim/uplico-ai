@@ -33,7 +33,18 @@
   test "Okunamayan değer atılmaz" `evals.md` §2'ye eklendi. `pii.py`'deki yer tutucu kalıbı
   `PLACEHOLDER` adıyla dışa açıldı (`verify.py` aynı kalıbı kullanır). Adım 18 için not: kapalı
   listeler gereksiz yönlendirme üretir ("5 ayrı", "onay günü"); oran eval'de görülecek.
-- **Sıradaki:** Adım 7 — LLM kurulumu.
+  Adım 7: `src/llm.py` yazıldı (`build_chat_model(settings, *, http_client=None)` ve
+  `classify_provider_error(exc)`); bu sırada alınan kararlar `tech_stack.md`, `agent_design.md` §6,
+  `code_standards.md`, `spec.md` ve `evals.md` §2'ye işlendi: incelemeyi `failed` yapan hata sınıfı
+  yalnızca 401 değil, `config` sınıfıdır (Groq 401 / 403 / 404, Ollama 404; bağlantı reddi, zaman
+  aşımı, 5xx ve 400 `llm_error` kalır); `http_client` yalnızca Groq içindir, `ollama` ile
+  `ValueError`; `ChatGroq` `temperature=0`'ı istekte `1e-8` yapar. Zorunlu test "Geçersiz sağlayıcı
+  anahtarı"nın adı "Kimlik / yapılandırma hatası" oldu. `tests/conftest.py`'ye tüm testlerde
+  LangSmith tracing'i kapatan fixture eklendi. Adım 10 için not: `review_rule` hatayı
+  `classify_provider_error` ile ayırır (`config` → yeniden fırlat, `rate_limit` → `rate_limited`,
+  `other` → `llm_error`). Listede olmayan bir Groq modeli `reasoning_effort="low"`'u reddederse
+  (400) her kural `llm_error` olur.
+- **Sıradaki:** Adım 8 — İndeks ve `prepare_contract`.
 - Bu bölüm her adımın commit'inde güncellenir; sıradaki adım, aşağıdaki ilk işaretsiz kutudur.
 
 ## Bağlam
@@ -308,16 +319,29 @@ gereksiz yönlendirme satırları bunu gösterir.
   kuyruğa düşer; `critical` olanda ek sebep `critical_not_found`; `enabled=False` iken ikisi de düşmez.
 - **Commit:** `feat: add deterministic verification and lawyer-queue signals`
 
-### [ ] Adım 7 — LLM kurulumu
+### [x] Adım 7 — LLM kurulumu
 - **Ne:** `src/llm.py`: sohbet modeli (`init_chat_model`; Groq'a ve Ollama'ya özel parametreler
   yalnızca o sağlayıcı seçiliyken), sağlayıcı hatasını sınıflandıran yardımcı
-  (kimlik / hız limiti / diğer). Embedding kurulumu yoktur. Sağlayıcıya özel her şey bu dosyada kalır. Testin sahte HTTP
-  taşıyıcısı verebilmesi için model kurucusu isteğe bağlı `http_client` alır.
+  (`classify_provider_error`, üç sınıf): `config` (Groq 401 `AuthenticationError`, 403
+  `PermissionDeniedError`, 404 `NotFoundError`; Ollama `ResponseError` ve `status_code == 404`;
+  `review_rule` yeniden fırlatır, inceleme `failed`, API 502), `rate_limit` (`groq.RateLimitError`;
+  `no_finding(rate_limited)`), `other` (zaman aşımı, 5xx, 400, bağlantı reddi (`httpx.ConnectError`
+  ya da `ConnectionError`), sağlayıcıdan gelmeyen her hata; `no_finding(llm_error)`). Embedding kurulumu yoktur.
+  Sağlayıcıya özel her şey bu dosyada kalır. Testin sahte HTTP taşıyıcısı verebilmesi için
+  `build_chat_model(settings, *, http_client=None)` alır; `http_client` yalnızca Groq içindir:
+  `ollama` ile `None` olmayan değer `ValueError` fırlatır (`ChatOllama` onu sessizce yok sayıp gerçek
+  ağa çıkardı).
 - **Dosyalar:** `src/llm.py`, `tests/test_llm.py`
 - **Doğrulama:** Testler: *Yeniden deneme sınırlı* (her isteğe 429 dönen `httpx.MockTransport` → tam
-  4 istek, sonra `groq.RateLimitError`); Groq parametreleri (`temperature=0`, `max_tokens=2048`,
-  `reasoning_effort="low"`, `max_retries=3`, 60 sn); `ollama` ayarıyla Groq anahtarı olmadan model
-  kurulur (`num_ctx`, `reasoning=False`, `seed`, 120 sn); hata sınıflandırma.
+  4 istek, sonra `groq.RateLimitError`; sahte 429 yanıtı `retry-after-ms: 1` başlığını taşır,
+  yoksa ya da `retry-after: 0` ise SDK üstel beklemeye düşer ve test ~3,5 sn sürer); Groq
+  parametreleri, hem model alanlarında hem istek gövdesinde (`temperature` istekte en fazla `1e-8`
+  olur, çünkü `ChatGroq` 0'ı `1e-8`'e çevirir; `max_tokens=2048`, `reasoning_effort="low"`,
+  `max_retries=3`, 60 sn; `reasoning_format` yok); `ollama` ayarıyla Groq anahtarı olmadan model
+  kurulur (`temperature=0`, `base_url`, `num_ctx`, `reasoning=False`, `seed`, 120 sn); `ollama` ile
+  `http_client` verilirse `ValueError`; 401 yeniden denenmez (tam 1 istek); hata sınıflandırma:
+  Groq 401 / 403 / 404 ve Ollama 404 `config`, 429 `rate_limit`, 400, 5xx, zaman aşımı, Ollama 500,
+  bağlantı reddi ve sağlayıcı dışı hata `other`.
 - **Commit:** `feat: add provider-switchable chat model`
 
 ### [ ] Adım 8 — İndeks ve `prepare_contract`
@@ -362,7 +386,7 @@ gereksiz yönlendirme satırları bunu gösterir.
 - **Ne:** `START → review_rule × N (Send) → verify → human_review (interrupt)`; tenant başına
   derlenmiş graph + `SqliteSaver` (önbellek `(data_dir, tenant_id)` ile anahtarlanır; graph kurucusu
   `Settings`'i parametre alır); `max_concurrency` config anahtarı; `review_rule` hata eşlemesi
-  (`rate_limited`, `llm_error`, `no_submit`, `step_limit`; 401 ve audit yazımından gelen
+  (`rate_limited`, `llm_error`, `no_submit`, `step_limit`; `config` sınıfı hata ve audit yazımından gelen
   `sqlite3.Error` yeniden fırlatılır, inceleme `failed` olur). `review_rule`
   `finding`, `verify` düğümü `verification` olayını audit log'a yazar. (`finalize` Adım 13'te eklenir.)
 - **Karar — graph senkron çalışır:** yalnızca `graph.invoke` / `agent.invoke`, senkron düğümler ve
@@ -378,7 +402,7 @@ gereksiz yönlendirme satırları bunu gösterir.
   sorusu kapatılır)
 - **Doğrulama:** Testler (betikli sahte model): graph `interrupt`'a kadar koşar, state'te `findings`
   ve `verified` var; audit'te `finding` ve `verification`; *Hız limiti → `rate_limited`* (gerçek
-  `groq.RateLimitError`, diğer kurallar etkilenmez); kimlik hatası graph'tan dışarı fırlar; *Maskesiz
+  `groq.RateLimitError`, diğer kurallar etkilenmez); `config` sınıfı hata graph'tan dışarı fırlar (bağlantı reddi fırlamaz, `llm_error` olur); *Maskesiz
   metin modele gitmez* (`groq` ve `ollama` ayarıyla); checkpoint'te ham PII yok; aynı anda çalışan
   `review_rule` sayısı `MAX_CONCURRENCY`'yi aşmaz; paralel koşuda (`MAX_CONCURRENCY` > 1) audit'teki
   `model_call`, `tool_call` ve `finding` sayıları betikten beklenenle birebir aynıdır; audit yazımı
@@ -389,7 +413,7 @@ gereksiz yönlendirme satırları bunu gösterir.
 - **Ne:** `get_principal` (anahtar → tenant + rol + ad) ve `require_lawyer` bağımlılıkları;
   `POST /reviews`, `GET /reviews/{id}`, `GET /reviews/{id}/audit`; role göre gösterim (maske açma
   yalnızca yanıt üretilirken, `lawyer` için); graph döndükten sonra `awaiting_lawyer` yazımı ve
-  indeksin silinmesi; 401'de `failed` + `review_failed` + HTTP 502. FastAPI'nin otomatik `/docs`
+  indeksin silinmesi; `config` sınıfı hatada `failed` + `review_failed` + HTTP 502. FastAPI'nin otomatik `/docs`
   uçları kapatılır (anahtarsız uç kalmasın).
 - **Giriş noktası:** modül düzeyinde `app` yoktur. `create_app(settings: Settings) -> FastAPI`
   uygulamayı kurar; `python -m src.api` önce `load_settings_or_exit()` çağırır, sonra
@@ -397,7 +421,7 @@ gereksiz yönlendirme satırları bunu gösterir.
 - **Dosyalar:** `src/api.py`, `tests/test_api.py`
 - **Doğrulama:** Testler: *Tenant izolasyonu* (404), *Tenant parametresi yok sayılır*, *Tüm yazma
   uçları `lawyer` ister* ve *Anahtar yok / tanınmıyor* (ikisi de rota listesini dolaşır; sonradan
-  eklenen uçları kendiliğinden kapsar), *Geçersiz sağlayıcı anahtarı* (`failed`, 502,
+  eklenen uçları kendiliğinden kapsar), *Kimlik / yapılandırma hatası* (`failed`, 502,
   `review_failed`), *Role göre gösterim* (inceleme + audit), *Şüpheli ifade silinmez* (`lawyer`
   yanıtında işaret, ifade, konumlar).
 - **Commit:** `feat: add review API with key-based tenant and role resolution`

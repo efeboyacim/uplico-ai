@@ -42,8 +42,9 @@
   `no_finding` (sebep `rate_limited`, `needs_review=true`) döner, diğer kurallar etkilenmez.
 - **Yeniden deneme sınırlı:** `src/llm.py`'nin kurduğu Groq modeline, her isteğe 429 dönen sahte bir
   HTTP taşıyıcısı verilir (ağ yok) → tam 4 istek atılır, sonra hata fırlar.
-- **Geçersiz sağlayıcı anahtarı:** sahte model kimlik doğrulama hatası (401) fırlatır → kurallar
-  `no_finding` olmaz; inceleme `failed`, API 502.
+- **Kimlik / yapılandırma hatası:** sahte model Groq 401, 403 ve 404 ile Ollama 404 hatalarını
+  (her biri ayrı) fırlatır → kurallar `no_finding` olmaz; inceleme `failed`, API 502. Bağlantı reddi,
+  5xx ve 400 bu sınıfa girmez; `llm_error` olur.
 - **Maskesiz metin modele gitmez:** sağlayıcı ne olursa olsun, modele giden mesajlarda `pii_values`
   geçmez (sahte modelle, hem `groq` hem `ollama` ayarıyla).
 - **Alıntı doğrulama:** geçen alıntı kabul, uydurma alıntı ret, boşluk/tırnak farkı kabul.
@@ -122,7 +123,7 @@
 - **Kayıt eksiksiz:** sahte modelle baştan sona bir inceleme → audit log'da `review_started`,
   `clauses_split`, `pii_masked`, `index_built`, `model_call`, `tool_call`, `finding`, `verification`,
   `awaiting_lawyer`, `finding_decision`, `proposal_decision`, `contract_decision`, `report_created`,
-  `review_closed` vardır. 401 senaryosunda `review_failed` vardır.
+  `review_closed` vardır. Kimlik / yapılandırma hatası senaryosunda `review_failed` vardır.
 
 ## 3. Dataset
 - **Konum:** `evals/dataset/` — sözleşmeler `contracts/*.md`, etiketler `labels.json`

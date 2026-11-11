@@ -152,8 +152,9 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   - Secret'lar yalnızca env'den okunur.
 - **Dil / kanal:** Sözleşmeler ve kurallar Türkçe. Kanal: HTTP API + tek sayfalık arayüz.
 - **Güvenilirlik:** Bir kuralın agent'ı hata verirse inceleme çökmez; o kural avukat kuyruğuna düşer.
-  İki istisna: sağlayıcı anahtarı geçersizse (401) hiçbir kural çalışamaz; inceleme `failed` olur ve
-  API 502 döner. Audit log'a yazılamıyorsa da inceleme `failed` olur (eksik kayıtla tamamlanmaz).
+  İki istisna: sağlayıcı anahtarı geçersizse, model engelliyse ya da model adı yanlışsa (Groq 401 /
+  403 / 404, Ollama 404) hiçbir kural çalışamaz; inceleme `failed` olur ve API 502 döner. Audit
+  log'a yazılamıyorsa da inceleme `failed` olur (eksik kayıtla tamamlanmaz).
 
 ## 7. İnsan dahil olma (human-in-the-loop)
 - Agent yalnızca **önerir**: bulgu, değişiklik taslağı, "avukata bırak" işareti.

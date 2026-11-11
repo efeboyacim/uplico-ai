@@ -19,6 +19,13 @@ def data_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture(autouse=True)
+def _no_tracing(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A developer shell with tracing on must not send test runs to LangSmith.
+    monkeypatch.setenv("LANGSMITH_TRACING", "false")
+    monkeypatch.setenv("LANGCHAIN_TRACING_V2", "false")
+
+
+@pytest.fixture(autouse=True)
 def _close_store_connections() -> Iterator[None]:
     yield
     close_all()

@@ -422,8 +422,8 @@ yoktur.**
 |---|---|
 | Sağlayıcı anahtarı yok / sağlayıcı bilinmiyor | Uygulama başlamaz; `config.py` açık hatayla durur (inceleme hiç başlamaz) |
 | Hız limiti (429) | Model en fazla 3 kez yeniden dener. Tükenirse `review_rule` yakalar → `no_finding` (sebep `rate_limited`) → avukat kuyruğu |
-| Geçersiz anahtar (401) | **İstisna:** `review_rule`'da yakalanmaz, yeniden fırlatılır; graph durur, API incelemeyi `failed` yapar ve 502 döner |
-| Diğer LLM hatası / zaman aşımı | `review_rule` içinde yakalanır → `no_finding` (sebep `llm_error`) → avukat kuyruğu |
+| Kimlik / yapılandırma hatası (Groq 401 / 403 / 404, Ollama 404) | **İstisna:** `review_rule`'da yakalanmaz, yeniden fırlatılır; graph durur, API incelemeyi `failed` yapar ve 502 döner |
+| Diğer LLM hatası (zaman aşımı, 5xx, 400, bağlantı reddi) | `review_rule` içinde yakalanır → `no_finding` (sebep `llm_error`) → avukat kuyruğu |
 | Tool hatası | Açıklayıcı hata mesajı modele döner; model düzeltir |
 | Geçersiz tool argümanı | Şema hatası modele döner |
 | Düşük güven / belirsiz madde | Agent `escalate_to_lawyer` çağırır |
@@ -438,9 +438,9 @@ yoktur.**
 
 Bir kuralın hatası incelemeyi çökertmez. İki istisna vardır. Audit log'a yazılamıyorsa
 (`sqlite3.Error`) hata yeniden fırlatılır ve inceleme `failed` olur; eksik kayıtla tamamlanmış
-inceleme olmaz. Diğeri sağlayıcı kimlik doğrulama hatasıdır (401):
-anahtar geçersizse hiçbir kural çalışamayacağı için tüm kuralları `no_finding` yapmak yerine inceleme
-`failed` olur.
+inceleme olmaz. Diğeri sağlayıcı kimlik ya da yapılandırma hatasıdır (Groq 401 / 403 / 404, Ollama
+404): anahtar geçersizse, model engelliyse ya da model adı yanlışsa hiçbir kural çalışamayacağı için
+tüm kuralları `no_finding` yapmak yerine inceleme `failed` olur.
 
 ## 7. Gözlemlenebilirlik
 - **Audit log (asıl kayıt):** tenant'ın `app.db` dosyasında `audit_log` tablosu.

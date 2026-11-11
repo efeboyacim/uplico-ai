@@ -79,10 +79,16 @@ Doğrulanamayan `spec.md` §10'da açık sorudur: `gpt-oss-120b`'nin Türkçe ka
     için istek asılı kalmaz, birkaç saniye içinde `rate_limited` olur.
   - Aynı `max_retries` zaman aşımı ve 5xx için de geçerlidir; bir model çağrısı en kötü durumda
     yaklaşık 4 × 60 sn sürebilir.
-- **Geçersiz anahtar (401):** Yeniden denenmez ve `no_finding`'e çevrilmez. `review_rule` bu hatayı
-  yeniden fırlatır; inceleme `failed` olur, API 502 döner. "Bir kuralın hatası incelemeyi çökertmez"
-  kuralının iki istisnasından biridir (diğeri audit log'a yazılamaması): anahtar geçersizse hiçbir
-  kural çalışamaz.
+- **Kimlik ya da yapılandırma hatası (401 / 403 / 404):** Yeniden denenmez (`groq` SDK'sı 401, 403
+  ve 404'ü yeniden denemez) ve `no_finding`'e çevrilmez. `review_rule` bu hatayı yeniden fırlatır;
+  inceleme `failed` olur, API 502 döner. Bu sınıfın (`config`) dört üyesi vardır: Groq 401
+  (`groq.AuthenticationError`, geçersiz anahtar), Groq 403 (`groq.PermissionDeniedError`, örneğin
+  model organizasyon ya da proje düzeyinde engelli), Groq 404 (`groq.NotFoundError`, örneğin yanlış
+  `LLM_MODEL`) ve Ollama 404 (`ollama.ResponseError`, `status_code == 404`, model çekilmemiş).
+  "Bir kuralın hatası incelemeyi çökertmez" kuralının iki istisnasından biridir (diğeri audit log'a
+  yazılamaması): bu durumlarda hiçbir kural çalışamaz. Bağlantı reddi (Ollama konteyneri henüz
+  açılıyor olabilir; `httpx.ConnectError` ya da `ConnectionError`), zaman aşımı, 5xx ve 400 bu sınıfa
+  girmez; `llm_error` olarak kalır.
 
 ## Gözlemlenebilirlik & kalite
 - Kayıt (asıl kaynak): sistemin kendi audit log'u (SQLite)
@@ -146,9 +152,14 @@ Tanımsız, boş ve yalnızca boşluk içeren değer aynıdır ("boş").
 - `langchain>=1.4,<2`, `langgraph>=1.2,<2`, `langgraph-checkpoint-sqlite>=3.1`
 - `langchain-groq>=1.1`, `langchain-ollama>=1.1`, `langsmith>=0.14`, `rank-bm25>=0.2.2`
 - pydantic v2 zorunlu
-- Her iki modda: `temperature=0`; model tool calling desteklemeli.
+- Her iki modda: `temperature=0`; model tool calling desteklemeli. `ChatGroq` `temperature=0`'ı
+  API isteğine `1e-8` olarak yazar; yani "0", istekteki değerin en fazla `1e-8` olması demektir.
 - Sağlayıcıya özel parametreler `src/llm.py`'de yalnızca o sağlayıcı seçiliyken verilir:
   - Groq: `max_retries=3`, `max_tokens=2048`, `reasoning_effort="low"`, zaman aşımı 60 sn.
     `reasoning_format` verilmez.
   - Ollama: `num_ctx`, `reasoning=False`, sabit `seed`, zaman aşımı 120 sn (`client_kwargs` ile).
     `ChatOllama`'da `max_retries` alanı yoktur; yerelde hız limiti de yoktur.
+  - Model kurucusunun isteğe bağlı `http_client` parametresi yalnızca Groq içindir (testte sahte HTTP
+    taşıyıcısı vermek için). `ollama` ile `None` olmayan değer `ValueError` fırlatır: `ChatOllama`
+    onu sessizce yok sayar ve istek gerçek ağa çıkar. Yalnızca senkron çağrıları kapsar; graph
+    senkron olduğu için sorun değildir. Verilse de Groq'un istek başına 60 sn zaman aşımı geçerlidir.
