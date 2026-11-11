@@ -565,3 +565,62 @@ def test_mask_grouped_iban_followed_by_amount_and_date_only_iban_masked() -> Non
     text = f"IBAN: {IBAN_SPACED} 1.250.000 TL 01.01.2026 90 gün"
     masked, _ = mask(text, {})
     assert masked == "IBAN: [IBAN_1] 1.250.000 TL 01.01.2026 90 gün"
+
+
+@pytest.mark.parametrize(
+    ("line", "value"),
+    [
+        ("Ad Soyad: Ayşe Kaya-Demir", "Ayşe Kaya-Demir"),
+        ("Ad Soyad: Ayşe Kaya-Demir İmza Tarih", "Ayşe Kaya-Demir"),
+        ("Yetkili: Ayşe Kaya-Demir Genel Müdür", "Ayşe Kaya-Demir"),
+        ("temsilen Genel Müdür Ayşe Kaya-Demir", "Ayşe Kaya-Demir"),
+        ("Ad Soyad: Ayşe Kaya-Demir Şirket: ABC A.Ş.", "Ayşe Kaya-Demir"),
+        ("Ad Soyad: Sean O'Brien", "Sean O'Brien"),
+        ("Ad Soyad: Jean-Luc Picard", "Jean-Luc Picard"),
+        ("Ad Soyad: AYŞE KAYA-DEMİR", "AYŞE KAYA-DEMİR"),
+    ],
+)
+def test_mask_name_with_inner_hyphen_or_apostrophe_whole_name_masked(line: str, value: str) -> None:
+    text = f"{line}\nGövdede {value}'in imzası aranır."
+    masked, mapping = mask(text, {})
+    assert mapping == {"[KISI_1]": value}
+    assert value not in masked
+    assert "Demir" not in masked
+    assert "Brien" not in masked
+    assert "Gövdede [KISI_1]'in imzası" in masked
+    assert unmask(masked, mapping) == text
+
+
+@pytest.mark.parametrize(
+    ("line", "masked_line"),
+    [
+        ("Ad Soyad: Ahmet Yılmaz-Genel Müdür", "Ad Soyad: [KISI_1]-Genel Müdür"),
+        ("Ad Soyad: Ahmet Yılmaz-Müdür", "Ad Soyad: [KISI_1]-Müdür"),
+        ("Ad Soyad: Ahmet Yılmaz-İmza", "Ad Soyad: [KISI_1]-İmza"),
+        ("Ad Soyad: Ahmet Yılmaz-Unvan: Müdür", "Ad Soyad: [KISI_1]-Unvan: Müdür"),
+        ("Yetkili: Ahmet Yılmaz-ABC A.Ş.", "Yetkili: [KISI_1]-ABC A.Ş."),
+        ("Yetkili: Ahmet Yılmaz-ABC Teknoloji A.Ş.", "Yetkili: [KISI_1]-ABC Teknoloji A.Ş."),
+        ("Ad Soyad: Ahmet Yılmaz - Genel Müdür", "Ad Soyad: [KISI_1] - Genel Müdür"),
+        ("Ad Soyad: Ahmet Yılmaz'ın imzası", "Ad Soyad: [KISI_1]'ın imzası"),
+    ],
+)
+def test_mask_name_hyphen_before_title_form_word_or_company_run_stops(
+    line: str, masked_line: str
+) -> None:
+    masked, mapping = mask(f"{line}\nGövdede Ahmet Yılmaz geçer.", {})
+    assert masked == f"{masked_line}\nGövdede [KISI_1] geçer."
+    assert mapping == {"[KISI_1]": "Ahmet Yılmaz"}
+
+
+def test_mask_two_people_joined_by_hyphen_one_value_documented_limit() -> None:
+    masked, mapping = mask("Ad Soyad: Ahmet Yılmaz-Mehmet Demir", {})
+    assert masked == "Ad Soyad: [KISI_1]"
+    assert mapping == {"[KISI_1]": "Ahmet Yılmaz-Mehmet Demir"}
+
+
+def test_mask_long_hyphen_chain_fast() -> None:
+    text = "Ad Soyad: " + "-".join(["Ab"] * 40000) + " ve " + " ve ".join(["Ab-Cd"] * 20000)
+    started = time.perf_counter()
+    masked, mapping = mask(text, {})
+    assert time.perf_counter() - started < 5
+    assert unmask(masked, mapping) == text

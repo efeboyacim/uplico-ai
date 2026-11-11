@@ -250,8 +250,39 @@ class _Token:
     word: str
 
 
-def _scan_run(text: str, pos: int) -> list[_Token]:
-    """Consecutive capitalised letter-only words from `pos` on the same line (see the name rule)."""
+# A hyphen or apostrophe between two letters joins the parts of one name word ("Kaya-Demir",
+# "O'Brien") when the part after it starts with a capital letter.
+_JOINERS = "-'\u2019\u2010\u2011"
+_MAX_JOINS = 3
+
+
+def _joined_end(text: str, end: int) -> int:
+    """End of the name word that starts before `end`, following joiners (see `_JOINERS`).
+
+    The joiner separates two things, and the word ends before it, when the part after it is a
+    title word, a form word or a label, or starts a company name ("Yılmaz-ABC A.Ş.").
+    """
+    n = len(text)
+    for _ in range(_MAX_JOINS):
+        if end + 1 >= n or text[end] not in _JOINERS:
+            break
+        part = _LETTERS.match(text, end + 1)
+        if part is None or not part.group()[0].isupper():
+            break
+        folded = _fold(part.group())
+        if folded in _TITLE_HEADS or folded in _TITLE_MODIFIERS:
+            break
+        rest = _scan_run(text, end + 1, join=False)
+        if not rest:
+            break  # a form word, a label or a word followed by ":"
+        if _COMPANY_MARKER.search(text[end + 1 : _guard_end(text, rest[-1].end, join=False)]):
+            break
+        end = part.end()
+    return end
+
+
+def _scan_run(text: str, pos: int, join: bool = True) -> list[_Token]:
+    """Consecutive capitalised name words from `pos` on the same line (see the name rule)."""
     tokens: list[_Token] = []
     n = len(text)
     while True:
@@ -273,6 +304,9 @@ def _scan_run(text: str, pos: int) -> list[_Token]:
                 word += "."
             elif end + 1 < n and text[end + 1].isalpha():
                 return tokens  # a dotted abbreviation such as "T.C." is not a letters-only token
+        elif join:
+            end = _joined_end(text, end)
+            word = text[start:end]
         if end < n and text[end].isdigit():
             return tokens  # the token contains a digit
         colon = end
@@ -308,12 +342,12 @@ def _next_chunk_end(text: str, pos: int) -> int:
 _AND = re.compile(_HSPACE + "+(?:" + _loose("ve") + _NO_LETTER_AFTER + "|&)" + _HSPACE + "+")
 
 
-def _guard_end(text: str, end: int) -> int:
+def _guard_end(text: str, end: int, join: bool = True) -> int:
     """End of the text checked for a company marker: the run, any "ve ..." continuation of it
     ("X Sanayi ve Ticaret A.Ş.") and the token directly after."""
     while True:
         joined = _AND.match(text, end)
-        more = _scan_run(text, joined.end()) if joined else []
+        more = _scan_run(text, joined.end(), join) if joined else []
         if not more:
             return _next_chunk_end(text, end)
         end = more[-1].end

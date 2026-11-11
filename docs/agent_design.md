@@ -256,7 +256,7 @@ yoktur.**
     - **Dizi:** etiketten sonra, aynı satırda, yalnızca boşlukla ayrılmış ve büyük harfle başlayan
       ardışık sözcükler. Dizi şuralarda durur: satır sonu; ardından `:` gelen sözcük (sıradaki
       etikettir, diziye girmez: "Ad Soyad: Ahmet Yılmaz TCKN: …"); herhangi bir noktalama işareti
-      (`Av.` / `Dr.` gibi listedeki kısaltmaların noktası hariç); küçük harfle ya da rakamla başlayan
+      (`Av.` / `Dr.` gibi listedeki kısaltmaların noktası ve aşağıdaki sözcük içi tire / kesme hariç); küçük harfle ya da rakamla başlayan
       sözcük; form sözcükleri (İmza, Tarih, Kaşe, Mühür, Unvan, Görev, Adres, Telefon, TCKN gibi;
       "Ad Soyad: Ahmet Yılmaz İmza Tarih"); aynı satırdaki ikinci bir etiket. Etiketler, form
       sözcükleri ve unvanlar Türkçe karaktersiz yazımla da tanınır ("YETKILI", "Imza"). Dizide, "ve"
@@ -274,6 +274,14 @@ yoktur.**
       kalan 2–4 sözcüğün içindeyse değerin parçası olur ("Yetkili: Ahmet Yılmaz Tedarik Zinciri
       Direktörü" → "Ahmet Yılmaz Tedarik Zinciri"). İki durumda da etiketli satır sızmaz ama
       gövdedeki yalın ad yakalanmaz. Unvansız tek sözcüklü dizi ad sayılmaz.
+    - **Sözcük içi tire ve kesme işareti:** iki harf arasındaki tire ya da kesme işareti, ardından
+      gelen parça büyük harfle başlıyorsa sözcüğün parçasıdır ("Ad Soyad: Ayşe Kaya-Demir" →
+      "Ayşe Kaya-Demir"; "Sean O'Brien"). Ek alan adda kesmeden sonrası küçük harftir, ada girmez
+      ("Ahmet Yılmaz'ın"). Dizi yine tirede durur: ardından gelen parça unvan, niteleyici, form
+      sözcüğü ya da etiketse ("Ahmet Yılmaz-Genel Müdür", "Ahmet Yılmaz-İmza") ya da bir şirket
+      adının başıysa ("Ahmet Yılmaz-ABC A.Ş."). Sınır: boşluksuz tireyle birleştirilmiş iki kişi
+      ("Ahmet Yılmaz-Mehmet Demir") tek değer olur; etiketli satır sızmaz, gövdede ayrı ayrı geçen
+      adlar yakalanmaz.
     - Sınır (fazla maskeleme): listede olmayan birim ya da taraf adı ("Yetkili: Hukuk Müdürlüğü")
       kişi sayılıp tüm metinde maskelenebilir; bilinen bir ad, gövdede bir şirket adının içinde
       geçiyorsa ("Ahmet Yılmaz İnşaat A.Ş.") orada da maskelenir.
