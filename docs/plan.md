@@ -544,6 +544,19 @@ gereksiz yönlendirme satırları bunu gösterir.
   sonra sıradan birkaç dal daha başlayıp bitmiş olabilir; satırları audit'te kalır); `failed`
   incelemenin thread'i bir daha çağrılmaz. Invoke config'i ve başlangıç state'i graph modülündeki
   tek yardımcılardan alınır.
+- **Adım 10'un bıraktığı arayüz (`src/graph.py`):** `get_review_graph(settings, tenant_id)` tenant'ın
+  derlenmiş graph'ını verir (bilinmeyen tenant → `UnknownTenantError`); `initial_state(prepared,
+  rules)` girdiyi kurar (boş kural seti → `ValueError`); `review_config(settings, review_id)`
+  `thread_id` ve `max_concurrency`'yi taşır. `graph.invoke(...)` `interrupt`'ta döner: sonuçta
+  `verified` (kural sırasında, düz sözlük; `Finding` olarak doğrulanıp okunur), ham `findings` ve
+  `__interrupt__` vardır; `get_state(config).next == ("human_review",)`. Graph indeksi silmez ve
+  `awaiting_lawyer` / `review_failed` yazmaz; ikisi de API'nindir. **Testlerde sahte model:**
+  istekten önce `get_review_graph(settings, tenant_id, model=sahte)` çağrılır; API'nin modelsiz
+  çağrısı önbellekteki aynı graph'ı alır (önbellek anahtarı sağlayıcıyı / modeli içermez; başka
+  modelle istemek `ValueError`). `tests/conftest.py`'deki autouse fixture her testten sonra
+  `close_graphs()` çağırır. Betikli sahte modelin içindeki bir test hatası (tükenen betik, hata
+  veren kanca) model çağrısı hatası sayılır ve `llm_error` bulgusuna döner; beklenmeyen
+  `llm_error`'a karşı `tests/test_graph.py`'deki `_assert_no_failed_rule` gibi bir denetim konur.
 - **Giriş noktası:** modül düzeyinde `app` yoktur. `create_app(settings: Settings) -> FastAPI`
   uygulamayı kurar; `python -m src.api` önce `load_settings_or_exit()` çağırır, sonra
   `uvicorn.run(create_app(settings))`. Testler `create_app(load_settings(env={...}))` ile kurar.
