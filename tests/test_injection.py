@@ -2,21 +2,21 @@ import time
 
 import pytest
 
-from src.models import Clause, InjectionFlag
+from src.models import InjectionFlag, RawClause
 from src.prepare.injection import scan_injection
 from src.text import is_invisible, strip_invisible
 
 
-def _one_clause(text: str, clause_id: str = "c1") -> list[Clause]:
-    return [Clause(clause_id=clause_id, start=0, end=len(text), text=text)]
+def _one_clause(text: str, clause_id: str = "c1") -> list[RawClause]:
+    return [RawClause(clause_id=clause_id, start=0, end=len(text), text=text)]
 
 
-def _clauses(*parts: str) -> tuple[str, list[Clause]]:
+def _clauses(*parts: str) -> tuple[str, list[RawClause]]:
     text = ""
-    clauses: list[Clause] = []
+    clauses: list[RawClause] = []
     for i, part in enumerate(parts, start=1):
         clauses.append(
-            Clause(clause_id=f"c{i}", start=len(text), end=len(text) + len(part), text=part)
+            RawClause(clause_id=f"c{i}", start=len(text), end=len(text) + len(part), text=part)
         )
         text += part
     return text, clauses
@@ -226,7 +226,7 @@ def test_scan_several_patterns_each_flagged_sorted_by_start() -> None:
 
 def test_scan_clause_text_mismatch_raises() -> None:
     text = "abc"
-    bad = [Clause(clause_id="c1", start=0, end=3, text="abd")]
+    bad = [RawClause(clause_id="c1", start=0, end=3, text="abd")]
     with pytest.raises(ValueError):
         scan_injection(text, bad)
 

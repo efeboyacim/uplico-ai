@@ -9,6 +9,7 @@ import unicodedata
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 
+from src.models import MaskedText
 from src.prepare.clauses import _any_case
 from src.text import normalize
 
@@ -528,7 +529,7 @@ def _name_key(value: str) -> str:
     return _fold_case(" ".join(value.split()))
 
 
-def mask(text: str, mapping: Mapping[str, str]) -> tuple[str, dict[str, str]]:
+def mask(text: str, mapping: Mapping[str, str]) -> tuple[MaskedText, dict[str, str]]:
     """Replace PII in `text` with placeholders.
 
     Returns the masked text and a new mapping: every entry of `mapping` plus one per new value,
@@ -584,7 +585,7 @@ def mask(text: str, mapping: Mapping[str, str]) -> tuple[str, dict[str, str]]:
         parts.append(assigned)
         position = end
     parts.append(text[position:])
-    return "".join(parts), result
+    return MaskedText("".join(parts)), result
 
 
 def unmask(text: str, mapping: Mapping[str, str]) -> str:

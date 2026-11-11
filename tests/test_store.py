@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from src.models import Check, Clause, Finding, InjectionFlag, Proposal, Rule
+from src.models import Check, Clause, Finding, InjectionFlag, MaskedText, Proposal, Rule
 from src.store import RulesError, Store, UnknownTenantError, close_all
 
 SAMPLE_TEXT = (
@@ -22,8 +22,14 @@ def _snapshot(root: Path) -> set[Path]:
 
 def _clauses() -> list[Clause]:
     return [
-        Clause(clause_id="c1", clause_no="1", text="Madde 1 [KISI_1] ile", start=0, end=80),
-        Clause(clause_id="c2", clause_no=None, text="imza", start=80, end=90),
+        Clause(
+            clause_id="c1",
+            clause_no="1",
+            text=MaskedText("Madde 1 [KISI_1] ile"),
+            start=0,
+            end=80,
+        ),
+        Clause(clause_id="c2", clause_no=None, text=MaskedText("imza"), start=80, end=90),
     ]
 
 
@@ -554,6 +560,6 @@ def test_finding_unknown_field_or_reason_is_rejected() -> None:
 
 def test_clause_end_before_start_is_rejected() -> None:
     with pytest.raises(ValidationError):
-        Clause(clause_id="c1", text="x", start=5, end=4)
+        Clause(clause_id="c1", text=MaskedText("x"), start=5, end=4)
     with pytest.raises(ValidationError):
-        Clause(clause_id="c1", text="x", start=-1, end=4)
+        Clause(clause_id="c1", text=MaskedText("x"), start=-1, end=4)

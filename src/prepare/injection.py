@@ -9,7 +9,7 @@ from bisect import bisect_left, bisect_right
 from collections import Counter
 from collections.abc import Sequence
 
-from src.models import Clause, InjectionFlag
+from src.models import InjectionFlag, RawClause
 from src.text import NormalizedText, NormStep, is_invisible, normalize, strip_invisible
 
 _SCAN_STEPS: tuple[NormStep, ...] = ("strip_invisible", "nfkc", "collapse_whitespace")
@@ -94,7 +94,7 @@ def _sentence_breaks(norm: NormalizedText, source: str) -> list[int]:
     return sorted(breaks)
 
 
-def _pattern_flags(clause: Clause) -> list[InjectionFlag]:
+def _pattern_flags(clause: RawClause) -> list[InjectionFlag]:
     norm = normalize(clause.text, _SCAN_STEPS)
     folded = _fold(norm.text)
     breaks = _sentence_breaks(norm, clause.text)
@@ -119,7 +119,7 @@ def _pattern_flags(clause: Clause) -> list[InjectionFlag]:
     return flags
 
 
-def _hidden_flags(clause: Clause) -> list[InjectionFlag]:
+def _hidden_flags(clause: RawClause) -> list[InjectionFlag]:
     flags: list[InjectionFlag] = []
     text = clause.text
     i = 0
@@ -149,7 +149,7 @@ def _hidden_flags(clause: Clause) -> list[InjectionFlag]:
     return flags
 
 
-def scan_injection(text: str, clauses: Sequence[Clause]) -> list[InjectionFlag]:
+def scan_injection(text: str, clauses: Sequence[RawClause]) -> list[InjectionFlag]:
     """Flag suspicious phrases and invisible-character runs in every clause, sorted by start."""
     flags: list[InjectionFlag] = []
     for clause in clauses:

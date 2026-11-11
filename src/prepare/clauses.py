@@ -2,7 +2,7 @@
 
 import re
 
-from src.models import Clause
+from src.models import RawClause
 
 _DASHES = "".join(chr(code) for code in (0x2013, 0x2014))  # en dash, em dash
 # Line boundaries are spelled out because "^" and "$" only know LF; contracts uploaded from
@@ -84,17 +84,17 @@ def _split_paragraphs(text: str) -> list[tuple[int, int, str | None]]:
     return spans
 
 
-def split_clauses(text: str) -> list[Clause]:
+def split_clauses(text: str) -> list[RawClause]:
     """Split `text` into clauses; each clause satisfies `text == original[start:end]`."""
     headings = list(_HEADING.finditer(text))
     spans = _split_by_headings(text, headings) if headings else _split_paragraphs(text)
-    clauses: list[Clause] = []
+    clauses: list[RawClause] = []
     for raw_start, raw_end, clause_no in spans:
         start, end = _trim(text, raw_start, raw_end)
         if start >= end:
             continue
         clauses.append(
-            Clause(
+            RawClause(
                 clause_id=f"c{len(clauses) + 1}",
                 clause_no=clause_no,
                 start=start,

@@ -1,6 +1,16 @@
 import pytest
 
-from src.models import Check, CheckOp, CheckUnit, Clause, Finding, Proposal, Rule, Severity
+from src.models import (
+    Check,
+    CheckOp,
+    CheckUnit,
+    Clause,
+    Finding,
+    MaskedText,
+    Proposal,
+    Rule,
+    Severity,
+)
 from src.verify import Extraction, Kind, Quantity, align, extract, verify
 
 # --- Helpers --------------------------------------------------------------------------------------
@@ -18,7 +28,7 @@ def _rule(
 
 
 def _clause(text: str, clause_id: str = "c1") -> Clause:
-    return Clause(clause_id=clause_id, clause_no="1", start=0, end=len(text), text=text)
+    return Clause(clause_id=clause_id, clause_no="1", start=0, end=len(text), text=MaskedText(text))
 
 
 def _finding(

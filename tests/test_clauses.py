@@ -1,8 +1,8 @@
-from src.models import Clause
+from src.models import RawClause
 from src.prepare.clauses import split_clauses
 
 
-def _split(text: str) -> list[Clause]:
+def _split(text: str) -> list[RawClause]:
     clauses = split_clauses(text)
     for c in clauses:
         assert text[c.start : c.end] == c.text

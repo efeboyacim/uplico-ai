@@ -1,6 +1,6 @@
 """Pydantic schemas shared by the store, preparation, graph, verification and API."""
 
-from typing import Literal, Self
+from typing import Literal, NewType, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -43,6 +43,7 @@ AuditEvent = Literal[
     "review_failed",
 ]
 InjectionKind = Literal["pattern", "hidden_characters"]
+MaskedText = NewType("MaskedText", str)
 
 
 class _Model(BaseModel):
@@ -73,10 +74,28 @@ class _Span(_Model):
         return self
 
 
-class Clause(_Span):
+class RawClause(_Span):
+    """A clause as split from the original contract; `text == original[start:end]`, exactly.
+
+    Used only by clause splitting and injection scanning; never reaches the model, the index,
+    the graph or the store.
+    """
+
     clause_id: str = Field(min_length=1)
     clause_no: str | None = None
     text: str
+
+
+class Clause(_Span):
+    """A masked clause, built only after masking.
+
+    `start` / `end` refer to the original text, `text` is masked (and has invisible characters
+    removed), so its length may differ from `end - start`.
+    """
+
+    clause_id: str = Field(min_length=1)
+    clause_no: str | None = None
+    text: MaskedText
 
 
 class Proposal(_Model):
