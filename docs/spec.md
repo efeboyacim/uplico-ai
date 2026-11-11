@@ -151,10 +151,12 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
     modda dışarı gitmez.
   - Secret'lar yalnızca env'den okunur.
 - **Dil / kanal:** Sözleşmeler ve kurallar Türkçe. Kanal: HTTP API + tek sayfalık arayüz.
-- **Güvenilirlik:** Bir kuralın agent'ı hata verirse inceleme çökmez; o kural avukat kuyruğuna düşer.
-  İki istisna: sağlayıcı anahtarı geçersizse, model engelliyse ya da model adı yanlışsa (Groq 401 /
+- **Güvenilirlik:** Bir kuralın model çağrısı hata verirse inceleme çökmez; o kural avukat kuyruğuna
+  düşer. İstisna: sağlayıcı anahtarı geçersizse, model engelliyse ya da model adı yanlışsa (Groq 401 /
   403 / 404, Ollama 404) hiçbir kural çalışamaz; inceleme `failed` olur ve API 502 döner. Audit
-  log'a yazılamıyorsa da inceleme `failed` olur (eksik kayıtla tamamlanmaz).
+  log'a yazılamıyorsa ya da model çağrısının dışında beklenmeyen bir kod hatası çıkarsa da inceleme
+  `failed` olur (API 500); eksik kayıtla tamamlanmaz, kod hatası avukata kural sonucu gibi gitmez
+  (`agent_design.md` §6).
 
 ## 7. İnsan dahil olma (human-in-the-loop)
 - Agent yalnızca **önerir**: bulgu, değişiklik taslağı, "avukata bırak" işareti.
@@ -224,8 +226,9 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
       çıkabilir; README bunu ve çözümünü (`MAX_CONCURRENCY=1` ve `--limit N` ile kısmi koşu, ya da çevrimdışı mod) yazmalı.
 - [x] Groq SDK'sı 429'da `retry-after`'a uyuyor mu? Evet, 60 sn'ye kadar; daha uzunsa en fazla 8 sn'lik
       üstel beklemeye düşer (SDK kaynak kodundan doğrulandı, `tech_stack.md`). Ek sarmalayıcı yazılmaz.
-- [ ] `max_concurrency` `Send` dallarını gerçekten sınırlıyor mu? İlk koşuda kontrol edilir;
-      sınırlamıyorsa `review_rule` içinde bir semafor kullanılır.
+- [x] `max_concurrency` `Send` dallarını gerçekten sınırlıyor mu? Evet: langgraph 1.2.20'de 8 dal,
+      sınır 1 / 2 / 4 ile en fazla 1 / 2 / 4 dal aynı anda koştu; anahtar yokken 8'i birden
+      (2026-11-11, script ile). Semafor kullanılmaz.
 - [ ] (Çevrimdışı mod) `qwen3.5:9b` Türkçe sözleşmede tool çağrılarını güvenilir yapıyor mu?
 - [ ] LangSmith anahtarı yokken `evaluate(upload_results=False)` tamamen çevrimdışı çalışıyor mu?
       Çalışmazsa aynı evaluator'ları çağıran düz Python döngüsü kullanılır.

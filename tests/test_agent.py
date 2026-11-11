@@ -1,5 +1,6 @@
 import json
 import sqlite3
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -14,6 +15,7 @@ from conftest import (
     broken,
     call,
     done,
+    make_clauses,
     make_context,
 )
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
@@ -22,12 +24,14 @@ from langgraph.graph import END, START, StateGraph
 
 from src.agent import (
     RUN_LIMIT,
+    ModelCallFailed,
     RuleRunInterrupted,
     build_rule_agent,
     interrupted_finding,
     run_rule_agent,
 )
 from src.models import Finding, Proposal
+from src.prepare.index import MAX_RESULTS, ClauseIndex, SearchHit
 from src.tools import CLOSE_TAG, OPEN_TAG, ReviewContext
 from src.verify import verify
 
@@ -329,6 +333,34 @@ def test_error_without_status_code_recorded_by_class_name(data_dir: Path) -> Non
         _run(context, model)
     [failed] = _rows(context, "model_call")
     assert failed["error"] == {"type": "TimeoutError"}
+
+
+class _ExplodingIndex(ClauseIndex):
+    def search(self, query: str, limit: int = MAX_RESULTS) -> list[SearchHit]:
+        raise RuntimeError("beklenmeyen kod hatası")
+
+
+def test_tool_body_error_propagates_unwrapped_not_a_finding(data_dir: Path) -> None:
+    context = replace(make_context(data_dir), index=_ExplodingIndex(make_clauses(CLAUSES)))
+    model = ScriptedChatModel.single(ai(_search()), ai(_submit()), done())
+    with pytest.raises(RuntimeError, match="beklenmeyen kod hatası") as info:
+        _run(context, model)
+    # Not a model call error: neither wrapped nor marked, so no caller can make a finding of it.
+    assert type(info.value) is RuntimeError
+    assert not isinstance(info.value.__cause__, ModelCallFailed)
+    [row] = _rows(context, "model_call")
+    assert "error" not in row
+    assert _rows(context, "tool_call") == []
+    assert model.calls_left() == 2
+
+
+def test_model_call_error_marker_never_leaves_run(data_dir: Path) -> None:
+    context = make_context(data_dir)
+    error = TimeoutError("zaman aşımı")
+    with pytest.raises(RuleRunInterrupted) as info:
+        _run(context, ScriptedChatModel.single(error))
+    assert info.value.__cause__ is error
+    assert not isinstance(info.value.__cause__, ModelCallFailed)
 
 
 # --- no_finding never carries a proposal or an escalation -----------------------------------------

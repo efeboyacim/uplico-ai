@@ -13,6 +13,7 @@ from langchain_core.messages.tool import ToolCall, invalid_tool_call
 from langchain_core.outputs import ChatGeneration, ChatResult
 from pydantic import Field, PrivateAttr, SkipValidation
 
+from src.graph import close_graphs
 from src.models import Check, Clause, MaskedText, Rule
 from src.prepare.index import ClauseIndex, clear_indexes
 from src.store import Store, close_all
@@ -41,6 +42,14 @@ def _no_tracing(monkeypatch: pytest.MonkeyPatch) -> None:
 def _close_store_connections() -> Iterator[None]:
     yield
     close_all()
+
+
+@pytest.fixture(autouse=True)
+def _close_graph_connections() -> Iterator[None]:
+    # The cached graphs hold their checkpoints.db connections open; Windows would keep the
+    # tmp_path files locked.
+    yield
+    close_graphs()
 
 
 @pytest.fixture(autouse=True)

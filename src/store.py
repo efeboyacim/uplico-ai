@@ -172,6 +172,11 @@ class Store:
         self._conn = shared.conn
         self._lock = shared.lock
 
+    @property
+    def tenant_dir(self) -> Path:
+        """The tenant's own directory; it exists and its name passed the tenant validation."""
+        return self._tenant_dir
+
     @contextmanager
     def _write(self) -> Iterator[sqlite3.Connection]:
         with self._lock:

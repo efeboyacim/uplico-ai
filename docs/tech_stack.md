@@ -85,8 +85,9 @@ Doğrulanamayan `spec.md` §10'da açık sorudur: `gpt-oss-120b`'nin Türkçe ka
   (`groq.AuthenticationError`, geçersiz anahtar), Groq 403 (`groq.PermissionDeniedError`, örneğin
   model organizasyon ya da proje düzeyinde engelli), Groq 404 (`groq.NotFoundError`, örneğin yanlış
   `LLM_MODEL`) ve Ollama 404 (`ollama.ResponseError`, `status_code == 404`, model çekilmemiş).
-  "Bir kuralın hatası incelemeyi çökertmez" kuralının iki istisnasından biridir (diğeri audit log'a
-  yazılamaması): bu durumlarda hiçbir kural çalışamaz. Bağlantı reddi (Ollama konteyneri henüz
+  "Bir kuralın model çağrısı hatası incelemeyi çökertmez" kuralının tek istisnasıdır (model
+  çağrısının dışından gelen hatalar zaten bulguya çevrilmez; `agent_design.md` §6): bu durumlarda
+  hiçbir kural çalışamaz. Bağlantı reddi (Ollama konteyneri henüz
   açılıyor olabilir; `httpx.ConnectError` ya da `ConnectionError`), zaman aşımı, 5xx ve 400 bu sınıfa
   girmez; `llm_error` olarak kalır.
 

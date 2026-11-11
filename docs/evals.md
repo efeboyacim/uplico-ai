@@ -50,6 +50,10 @@
 - **Kimlik / yapılandırma hatası:** sahte model Groq 401, 403 ve 404 ile Ollama 404 hatalarını
   (her biri ayrı) fırlatır → kurallar `no_finding` olmaz; inceleme `failed`, API 502. Bağlantı reddi,
   5xx ve 400 bu sınıfa girmez; `llm_error` olur.
+- **Beklenmeyen kod hatası incelemeyi `failed` yapar:** model çağrısının dışında (ör. bir tool
+  gövdesinde) sağlayıcıdan gelmeyen bir hata fırlar → hata bulguya çevrilmez (`llm_error` olmaz),
+  graph'tan aynı tiple dışarı fırlar; inceleme `failed` olur. Aynı tipte hata model çağrısının
+  kendisinden gelirse `llm_error` olur (hata tipine değil, kaynağına bakılır).
 - **Maskesiz metin modele gitmez:** sağlayıcı ne olursa olsun, modele giden mesajlarda `pii_values`
   geçmez (sahte modelle, hem `groq` hem `ollama` ayarıyla).
 - **Alıntı doğrulama:** geçen alıntı kabul, uydurma alıntı ret, boşluk/tırnak farkı kabul.

@@ -12,9 +12,11 @@ Design (`docs/agent_design.md` §1, §6, §7):
 - `run_rule_agent` streams the run so the last state survives an error, and turns the final
   state into exactly one finding (the table in §6 "Koşu kendiliğinden bitmediyse"). Provider
   errors are classified by the caller, not here.
+- Errors are told apart by where they come from, not by their type: only an error of the model
+  call itself (marked by `ModelCallAudit` as `ModelCallFailed`) becomes `RuleRunInterrupted`.
+  Anything else (a tool body, a middleware, the library, an audit write) propagates unwrapped.
 """
 
-import sqlite3
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
@@ -49,8 +51,20 @@ RuleAgent = CompiledStateGraph[
 ]
 
 
+class ModelCallFailed(Exception):
+    """Marker raised by `ModelCallAudit` after it recorded a failed model call.
+
+    The provider's original error is `__cause__`. It never leaves `run_rule_agent`.
+    """
+
+    def __init__(self) -> None:
+        super().__init__("Model çağrısı hata verdi.")
+
+
 class RuleRunInterrupted(Exception):
-    """The run raised before it ended by itself; the original error is `__cause__`.
+    """The model call raised before the run ended by itself.
+
+    `__cause__` is the original error of the model call (not the `ModelCallFailed` marker).
 
     `finding` is the last submitted finding with the proposal and escalation from the same run
     merged in, not yet marked as interrupted (None when nothing was submitted).
@@ -118,10 +132,11 @@ class ModelCallAudit(AgentMiddleware[AgentState[Any], ReviewContext]):
         try:
             response = handler(request)
         except Exception as exc:
-            # The masked text has already left: the call is recorded, then the error goes on.
+            # The masked text has already left: the call is recorded, then the error goes on,
+            # marked as a model call error. If the audit write fails, its error goes instead.
             payload |= {"response": None, "usage_metadata": None, "error": _error_payload(exc)}
             context.store.append_audit(context.review_id, ACTOR, "model_call", payload)
-            raise
+            raise ModelCallFailed() from exc
         body, usage = _response_payload(response)
         payload |= {"response": body, "usage_metadata": usage}
         context.store.append_audit(context.review_id, ACTOR, "model_call", payload)
@@ -230,9 +245,10 @@ def run_rule_agent(agent: RuleAgent, context: ReviewContext) -> Finding:
     Ended by itself: the submitted finding, or `no_finding` (`no_submit`). Stopped by the step
     limit (more AI messages than `RUN_LIMIT`, the limit's own last message included): the
     submitted finding marked `step_limit`, or `no_finding` (`step_limit`). A `no_finding`
-    finding never carries the run's proposal or escalation. An error during the run is raised
-    as `RuleRunInterrupted` holding the submitted finding, except `sqlite3.Error` from an audit
-    write, which propagates as it is.
+    finding never carries the run's proposal or escalation. An error of the model call is
+    raised as `RuleRunInterrupted` holding the submitted finding, with the provider's error as
+    `__cause__`. Every other error (tool body, middleware, library, `sqlite3.Error` from an
+    audit write) propagates as it is.
     """
     rule_id = context.rule.id
     state: Mapping[str, Any] = {}
@@ -240,10 +256,8 @@ def run_rule_agent(agent: RuleAgent, context: ReviewContext) -> Finding:
     try:
         for value in agent.stream({"messages": [message]}, context=context, stream_mode="values"):
             state = value
-    except sqlite3.Error:
-        raise
-    except Exception as exc:
-        raise RuleRunInterrupted(_submitted(state)) from exc
+    except ModelCallFailed as marker:
+        raise RuleRunInterrupted(_submitted(state)) from marker.__cause__
     submitted = _submitted(state)
     ai_messages = sum(isinstance(m, AIMessage) for m in state.get("messages", []))
     if ai_messages > RUN_LIMIT:

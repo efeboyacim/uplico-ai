@@ -29,8 +29,8 @@ Uygulama `docs/plan.md`'deki adımlarla, sırayla yazılır. Hangi adımda olund
 bölümünde ve adım kutularında yazar; bir oturuma başlarken önce oraya bak. Bir adım doğrulanıp
 commit edilince dur ve sıradaki adıma geçmeden önce kullanıcıdan onay al.
 
-**Şu an:** Adım 0–9 bitti (Adım 9: `src/tools.py`, `src/agent.py` ve `src/prompts/rule_agent.md`).
-Sıradaki: Adım 10 — Graph: dağıtım, doğrulama, durma noktası.
+**Şu an:** Adım 0–10 bitti (Adım 10: `src/graph.py`; `review_rule` × N, `verify`, `human_review`).
+Sıradaki: Adım 11 — API: inceleme başlatma ve okuma.
 
 ## Komutlar
 ```bash

@@ -92,7 +92,36 @@
   yanıtındaki tool çağrılarının audit satır sırası tamamlanma sırasıdır; testler sayıyı doğrular.
   Adım 12 için not: Groq'un bozuk tool çağrısında döndürdüğü hata gövdesine gerçek çağrıda
   bakılacak; kod ayırt etmeye değerse `src/llm.py`'ye bir yardımcı eklenir.
-- **Sıradaki:** Adım 10 — Graph: dağıtım, doğrulama, durma noktası.
+  Adım 10: `src/graph.py` (`START → review_rule × N (Send) → verify → human_review (interrupt)`,
+  tenant başına derlenmiş ve önbelleğe alınmış graph, `close_graphs()`) yazıldı; `src/agent.py`'ye
+  `ModelCallFailed` işareti eklendi. Bu sırada alınan kararlar `agent_design.md` §1, §4, §6, §7,
+  `code_standards.md`, `spec.md`, `evals.md` §2 ve `tech_stack.md`'ye işlendi: state düz sözlük
+  tutar (`model_dump(mode="json")`, düğümler girişte doğrular; izin listesi yok); hatalar tipine
+  göre değil **kaynağına göre** ayrılır: yalnızca model çağrısının kendi hatası
+  (`ModelCallFailed` → `RuleRunInterrupted`) bulguya çevrilir, başka her hata graph'tan fırlar ve
+  incelemeyi `failed` yapar (yeni zorunlu test "Beklenmeyen kod hatası incelemeyi `failed` yapar");
+  `finding` satırı `agent`, `verification` satırları `system` aktörlüdür, bulgu başına bir satır,
+  tek transaction'da; `verify` düğümü bulguları kural sırasına dizer ve kural başına tek bulgu
+  olduğunu denetler; graph indeksi silmez, `awaiting_lawyer` / `review_failed` yazmaz. Kurulu
+  sürümlerle (langgraph 1.2.20, langgraph-checkpoint-sqlite 3.1.3) script'le sınananlar:
+  (A) invoke config'teki `max_concurrency` `Send` dallarını gerçekten sınırlar (8 dal, sınır
+  1 / 2 / 4 → en fazla 1 / 2 / 4 aynı anda); semafor yok, `spec.md` §10 sorusu kapandı.
+  (B) Bir dal hata fırlatınca `graph.invoke` asıl hatayı yalnızca başlamış her dal bittikten sonra
+  fırlatır; `invoke`'tan sonra yan etki yok. İlk sınama "başlamamış dallar başlamaz" demişti; bu
+  yanlış çıktı: hata veren dalın boşalttığı iş parçacığı iptalden önce sıradaki dalı alabilir
+  (hatadan sonra en fazla `max_concurrency` kadar dal daha başladı), yani `failed` incelemede
+  başka kuralların da `model_call` / `finding` satırları olabilir. Böyle bir thread bir daha
+  çağrılmaz. (C) Düz sözlük state checkpoint'e uyarısız yazılıp okunur; pydantic nesnesi okunurken
+  "kayıtsız tip" uyarısı loglanır. `interrupt`'tan sonra `get_state(config).next ==
+  ("human_review",)`. (E) `SqliteSaver.setup()` `checkpoints.db`'yi kendisi WAL'a alır; bu adımda
+  dokunulmadı. Adım 11 için not: graph'tan çıkan, `config` sınıfı olmayan her hatada (kod hatası,
+  `sqlite3.Error`) API de incelemeyi `failed` yapar, `review_failed` yazar ve 500 döner (`config`
+  için 502 kalır); `review_failed` son satırdır (B); `failed` incelemenin thread'i bir daha
+  çağrılmaz. Adım 12 için not: `checkpoints.db` host'tan bağlanan `./data` üzerinde WAL'da
+  çalışır; gerçek Docker bind mount'unda denenecek. Sorun çıkarsa yedekler: bağlantı
+  `SqliteSaver`'a verilmeden önce `PRAGMA locking_mode=EXCLUSIVE` (WAL `-shm` dosyasız; ikinci
+  süreç dosyayı açamaz) ya da `setup()`'tan sonra `journal_mode=DELETE`'e dönmek.
+- **Sıradaki:** Adım 11 — API: inceleme başlatma ve okuma.
 - Bu bölüm her adımın commit'inde güncellenir; sıradaki adım, aşağıdaki ilk işaretsiz kutudur.
 
 ## Bağlam
@@ -452,18 +481,25 @@ gereksiz yönlendirme satırları bunu gösterir.
   etkilemez; `SqliteSaver`'lı üst graph içinde koşan agent checkpoint'e alt ad alanı yazmaz.
 - **Commit:** `feat: add rule agent with five tools and audit middleware`
 
-### [ ] Adım 10 — Graph: dağıtım, doğrulama, durma noktası
+### [x] Adım 10 — Graph: dağıtım, doğrulama, durma noktası
 - **Ne:** `START → review_rule × N (Send) → verify → human_review (interrupt)`; tenant başına
-  derlenmiş graph + `SqliteSaver` (önbellek `(data_dir, tenant_id)` ile anahtarlanır; graph kurucusu
-  `Settings`'i parametre alır); `max_concurrency` config anahtarı; `review_rule` hata eşlemesi:
-  `run_rule_agent`'ın fırlattığı `RuleRunInterrupted`'ın `__cause__`'u `classify_provider_error`
-  ile sınıflandırılır (`rate_limited`, `llm_error`) ve bulgu `interrupted_finding` ile kurulur
-  (bulgu bildirilmişse korunur + `interrupted_by`, yoksa `no_finding`); `no_submit` ve `step_limit`
-  `run_rule_agent`'tan hazır gelir; `config` sınıfı hata ve audit yazımından gelen
-  `sqlite3.Error` yeniden fırlatılır, inceleme `failed` olur. Üst state'teki `findings` listesi
-  checkpoint'e yazılır: `Finding` nesnesi `langgraph-checkpoint` 4.3'te "kayıtsız tip" uyarısı
-  verir; `model_dump()` sözlükleri mi, izin listesi mi kullanılacağı bu adımda kararlaştırılır. `review_rule`
-  `finding`, `verify` düğümü `verification` olayını audit log'a yazar. (`finalize` Adım 13'te eklenir.)
+  derlenmiş graph + `SqliteSaver` (önbellek `(çözülmüş data_dir, tenant_id)` ile anahtarlanır; graph
+  kurucusu `Settings`'i parametre alır; tenant klasörü `Store`'un doğrulamasından gelir;
+  `close_graphs()` testler için); `max_concurrency` config anahtarı; invoke config'i ve başlangıç
+  state'i tek yerde kurulur. `review_rule` hata eşlemesi **kaynağa göredir**: model çağrısını saran
+  middleware hatanın satırını yazdıktan sonra `ModelCallFailed` fırlatır; `run_rule_agent` yalnızca
+  onu `RuleRunInterrupted`'a çevirir (`__cause__` sağlayıcının asıl hatası); `review_rule` onu
+  `classify_provider_error` ile sınıflandırır (`config` → yeniden fırlat, `rate_limit` →
+  `rate_limited`, `other` → `llm_error`) ve bulguyu `interrupted_finding` ile kurar (bulgu
+  bildirilmişse korunur + `interrupted_by`, yoksa `no_finding`); `no_submit` ve `step_limit`
+  `run_rule_agent`'tan hazır gelir. Başka her hata (tool gövdesi, middleware, kütüphane,
+  `sqlite3.Error`, eksik indeks) sarmalanmadan graph'tan fırlar, inceleme `failed` olur
+  (`agent_design.md` §6). **Karar — state düz sözlük tutar:** bulgu, kural ve madde state'e
+  `model_dump(mode="json")` ile girer, düğümler girişte doğrular; izin listesi tutulmaz (pydantic
+  nesnesi checkpoint'ten okunurken "kayıtsız tip" uyarısı loglanıyordu). `verify` düğümü bulguları
+  kural sırasına dizer ve kural başına tek bulgu olduğunu denetler. `review_rule` `finding`
+  (`agent`), `verify` düğümü bulgu başına `verification` (`system`, tek transaction'da) olayını
+  audit log'a yazar. (`finalize` Adım 13'te eklenir.)
 - **Karar — graph senkron çalışır:** yalnızca `graph.invoke` / `agent.invoke`, senkron düğümler ve
   senkron middleware kancaları (`wrap_model_call`, `wrap_tool_call`) kullanılır. `ainvoke`, `astream`
   ve `awrap_*` kancaları yazılmaz. Sebep: `SqliteSaver` async çağrıları desteklemez (`aget_tuple`,
@@ -473,8 +509,10 @@ gereksiz yönlendirme satırları bunu gösterir.
 - **Bağlantı:** checkpoint bağlantısı `check_same_thread=False` ile açılır:
   `SqliteSaver(sqlite3.connect(path, check_same_thread=False))` (`agent_design.md` §1). Dallar ve
   endpoint'ler farklı thread'lerde çalıştığı için bu olmadan SQLite `ProgrammingError` fırlatır.
-- **Dosyalar:** `src/graph.py`, `tests/test_graph.py`, `docs/spec.md` (§10'daki `max_concurrency`
-  sorusu kapatılır)
+- **Dosyalar:** `src/graph.py`, `src/agent.py` (`ModelCallFailed` işareti), `tests/test_graph.py`,
+  `tests/test_agent.py`, `tests/conftest.py` (`close_graphs()` fixture'ı), `docs/agent_design.md`,
+  `docs/code_standards.md`, `docs/spec.md` (§10'daki `max_concurrency` sorusu
+  kapatılır), `docs/evals.md`, `docs/tech_stack.md`, `CLAUDE.md`
 - **Doğrulama:** Testler (betikli sahte model): graph `interrupt`'a kadar koşar, state'te `findings`
   ve `verified` var; audit'te `finding` ve `verification`; *Hız limiti → `rate_limited`* (gerçek
   `groq.RateLimitError`, diğer kurallar etkilenmez); `config` sınıfı hata graph'tan dışarı fırlar (bağlantı reddi fırlamaz, `llm_error` olur); *Maskesiz
@@ -482,6 +520,16 @@ gereksiz yönlendirme satırları bunu gösterir.
   `review_rule` sayısı `MAX_CONCURRENCY`'yi aşmaz; paralel koşuda (`MAX_CONCURRENCY` > 1) audit'teki
   `model_call`, `tool_call` ve `finding` sayıları betikten beklenenle birebir aynıdır; audit yazımı
   hata verirse graph'tan dışarı fırlar, bulgu `no_finding`'e çevrilmez; `src/` altında `async def` / `ainvoke` yok.
+  Ek testler: *Beklenmeyen kod hatası incelemeyi `failed` yapar* (tool gövdesinden sağlayıcı dışı
+  hata bulguya çevrilmez, graph'tan aynı tiple fırlar; aynı tip model çağrısından gelince
+  `llm_error`); `RuleRunInterrupted.__cause__` işaret değil asıl hatadır; hata satırı yazılamazsa
+  `sqlite3.Error` fırlar; dallar farklı sırada bitse de `verified` kural sırasındadır; kural başına
+  bulgu sayısı bir değilse `verify` düğümü fırlatır; `finding` satırı `agent`, `verification`
+  satırları `system` aktörlüdür ve bulgu başına birdir (yük: `rule_id`, `needs_review`,
+  `review_reasons`, `code_check`); checkpoint'ten okunan state'te pydantic nesnesi yok ve okuma
+  "kayıtsız tip" uyarısı loglamaz; `interrupt`'tan sonra `get_state(config).next ==
+  ("human_review",)`; eksik indeks graph'tan fırlar; bilinmeyen tenant'la graph kurulamaz
+  (`UnknownTenantError`).
 - **Commit:** `feat: add review graph with per-rule fan-out and single interrupt`
 
 ### [ ] Adım 11 — API: inceleme başlatma ve okuma
@@ -490,6 +538,12 @@ gereksiz yönlendirme satırları bunu gösterir.
   yalnızca yanıt üretilirken, `lawyer` için); graph döndükten sonra `awaiting_lawyer` yazımı ve
   indeksin silinmesi; `config` sınıfı hatada `failed` + `review_failed` + HTTP 502. FastAPI'nin otomatik `/docs`
   uçları kapatılır (anahtarsız uç kalmasın).
+- **Graph'tan çıkan diğer hatalar (Adım 10 notu):** `config` sınıfı olmayan her hata (kod hatası,
+  `sqlite3.Error`) da incelemeyi `failed` yapar, `review_failed` yazılır ve HTTP 500 döner.
+  `graph.invoke` başlamış her dal bitmeden dönmediği için `review_failed` son satırdır (hatadan
+  sonra sıradan birkaç dal daha başlayıp bitmiş olabilir; satırları audit'te kalır); `failed`
+  incelemenin thread'i bir daha çağrılmaz. Invoke config'i ve başlangıç state'i graph modülündeki
+  tek yardımcılardan alınır.
 - **Giriş noktası:** modül düzeyinde `app` yoktur. `create_app(settings: Settings) -> FastAPI`
   uygulamayı kurar; `python -m src.api` önce `load_settings_or_exit()` çağırır, sonra
   `uvicorn.run(create_app(settings))`. Testler `create_app(load_settings(env={...}))` ile kurar.
@@ -519,6 +573,10 @@ gereksiz yönlendirme satırları bunu gösterir.
   `COMPOSE_PROFILES=offline` ile aynı istek çalışır (donanım yetmezse `tech_stack.md`'deki yedek
   model). İnen boyutlar iki mod için ölçülür. Gözlemler (Türkçe tool çağrısı, sözleşme başına token)
   `spec.md` §10'a işlenir.
+- **`checkpoints.db` WAL (Adım 10 notu):** `SqliteSaver.setup()` dosyayı WAL'a alır ve dosya
+  host'tan bağlanan `./data`'dadır; gerçek bind mount'ta denenir. Sorun çıkarsa: bağlantı
+  `SqliteSaver`'a verilmeden önce `PRAGMA locking_mode=EXCLUSIVE` ya da `setup()`'tan sonra
+  `journal_mode=DELETE`.
 - **Commit:** `chore: add docker compose with offline ollama profile`
 
 ### [ ] Adım 13 — Avukat kararı ve finalize

@@ -11,15 +11,20 @@
 
 ## Hata yönetimi
 - Çıplak `except:` yok; yakalanan hata ya ele alınır ya da loglanıp yeniden fırlatılır.
-- Bir kural agent'ının hatası `review_rule` düğümünde yakalanır ve `no_finding` bulgusuna çevrilir;
-  agent hatadan önce bulgu bildirmişse bulgu korunur ve `run_interrupted` ile avukata gider
-  (`agent_design.md` §6).
-  İki istisna yakalanmaz, yeniden fırlatılır ve inceleme `failed` olur: sağlayıcı kimlik ya da
-  yapılandırma hatası (Groq 401 / 403 / 404, Ollama 404) ve audit yazımından gelen `sqlite3.Error`
-  (eksik kayıtla tamamlanmış inceleme olmaz).
+- Bir kural agent'ının **model çağrısı** hatası `review_rule` düğümünde `no_finding` bulgusuna
+  çevrilir; agent hatadan önce bulgu bildirmişse bulgu korunur ve `run_interrupted` ile avukata gider.
+  Hata tipine göre değil, nereden geldiğine göre ayrılır: yalnızca model çağrısını saran middleware'in
+  fırlattığı `ModelCallFailed` bu yola girer (`agent_design.md` §6).
+  Şunlar bulguya çevrilmez, graph'tan dışarı fırlar ve inceleme `failed` olur: sağlayıcı kimlik ya da
+  yapılandırma hatası (Groq 401 / 403 / 404, Ollama 404; API 502), audit yazımından gelen
+  `sqlite3.Error` (eksik kayıtla tamamlanmış inceleme olmaz) ve model çağrısının dışından gelen her
+  beklenmeyen hata (tool gövdesi, middleware, kütüphane; API 500). Bir kod hatası `llm_error`
+  diye avukata gitmez.
+- Model çağrısının dışında genel `except Exception` ile hatayı bulguya çeviren kod yazılmaz.
 - API hataları FastAPI `HTTPException` ile döner: tanınmayan anahtar **401**, yetersiz rol **403**,
   başka tenant'ın kaynağı **404** (403 değil), yanlış durum **409**, geçersiz gövde **422**,
-  sağlayıcı kimlik ya da yapılandırma hatası **502**.
+  sağlayıcı kimlik ya da yapılandırma hatası **502**, graph'tan fırlayan başka her hata **500**
+  (inceleme `failed`).
 - Doğrulanamayan bulgu ya da taslak silinmez; `needs_review` ve sebebiyle işaretlenir.
 - Son karardan önce rapor istenirse **409** döner.
 
@@ -61,7 +66,9 @@
 - Graph'a ham sözleşme metni verilmez; hazırlık (`prepare_contract`) graph'tan önce çalışır.
 - `human_review` düğümünde `interrupt()`'tan önce yan etki (DB yazma) yapılmaz; bu düğüm resume'da
   baştan çalışır. `awaiting_lawyer` durumunu graph döndükten sonra API yazar.
-- İndeks gibi serileştirilemeyen nesneler graph state'ine konmaz.
+- İndeks gibi serileştirilemeyen nesneler graph state'ine konmaz. Pydantic nesneleri de konmaz:
+  state düz sözlük tutar (`model_dump(mode="json")`), düğümler girişte doğrular
+  (`agent_design.md` §1).
 
 ## Avukat aşaması
 - Bulgu ve taslak kararlarını ve son kararı alan tek uç `POST /reviews/{id}/decision`'dır; bulgu
@@ -78,7 +85,8 @@
 
 ## Async / eşzamanlılık
 - Kod senkrondur: senkron FastAPI endpoint'leri + `SqliteSaver`. `async` ile karıştırılmaz.
-- Paralellik yalnızca LangGraph `Send` + `max_concurrency` ile yapılır.
+- Paralellik yalnızca LangGraph `Send` + `max_concurrency` ile yapılır (`max_concurrency` dalları
+  gerçekten sınırlar; semafor yazılmaz).
 - SQLite bağlantıları `check_same_thread=False` ile açılır (endpoint'ler ve dallar thread'de çalışır).
 - `app.db`'ye eşzamanlı yazım: tenant başına tek bağlantı (`check_same_thread=False`, `timeout=30`)
   ve tek `threading.Lock` süreç içinde paylaşılır; `Store(data_dir, tenant_id)` örnekleri aynı
@@ -91,8 +99,12 @@
   **tek transaction'da** yazılır: her işaret yine kendi satırını alır, ama ya hepsi yazılır ya hiçbiri.
   Satır başına ayrı commit, işaret sayısıyla doğrusal büyüyen bir süre demektir (4000 işaret ≈ 26 sn);
   sözleşmeyi yazan kişi bu sayıyı belirlediği için bu bir meşgul etme yoludur.
-- Testler paylaşılan bağlantıları `close_all()` ile kapatır (`tests/conftest.py`, her testten sonra);
-  Windows'ta açık bağlantı `tmp_path` dosyalarını kilitler. Uygulama kodu `close_all()` çağırmaz.
+- Testler paylaşılan bağlantıları `close_all()` ile, derlenmiş graph'ları ve checkpoint
+  bağlantılarını `close_graphs()` ile kapatır (`tests/conftest.py`, her testten sonra, autouse
+  fixture); Windows'ta açık bağlantı `tmp_path` dosyalarını kilitler. Uygulama kodu ikisini de
+  çağırmaz.
+- Hata fırlatan bir graph thread'i (`failed` inceleme) bir daha çağrılmaz: checkpoint'i biten
+  dalların bulgularını ve bekleyen dalı tutar, ama `failed` inceleme sondur (`agent_design.md` §1).
 - `app.db`'de WAL açılmaz (`./data` host'tan bağlanır). `checkpoints.db`'yi `SqliteSaver` kendisi
   WAL'a alır; `-wal` / `-shm` dosyaları da `.gitignore`'dadır.
 

@@ -21,14 +21,47 @@
 Hazırlık graph'tan önce düz fonksiyon olarak çalışır (`architecture.md` §3); graph'a yalnızca maskeli
 maddeler girer.
 
-- `review_rule` agent'ı fonksiyon içinde çağırır: `agent.invoke(..., context=ReviewContext(...))`.
-  Her kural için **tam olarak bir** bulgu döner (aşağıda §6).
+- `review_rule` agent'ı fonksiyon içinde `run_rule_agent` ile çağırır (`ReviewContext` ile). Her
+  kural için **tam olarak bir** bulgu döner (aşağıda §6). `Send` yükü yalnızca `review_id` ve kuralı
+  (sözlük) taşır; indeksi `review_rule` `get_index(tenant_id, review_id)` ile alır. İndeks yoksa bu
+  bir kod hatasıdır: bulguya çevrilmez, graph'tan dışarı fırlar.
 - State'te iki liste vardır: `findings` (agent'ın ham önerileri, `Annotated[list, operator.add]` ile
   dallardan toplanır) ve `verified` (`verify` çıktısı). Resume'dan sonra state'e avukatın maskeli
   kararı da girer; `finalize` son sonucu `reviews` tablosuna yazar.
-- Graph tenant başına bir kez derlenir ve önbelleğe alınır:
-  `SqliteSaver(sqlite3.connect(path, check_same_thread=False))`. `thread_id = review_id`.
-- `max_concurrency` config anahtarı = `MAX_CONCURRENCY` (varsayılan: Groq 4, Ollama 1).
+- **State düz sözlük tutar, pydantic nesnesi tutmaz:** bulgular, kurallar ve maddeler state'e
+  `model_dump(mode="json")` ile girer; düğümler onları girişte `model_validate` / `TypeAdapter` ile
+  geri kurar. Sebep: `SqliteSaver`'ın serileştiricisi kayıtsız bir pydantic tipini okurken "bu tip
+  ileride engellenecek" uyarısını loglar; düz sözlük uyarısız yazılır ve okunur (langgraph 1.2.20,
+  langgraph-checkpoint-sqlite 3.1.3 ile sınandı). İzin listesi tutulmaz.
+- **`verify` düğümü:** dallar herhangi bir sırada biter. `verify` bulguları kural setindeki kural
+  sırasına dizer, her kural için tam olarak bir bulgu olduğunu denetler (eksik ya da fazla bulgu
+  programlama hatasıdır, fırlatılır), `src.verify.verify(...)`'ı çağırır, `verification`
+  satırlarını yazar (§7) ve `verified`'ı döner. Graph'ta "doğrulama açık" bayrağı yoktur: ham
+  `findings` state'te kaldığı için eval'in "önce" ölçümü `verify(enabled=False)`'u onlara sonradan
+  uygular.
+- Graph indeksi silmez; `awaiting_lawyer` ve `review_failed` yazmaz. Bunları graph döndükten sonra
+  API yapar (§7 "Kim yazar").
+- Graph tenant başına bir kez derlenir ve `(çözülmüş data_dir, tenant_id)` anahtarıyla önbelleğe
+  alınır; kurucu `Settings` alır. Checkpoint bağlantısı
+  `SqliteSaver(sqlite3.connect(<tenant klasörü>/checkpoints.db, check_same_thread=False))`'dır;
+  tenant klasörü `Store`'un yaptığı doğrulamadan gelir (bilinmeyen tenant `UnknownTenantError`;
+  doğrulanmamış `tenant_id`'den yol kurulmaz). `thread_id = review_id`. Testler betikli sahte modeli
+  modülün iç durumuna dokunmadan verebilir.
+- `max_concurrency` invoke config anahtarı = `MAX_CONCURRENCY` (varsayılan: Groq 4, Ollama 1). `Send`
+  dallarını gerçekten sınırlar (8 dal, sınır 1 / 2 / 4 → en fazla 1 / 2 / 4 dal aynı anda; anahtar
+  yoksa 8'i birden); semafor yoktur. Invoke config'i (`thread_id` + `max_concurrency`) ve başlangıç
+  state'i (`PreparedContract` + kurallar; `injection_suspected = bool(prepared.injection_flags)`)
+  tek bir yerde kurulur; API bunları kullanır.
+- **Bir dal hata fırlatırsa:** `graph.invoke` asıl hatayı (aynı tiple) yeniden fırlatır, ama yalnızca
+  başlamış olan her dal bittikten sonra; `invoke` döndükten sonra hiçbir dal yan etki üretmez.
+  Böylece API'nin yazdığı `review_failed` incelemenin son audit satırıdır. Sırada bekleyen dalların
+  hepsi iptal edilmez: hata veren dalın boşalttığı iş parçacığı, iptal gelmeden önce sıradaki dalı
+  alıp sonuna kadar koşabilir (gözlenen: hatadan sonra en fazla `max_concurrency` kadar dal daha
+  başladı). Yani `failed` bir incelemede hata veren kuralın dışındaki bazı kuralların da model
+  çağrıları ve `finding` satırları bulunabilir; kaç tane olacağı belli değildir. Böyle bir
+  thread'in checkpoint'i biten dalların bulgularını tutar; thread bir daha çağrılmaz (`failed`
+  inceleme sondur).
+- Graph senkrondur: `async def`, `ainvoke`, `astream`, `awrap_*` yoktur (`code_standards.md`).
 - **Kural agent'ı checkpoint'e yazılmaz:** `create_agent(..., checkpointer=False)`. Bu verilmezse
   agent, içinde çağrıldığı graph'ın `SqliteSaver`'ını devralır ve her kuralın tüm mesaj geçmişini
   (her adımda) `checkpoints.db`'ye ayrı bir ad alanıyla yazar. Checkpoint yalnızca üst graph'ın
@@ -138,7 +171,9 @@ Tek etkileri agent state'ine bir öneri yazmaktır; dış sisteme dokunmazlar.
   `tenant_id` bir tenant'ın ötekinin indeksini görmesini ya da ezmesini yapısal olarak önler); `review_rule` oradan alıp
   `ReviewContext` ile tool'lara verir. Graph `interrupt`'a ulaşınca silinir; resume indekse ihtiyaç duymaz.
 - **State saklama:** Graph state'i tenant'ın `checkpoints.db` dosyasında. State yalnızca
-  **maskeli** metin ve kimlik tutar; ham metin ve PII eşlemesi state'e girmez.
+  **maskeli** metin ve kimlik tutar; ham metin ve PII eşlemesi state'e girmez. İçeriği: kimlikler
+  (`review_id`), kurallar, maskeli maddeler, enjeksiyon şüphesi işareti, `findings` ve `verified`
+  (resume'dan sonra avukatın maskeli kararı da); bulgu, kural ve madde düz sözlüktür (§1).
 - **Agent state'i:** `AgentState` + `finding`, `proposal`, `escalation`. Bu üç alan "son yazan
   geçerli" birleştiricisi taşır; model aynı mesajda iki çağrı yaparsa agent çökmez.
 
@@ -471,11 +506,21 @@ kural için avukattan taslak kararı istenmez); ikisi de audit'teki `tool_call` 
 | Adım limiti | Bulgu (taslağı ve devretme sebebiyle) korunur + `run_interrupted` (`step_limit`) | `no_finding` (`step_limit`) |
 | Hız limiti / diğer LLM hatası | Bulgu korunur + `run_interrupted` (`rate_limited` / `llm_error`) | `no_finding` (aynı sebep) |
 
-- **Kim üretir:** `src/agent.py`'deki `run_rule_agent` ilk iki satırı kendisi üretir. Hata
-  durumunda son state'i taşıyan `RuleRunInterrupted`'ı fırlatır (asıl hata `__cause__`'tadır);
-  `review_rule` onu `classify_provider_error` ile sınıflandırır ve aynı yardımcıyla
-  (`interrupted_finding`) bulguyu kurar. `config` sınıfı hata yeniden fırlatılır. Audit yazımından
-  gelen `sqlite3.Error` sarmalanmaz, olduğu gibi fırlar.
+- **Kim üretir:** `src/agent.py`'deki `run_rule_agent` ilk iki satırı kendisi üretir. Son satırdaki
+  hatalar **tiplerine göre değil, nereden geldiklerine göre** ayrılır; bulguya yalnızca model
+  çağrısının kendi hatası çevrilir:
+  - `ModelCallAudit.wrap_model_call` model çağrısının her hatasını yakalar, `model_call` satırını
+    `error` ile yazar ve ardından bir işaret hatası fırlatır: `ModelCallFailed` (asıl hata
+    `__cause__`'tadır). Hata satırının kendisi yazılamazsa `sqlite3.Error` fırlar; işaret fırlatılmaz.
+  - `run_rule_agent` yalnızca `ModelCallFailed`'ı son state'i taşıyan `RuleRunInterrupted`'a çevirir;
+    onun `__cause__`'u işaret değil, sağlayıcının asıl hatasıdır. Başka her hata (tool gövdesi,
+    middleware, kütüphane, audit yazımından gelen `sqlite3.Error`) sarmalanmadan fırlar.
+  - `review_rule` `RuleRunInterrupted.__cause__`'u `classify_provider_error` ile sınıflandırır:
+    `config` → asıl hata yeniden fırlatılır; `rate_limit` → `rate_limited`; `other` → `llm_error`.
+    Bulgu `interrupted_finding` ile kurulur.
+  - Sonuç: beklenmeyen bir kod hatası avukata "LLM hatası" diye gitmez, incelemeyi `failed` yapar.
+    Gerçek bir sağlayıcı hatası da, tipi ne olursa olsun, bu yola düşemez; işaret model çağrısının
+    kendisinde konur.
 - **Son state nasıl korunur:** agent `invoke` ile değil senkron `stream(stream_mode="values")` ile
   koşar; `invoke` hata fırlatınca state kaybolur, `stream`'de son değer elde kalır.
 - **Adım limiti nasıl ayırt edilir:** sonuçtaki `AIMessage` sayısı `RUN_LIMIT`'ten (8) büyükse limit
@@ -491,7 +536,8 @@ kural için avukattan taslak kararı istenmez); ikisi de audit'teki `tool_call` 
 | Hız limiti (429) | Model en fazla 3 kez yeniden dener. Tükenirse `review_rule` yakalar → `no_finding` (sebep `rate_limited`) → avukat kuyruğu |
 | Kimlik / yapılandırma hatası (Groq 401 / 403 / 404, Ollama 404) | **İstisna:** `review_rule`'da yakalanmaz, yeniden fırlatılır; graph durur, API incelemeyi `failed` yapar ve 502 döner |
 | Diğer LLM hatası (zaman aşımı, 5xx, 400, bağlantı reddi) | `review_rule` içinde yakalanır → `no_finding` (sebep `llm_error`) → avukat kuyruğu |
-| Tool hatası | Açıklayıcı hata mesajı modele döner; model düzeltir |
+| Model çağrısı dışından gelen hata (tool gövdesinde beklenmeyen hata, middleware, kütüphane, audit yazımı, eksik indeks) | Bulguya çevrilmez; graph'tan dışarı fırlar, API incelemeyi `failed` yapar ve 500 döner |
+| Tool hatası (beklenen: olmayan madde, eksik kanıt) | Açıklayıcı hata mesajı modele döner; model düzeltir |
 | Geçersiz tool argümanı | Şema hatası modele döner |
 | Düşük güven / belirsiz madde | Agent `escalate_to_lawyer` çağırır |
 | Max adım aşıldı | Görev biter; `submit_finding` yoksa `no_finding`, varsa bulgu korunur + `run_interrupted` → ikisi de avukat kuyruğu |
@@ -505,11 +551,13 @@ kural için avukattan taslak kararı istenmez); ikisi de audit'teki `tool_call` 
 | Kural bulunamadı (`not_found`) | Her zaman `unverified_not_found` → avukat kuyruğu; kural `critical` ise ek sebep `critical_not_found` |
 | Enjeksiyon şüphesi | İnceleme devam eder; ifade silinmez, tüm bulgular avukat kuyruğuna gider |
 
-Bir kuralın hatası incelemeyi çökertmez. İki istisna vardır. Audit log'a yazılamıyorsa
-(`sqlite3.Error`) hata yeniden fırlatılır ve inceleme `failed` olur; eksik kayıtla tamamlanmış
-inceleme olmaz. Diğeri sağlayıcı kimlik ya da yapılandırma hatasıdır (Groq 401 / 403 / 404, Ollama
-404): anahtar geçersizse, model engelliyse ya da model adı yanlışsa hiçbir kural çalışamayacağı için
-tüm kuralları `no_finding` yapmak yerine inceleme `failed` olur.
+Bir kuralın **model çağrısı** hatası incelemeyi çökertmez; o kural avukat kuyruğuna düşer. Tek
+istisnası sağlayıcı kimlik ya da yapılandırma hatasıdır (Groq 401 / 403 / 404, Ollama 404): anahtar
+geçersizse, model engelliyse ya da model adı yanlışsa hiçbir kural çalışamayacağı için tüm kuralları
+`no_finding` yapmak yerine inceleme `failed` olur (API 502). Model çağrısının dışından gelen her hata
+da incelemeyi `failed` yapar (API 500): audit log'a yazılamaması (`sqlite3.Error`; eksik kayıtla
+tamamlanmış inceleme olmaz) ve beklenmeyen kod hataları. Bunlar bulguya çevrilmez; bir kod hatası
+avukata kural sonucu gibi gitmez.
 
 ## 7. Gözlemlenebilirlik
 - **Audit log (asıl kayıt):** tenant'ın `app.db` dosyasında `audit_log` tablosu.
@@ -523,13 +571,15 @@ tüm kuralları `no_finding` yapmak yerine inceleme `failed` olur.
     |---|---|
     | Hazırlık | `review_started` (sağlayıcı ve model dahil), `clauses_split` (madde sayısı), `injection_flagged` (madde, ifade, konum; gizli karakterler dahil), `pii_masked` (türe göre sayılar, değer yok), `index_built` |
     | Agent | `model_call`, `tool_call`, `finding` |
-    | Doğrulama | `verification` (sinyaller, taslağın `code_check` sonucu) |
+    | Doğrulama | `verification` (bulgu başına bir satır: sinyaller, taslağın `code_check` sonucu) |
     | Avukat | `awaiting_lawyer`, `finding_decision`, `proposal_decision` (düzenlenmiş metin maskeli), `contract_decision` |
     | Kapanış | `report_created` (raporun üretileceği son sonuç kaydedildi; rapor dosyası oluşturulmaz), `review_closed` |
     | Hata | `review_failed` (sebep) |
 
   - Kim yazar: hazırlık olaylarını hazırlık fonksiyonu; `model_call` / `tool_call` middleware'leri;
-    `finding` ve `verification`'ı ilgili düğümler; `awaiting_lawyer` ve `review_failed`'ı graph
+    `finding`'i `review_rule` (`actor` = `agent`; kodun kurduğu `no_finding` bulgusunda da, sebep
+    yükteki `no_finding_reason`'dadır); `verification`'ı `verify` düğümü (`actor` = `system`);
+    `awaiting_lawyer` ve `review_failed`'ı graph
     döndükten sonra API (`human_review`'da `interrupt()`'tan önce yan etki yok); karar olaylarını,
     `report_created` ve `review_closed`'ı `finalize`.
   - İstisna: hazırlık yarıda kalırsa `review_failed`'ı (`reason: prepare_error`) hazırlık
@@ -552,6 +602,12 @@ tüm kuralları `no_finding` yapmak yerine inceleme `failed` olur.
       gövdesi beklenmeyen bir hata fırlatırsa satır yazılmaz; hata koşuyu keser (§6).
     - Aynı model yanıtındaki birden çok tool çağrısının satır sırası tamamlanma sırasıdır, çağrı
       sırası değil.
+  - **Bulgu ve doğrulama olaylarının yükü:**
+    - `finding` (`actor` = `agent`): ham bulgunun `model_dump(mode="json")`'ı.
+    - `verification` (`actor` = `system`): bulgu başına bir satır; bir incelemenin tüm satırları
+      `Store.append_audit_many` ile tek transaction'da yazılır (ya hepsi ya hiçbiri). Yük:
+      `rule_id`, `needs_review`, `review_reasons`, `code_check` (taslağın sonucu; taslak yoksa
+      `null`).
   - Raporu okumak (`GET`) kayıt üretmez.
   - `<name>` API anahtarının sunucudaki kaydından gelir; istek gövdesinden okunmaz.
   - Reddedilen istekler (401 / 403 / 404 / 409 / 422) inceleme durumunu ve audit log'u değiştirmez;
