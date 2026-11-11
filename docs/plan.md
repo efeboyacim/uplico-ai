@@ -27,7 +27,9 @@
   ek listesi, **okunamayan değer ifadesi** (kod sayı içeren ifadeyi sessizce atmaz; okunan sayı
   yazılan sayının tamamıdır), önekli tutar, yer tutucuların sayı sayılmaması, `==` için aralık
   karşılaştırması, modelin `unit`'i, alıntının sözcüğü / sayıyı / değer ifadesini ortasından
-  kesememesi, `enabled=False`'ta alıntının ve `code_check`'in dokunulmadan kalması. Yeni zorunlu
+  kesememesi, `compliant` bulguda maddenin alıntı dışında kalan değerlerinin de `check` ile
+  karşılaştırılması (dar alıntı kuralı çiğneyen değeri gizleyemez), `enabled=False`'ta alıntının ve
+  `code_check`'in dokunulmadan kalması. Yeni zorunlu
   test "Okunamayan değer atılmaz" `evals.md` §2'ye eklendi. `pii.py`'deki yer tutucu kalıbı
   `PLACEHOLDER` adıyla dışa açıldı (`verify.py` aynı kalıbı kullanır). Adım 18 için not: kapalı
   listeler gereksiz yönlendirme üretir ("5 ayrı", "onay günü"); oran eval'de görülecek.

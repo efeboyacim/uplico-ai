@@ -66,6 +66,13 @@
   `ambiguous_value`. Yalnızca "5 iş günü" → `numeric_mismatch`. "30 takvim günü" 30 gün okunur.
   Listede olmayan ek ("5 ayrı") okunamayandır. Değişmez: "sayı + birim kökü + herhangi bir ek"
   ya değer ya da okunamayan ifade verir; hiçbir zaman boş dönmez.
+- **Alıntının dışındaki değer:** madde "Ödeme 30 gün içinde, gecikme halinde 90 güne kadar
+  yapılır.", alıntı "30 gün içinde", kural "en fazla 60 gün", model `compliant` →
+  `numeric_mismatch`, kuyruk. Madde "Satıcı 30 gün içinde teslim eder. Alıcı 30 gün içinde öder,
+  aksi halde 5 gün içinde fesheder.", aynı alıntı, kural "en az 30 gün" → `numeric_mismatch`.
+  Alıntı dışında "5 iş günü" → `ambiguous_value`; "1 ay" ("en az 30 gün") →
+  `unit_conversion_uncertain`. Kuralı sağlayan değer kuyruğa düşürmez: "45 gün vade … 10 gün
+  itiraz", kural "en fazla 45 gün" → sebep yok. `non_compliant` bulguda alıntı dışına bakılmaz.
 - **Kritik kural:** `normal` kuralın `not_found` sonucu da `critical` kuralınki de kuyruğa düşer
   (`unverified_not_found`); `critical` olanda ek sebep `critical_not_found`.
 - **Taslak kontrolü:** "en az 30 gün" kuralı için "15 gün" yazan taslak → `code_check=failed`,

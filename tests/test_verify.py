@@ -1297,7 +1297,7 @@ def test_verify_on_own_output_same_result_with_expressions_and_prefixes() -> Non
     ]
     once = verify(findings, rules, [_clause(clause)], False)
     assert [f.review_reasons for f in once] == [
-        [],
+        ["ambiguous_value"],  # "₺1,5 milyon" outside the quote cannot be read
         [],
         ["numeric_mismatch"],
         ["quote_not_found", "proposal_noncompliant"],
@@ -1331,3 +1331,86 @@ def test_verify_findings_order_and_length_kept() -> None:
 def test_verify_hours_next_to_days_ambiguous() -> None:
     quote = "30 gün önceden, acil hallerde 48 saat önceden bildirilir"
     assert _reasons(_finding(quote), AT_LEAST_30_DAYS) == ["ambiguous_value"]
+
+
+# --- Values written in the clause outside the quote ----------------------------------------------
+
+AT_MOST_45_DAYS = _rule("<=", 45, "gün")
+
+
+@pytest.mark.parametrize(
+    ("clause", "quote", "rule", "expected"),
+    [
+        (
+            "Ödeme 30 gün içinde, gecikme halinde 90 güne kadar yapılır.",
+            "30 gün içinde",
+            AT_MOST_60_DAYS,
+            ["numeric_mismatch"],
+        ),
+        (
+            "Satıcı 30 gün içinde teslim eder. Alıcı 30 gün içinde öder, "
+            "aksi halde 5 gün içinde fesheder.",
+            "30 gün içinde",
+            AT_LEAST_30_DAYS,
+            ["numeric_mismatch"],
+        ),
+        # The breaking value stands before the quote.
+        (
+            "Alıcı 5 gün önceden, Satıcı 30 gün önceden bildirir.",
+            "Satıcı 30 gün önceden",
+            AT_LEAST_30_DAYS,
+            ["numeric_mismatch"],
+        ),
+        (
+            "Satıcı 30 gün önceden, Alıcı ise 5 iş günü önceden bildirir.",
+            "Satıcı 30 gün önceden",
+            AT_LEAST_30_DAYS,
+            ["ambiguous_value"],
+        ),
+        (
+            "Satıcı 45 gün önceden, Alıcı ise 1 ay önceden bildirir.",
+            "Satıcı 45 gün önceden",
+            AT_LEAST_30_DAYS,
+            ["unit_conversion_uncertain"],
+        ),
+        # Unreadable and breaking together: ambiguous_value only.
+        (
+            "Satıcı 30 gün önceden, Alıcı 5 gün ya da 2 iş günü önceden bildirir.",
+            "Satıcı 30 gün önceden",
+            AT_LEAST_30_DAYS,
+            ["ambiguous_value"],
+        ),
+        # A value that satisfies the rule changes nothing.
+        (
+            "Ödeme vadesi 45 gün olup itiraz süresi 10 gündür.",
+            "Ödeme vadesi 45 gün",
+            AT_MOST_45_DAYS,
+            [],
+        ),
+        # Another kind's value outside the quote is not looked at.
+        (
+            "Bildirim 30 gün önceden yapılır; gecikme cezası %5 ve 100 TL olur.",
+            "Bildirim 30 gün önceden",
+            AT_LEAST_30_DAYS,
+            [],
+        ),
+    ],
+)
+def test_verify_compliant_value_outside_quote(
+    clause: str, quote: str, rule: Rule, expected: list[str]
+) -> None:
+    assert _reasons(_finding(quote), rule, clause) == expected
+
+
+def test_verify_non_compliant_outside_quote_not_checked() -> None:
+    clause = "Satıcı 15 gün önceden, Alıcı 5 gün önceden bildirir."
+    finding = _finding(
+        "Satıcı 15 gün önceden", status="non_compliant", proposal=_proposal("30 gün")
+    )
+    assert _reasons(finding, AT_LEAST_30_DAYS, clause) == []
+
+
+def test_verify_outside_quote_not_checked_when_disabled() -> None:
+    clause = "Ödeme 30 gün içinde, gecikme halinde 90 güne kadar yapılır."
+    out = verify([_finding("30 gün içinde")], [AT_MOST_60_DAYS], [_clause(clause)], False, False)
+    assert out[0].review_reasons == []

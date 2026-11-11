@@ -793,8 +793,8 @@ def _cuts(text: str, pos: int, end: int) -> bool:
     )
 
 
-def _match_quote(quote: str | None, clause: Clause | None) -> str | None:
-    """The clause's own text for the quote's first clean match after normalization, or None.
+def _match_quote(quote: str | None, clause: Clause | None) -> tuple[int, int] | None:
+    """Where the quote first matches cleanly, as a range of the clause's own text, or None.
 
     A match must start and end on a source boundary and must not cut a word, a number or a value
     expression of any kind (read or unreadable): every value read from the quote is then the whole
@@ -817,8 +817,7 @@ def _match_quote(quote: str | None, clause: Clause | None) -> str | None:
             and not _cuts(hay.text, pos, end)
             and not any(start < edge < stop for start, stop in spans for edge in (pos, end))
         ):
-            start_orig, end_orig = hay.span(pos, end)
-            return clause.text[start_orig:end_orig]
+            return hay.span(pos, end)
         pos = hay.text.find(needle, pos + 1)
     return None
 
@@ -860,6 +859,30 @@ def _numeric_reasons(finding: Finding, check: Check, quote: str) -> set[ReviewRe
     return reasons
 
 
+def _outside_reasons(check: Check, clause_text: str, start: int, end: int) -> set[ReviewReason]:
+    """Signals from the values of the rule's kind written in the clause outside the quote.
+
+    Only for a `compliant` finding whose quote passed: a narrow quote must not hide a value that
+    breaks the rule. Each value is compared with the check on its own; one that satisfies it
+    changes nothing. A match never cuts a value expression, so the text before and the text after
+    the match hold whole expressions.
+    """
+    reasons: set[ReviewReason] = set()
+    for part in (clause_text[:start], clause_text[end:]):
+        extraction = extract(part, _KIND_OF_UNIT[check.unit])
+        if extraction.unreadable:
+            reasons.add("ambiguous_value")
+        for value in extraction.values:
+            verdict = _evaluate([value], check)
+            if verdict is None:
+                reasons.add("unit_conversion_uncertain")
+            elif not verdict:
+                reasons.add("numeric_mismatch")
+    if "ambiguous_value" in reasons:
+        reasons.discard("numeric_mismatch")
+    return reasons
+
+
 def _proposal_check(text: str, check: Check | None) -> CodeCheck:
     if check is None:
         return "unverifiable"
@@ -894,9 +917,13 @@ def _verify_one(
             if matched is None:
                 reasons.add("quote_not_found")
             else:
-                quote = matched
-                if rule.check is not None:
-                    reasons |= _numeric_reasons(finding, rule.check, matched)
+                start, end = matched
+                quote = clause.text[start:end] if clause is not None else quote
+                if rule.check is not None and quote is not None and clause is not None:
+                    numeric = _numeric_reasons(finding, rule.check, quote)
+                    if not numeric and finding.status == "compliant":
+                        numeric = _outside_reasons(rule.check, clause.text, start, end)
+                    reasons |= numeric
         elif finding.no_finding_reason is None:
             reasons.add("unverified_not_found")
             if rule.severity == "critical":
