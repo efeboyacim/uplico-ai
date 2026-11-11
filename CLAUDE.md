@@ -29,8 +29,9 @@ Uygulama `docs/plan.md`'deki adımlarla, sırayla yazılır. Hangi adımda olund
 bölümünde ve adım kutularında yazar; bir oturuma başlarken önce oraya bak. Bir adım doğrulanıp
 commit edilince dur ve sıradaki adıma geçmeden önce kullanıcıdan onay al.
 
-**Şu an:** Adım 0–10 bitti (Adım 10: `src/graph.py`; `review_rule` × N, `verify`, `human_review`).
-Sıradaki: Adım 11 — API: inceleme başlatma ve okuma.
+**Şu an:** Adım 0–11 bitti (Adım 11: `src/api.py`; `POST /reviews`, `GET /reviews/{id}`,
+`GET /reviews/{id}/audit`, anahtardan tenant ve rol, sabit alan listeli yanıt).
+Sıradaki: Adım 12 — Docker Compose ve ilk gerçek model denemesi.
 
 ## Komutlar
 ```bash

@@ -574,7 +574,7 @@ avukata kural sonucu gibi gitmez.
     | Doğrulama | `verification` (bulgu başına bir satır: sinyaller, taslağın `code_check` sonucu) |
     | Avukat | `awaiting_lawyer`, `finding_decision`, `proposal_decision` (düzenlenmiş metin maskeli), `contract_decision` |
     | Kapanış | `report_created` (raporun üretileceği son sonuç kaydedildi; rapor dosyası oluşturulmaz), `review_closed` |
-    | Hata | `review_failed` (sebep) |
+    | Hata | `review_failed` (`reason`: `prepare_error` / `provider_config` / `internal_error`) |
 
   - Kim yazar: hazırlık olaylarını hazırlık fonksiyonu; `model_call` / `tool_call` middleware'leri;
     `finding`'i `review_rule` (`actor` = `agent`; kodun kurduğu `no_finding` bulgusunda da, sebep
@@ -584,6 +584,15 @@ avukata kural sonucu gibi gitmez.
     `report_created` ve `review_closed`'ı `finalize`.
   - İstisna: hazırlık yarıda kalırsa `review_failed`'ı (`reason: prepare_error`) hazırlık
     fonksiyonunun kendisi yazar; çağıran o noktada `review_id`'yi henüz bilmez.
+  - **API'nin yazdığı olaylar** (`actor` = `system`):
+    - `awaiting_lawyer`: `{finding_count, needs_review_count}`. `Store.save_findings` bu satırı
+      bulguları ve `awaiting_lawyer` durumunu yazdığı transaction'da ekler (ya hepsi ya hiçbiri).
+    - `review_failed`: `{reason}`. Graph'tan `config` sınıfı hata çıkarsa `provider_config` (HTTP
+      502), başka her hatada `internal_error` (HTTP 500; graph `interrupt`'a ulaşmadan dönerse ya
+      da bulgular kaydedilemezse de). Hata metni yazılmaz (sözleşme metni taşıyabilir); uygulama
+      loguna yalnızca hata sınıfının adı düşer. Sıra: `mark_failed`, sonra `review_failed`; biri
+      hata verirse loglanır ve asıl hatayı gizlemez (`prepare_contract`'taki temizlik düzeni).
+    - İndeks başarıda da hatada da API tarafından silinir.
   - **Agent olaylarının yükü** (`actor` = `agent`):
     - `model_call`: `rule_id`, `system_prompt`, `messages` (modele giden tüm mesajlar; her biri
       `role`, `content`, varsa `tool_calls` ve `tool_call_id`), `response` (`content`,

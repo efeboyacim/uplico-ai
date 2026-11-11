@@ -127,6 +127,18 @@
   yanıtlarında `pii_values`'tan hiçbiri geçmez ve asıl sözleşme metni yoktur; `lawyer` inceleme ve
   rapor yanıtlarında geçer; audit yanıtı her iki rolde de maskelidir. Şüpheli ifadenin içinde bir
   kimlik bilgisi olan sözleşmede de `viewer` yanıtı ve audit log ham değeri içermez.
+- **Yanıt sabit alan listesiyle kurulur:** `viewer` inceleme yanıtının anahtar kümesi inceleme,
+  madde, işaret ve bulgu düzeyinde beklenen kümeyle birebir aynıdır (maddede `start` / `end`,
+  işarette `start` / `end` / `detail` yok). `lawyer` yanıtı aynı küme artı `original_text`, madde
+  ofsetleri ve işaret konumlarıdır.
+- **`awaiting_lawyer` yazımı atomiktir:** audit satırının yazımı hata verirse durum `running`
+  kalmaz ama `awaiting_lawyer` da olmaz: inceleme `failed`, API 500, bulgular kayıtta yok.
+- **Graph hatası → `failed`:** `config` sınıfı hata 502 + `review_failed` (`provider_config`); başka
+  hata (tool gövdesi, hazırlık) 500 + `review_failed` (`internal_error` / `prepare_error`).
+  `review_failed` son audit satırıdır; indeks başarıda da hatada da silinmiştir.
+- **Bozuk JSON istisnası:** anahtarsız, sözdizimi bozuk JSON gövdeli `POST /reviews` 422 döner ve
+  hiçbir inceleme oluşmaz; gövdesiz ya da şeması yanlış anahtarsız istek 401 döner.
+- **Otomatik doküman uçları kapalı:** `/docs`, `/redoc`, `/openapi.json` 404 döner.
 - **Kayıt uygulama üzerinden değiştirilemez:** `audit_log` üzerinde `UPDATE` ve `DELETE` çalıştırılır
   → ikisi de hata verir, satır değişmez.
 - **Kayıt eksiksiz:** sahte modelle baştan sona bir inceleme → audit log'da `review_started`,

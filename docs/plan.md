@@ -121,7 +121,36 @@
   çalışır; gerçek Docker bind mount'unda denenecek. Sorun çıkarsa yedekler: bağlantı
   `SqliteSaver`'a verilmeden önce `PRAGMA locking_mode=EXCLUSIVE` (WAL `-shm` dosyasız; ikinci
   süreç dosyayı açamaz) ya da `setup()`'tan sonra `journal_mode=DELETE`'e dönmek.
-- **Sıradaki:** Adım 11 — API: inceleme başlatma ve okuma.
+  Adım 11: `src/api.py` (`create_app(settings)`, `get_principal`, `require_lawyer`,
+  `POST /reviews`, `GET /reviews/{id}`, `GET /reviews/{id}/audit`, `python -m src.api` →
+  `0.0.0.0:8000`) yazıldı; `Store.save_findings` değişti. Bu sırada alınan kararlar
+  `architecture.md` §2–§3, `agent_design.md` §7, `code_standards.md`, `evals.md` §2 ve
+  `tech_stack.md`'ye işlendi: (1) `save_findings` `awaiting_lawyer` durumunu ve audit satırını
+  (`{finding_count, needs_review_count}`, `system`) **tek transaction'da** yazar; ayrı yazılsaydı
+  ikinci yazımın hatası audit satırı olmayan, `failed` de yapılamayan bir inceleme bırakırdı.
+  (2) Yanıtlar **sabit alan listesiyle** kurulur (`*View` modelleri; kayıt dökülüp alan silinmez);
+  `lawyer` alanları açıkça eklenir, maske yalnızca `_unmask_lawyer_view`'de açılır, `viewer` için
+  `get_pii_map` çağrılmaz. İnceleme yanıtında `provider`, `model` ve karar alanları yoktur.
+  (3) `viewer` madde ofsetlerini de almaz (ofset ile maskeli metin farkı değer uzunluğunu verir).
+  İşaret konumları ise gizli sayılmaz: `injection_flagged` audit satırında durur ve `viewer` onu
+  okur; inceleme yanıtına konmamalarının sebebi asıl metin olmadan işe yaramamalarıdır.
+  (4) Sözdizimi bozuk JSON kimlik kontrolünden önce 422 alır (FastAPI 0.162.4'te script'le
+  sınandı; gövdesiz, şeması yanlış ya da JSON olmayan anahtarsız istek 401 alır); middleware
+  yazılmadı, sınır dokümanda. (5) `review_failed` sebepleri: `prepare_error` / `provider_config`
+  (502) / `internal_error` (500). Kurallar ve graph hazırlıktan önce alınır (hata `running` satır
+  bırakmaz); indeks başarıda da hatada da silinir; yanıta ve loga hata metni girmez. (6) İstek
+  modeli bilinmeyen alanı yok sayar; `text` boş ya da yalnızca boşluk olamaz. (7) `create_app`,
+  anahtarlardaki her tenant'ın bilinen tenant olduğunu başlangıçta doğrular (`ConfigError`).
+  Uygulamayı bir alt-agent yazdı; üç bağımsız inceleme (güvenlik değişmezleri, hata yolları,
+  testlerin kanıt gücü) tek bulgu verdi (işaret konumlarının doğruluğu sınanmıyordu) ve test
+  güçlendirildi. Sunucu `python -m src.api` ile elle başlatılmadı; Adım 12'de denenir.
+  Adım 13 için notlar: karar alanları yanıta `*View` modellerine eklenerek girer; yeni metin
+  alanı `_unmask_lawyer_view`'e de yazılır (unutulursa `lawyer` yer tutucu görür, sızıntı olmaz).
+  Adım 15 için not: rota dolaşan iki test yalnızca `APIRoute`'ları sayar; arayüz `StaticFiles`
+  ile `Mount` edilirse testlerin kapsamı dışında kalır, sayfa `GET /` rotası olarak eklenmelidir.
+  Açık gözlemler (değiştirilmedi): FastAPI'nin 422 gövdesi çağıranın kendi girdisini yansıtır;
+  anahtar araması düz sözlük aramasıdır (sabit zamanlı karşılaştırma yok).
+- **Sıradaki:** Adım 12 — Docker Compose ve ilk gerçek model denemesi.
 - Bu bölüm her adımın commit'inde güncellenir; sıradaki adım, aşağıdaki ilk işaretsiz kutudur.
 
 ## Bağlam
@@ -532,7 +561,7 @@ gereksiz yönlendirme satırları bunu gösterir.
   (`UnknownTenantError`).
 - **Commit:** `feat: add review graph with per-rule fan-out and single interrupt`
 
-### [ ] Adım 11 — API: inceleme başlatma ve okuma
+### [x] Adım 11 — API: inceleme başlatma ve okuma
 - **Ne:** `get_principal` (anahtar → tenant + rol + ad) ve `require_lawyer` bağımlılıkları;
   `POST /reviews`, `GET /reviews/{id}`, `GET /reviews/{id}/audit`; role göre gösterim (maske açma
   yalnızca yanıt üretilirken, `lawyer` için); graph döndükten sonra `awaiting_lawyer` yazımı ve
@@ -560,7 +589,9 @@ gereksiz yönlendirme satırları bunu gösterir.
 - **Giriş noktası:** modül düzeyinde `app` yoktur. `create_app(settings: Settings) -> FastAPI`
   uygulamayı kurar; `python -m src.api` önce `load_settings_or_exit()` çağırır, sonra
   `uvicorn.run(create_app(settings))`. Testler `create_app(load_settings(env={...}))` ile kurar.
-- **Dosyalar:** `src/api.py`, `tests/test_api.py`
+- **Dosyalar:** `src/api.py`, `tests/test_api.py`, `src/store.py` (`save_findings` atomik),
+  `tests/test_store.py`, `docs/architecture.md`, `docs/agent_design.md`, `docs/code_standards.md`,
+  `docs/evals.md`, `docs/tech_stack.md`, `CLAUDE.md`
 - **Doğrulama:** Testler: *Tenant izolasyonu* (404), *Tenant parametresi yok sayılır*, *Tüm yazma
   uçları `lawyer` ister* ve *Anahtar yok / tanınmıyor* (ikisi de rota listesini dolaşır; sonradan
   eklenen uçları kendiliğinden kapsar), *Kimlik / yapılandırma hatası* (`failed`, 502,

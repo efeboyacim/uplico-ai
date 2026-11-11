@@ -25,6 +25,10 @@
   başka tenant'ın kaynağı **404** (403 değil), yanlış durum **409**, geçersiz gövde **422**,
   sağlayıcı kimlik ya da yapılandırma hatası **502**, graph'tan fırlayan başka her hata **500**
   (inceleme `failed`).
+- API hata yanıtına ve loga hata metni konmaz (sözleşme metni ya da PII taşıyabilir); yanıtta sabit
+  bir Türkçe mesaj, logda yalnızca hata sınıfının adı olur.
+- Sözdizimi bozuk JSON gövdesi kimlik kontrolünden önce 422 alır (FastAPI gövdeyi bağımlılıklardan
+  önce ayrıştırır); bu bilinen tek sıra istisnasıdır (`architecture.md` "Kimlik ve rol").
 - Doğrulanamayan bulgu ya da taslak silinmez; `needs_review` ve sebebiyle işaretlenir.
 - Son karardan önce rapor istenirse **409** döner.
 
@@ -99,6 +103,8 @@
   **tek transaction'da** yazılır: her işaret yine kendi satırını alır, ama ya hepsi yazılır ya hiçbiri.
   Satır başına ayrı commit, işaret sayısıyla doğrusal büyüyen bir süre demektir (4000 işaret ≈ 26 sn);
   sözleşmeyi yazan kişi bu sayıyı belirlediği için bu bir meşgul etme yoludur.
+- Durum değişikliği ile onu anlatan audit satırı ayrı transaction'lara bölünmez: `save_findings`
+  `awaiting_lawyer` durumunu ve `awaiting_lawyer` satırını birlikte yazar.
 - Testler paylaşılan bağlantıları `close_all()` ile, derlenmiş graph'ları ve checkpoint
   bağlantılarını `close_graphs()` ile kapatır (`tests/conftest.py`, her testten sonra, autouse
   fixture); Windows'ta açık bağlantı `tmp_path` dosyalarını kilitler. Uygulama kodu ikisini de
@@ -132,6 +138,11 @@
   görünmez karakterler çıkarılır, başka hiçbir metin silinmez.
 - Maske açma tek bir fonksiyondadır ve yalnızca yanıt üretilirken, `lawyer` rolü için çağrılır.
   `viewer` yanıtlarında ve audit yanıtlarında çağrılmaz. Endpoint içinde elle maske açılmaz.
+- Yanıtlar sabit alan listesiyle kurulur: yanıt modelleri alanlarını tek tek adlandırır; bir kayıt
+  ya da `Finding` dökülüp içinden alan silinerek yanıt üretilmez. `lawyer`'a özel alanlar ayrı ve
+  açıkça eklenir. `viewer` için `get_pii_map` çağrılmaz.
+- İstek modelleri bilinmeyen alanı yok sayar (`extra="ignore"`); `_Model`'den (`extra="forbid"`)
+  türetilmez. Gövdedeki `tenant` / `role` gibi alanlar 422 üretmez, hiçbir şeyi de değiştirmez.
 - `GROQ_API_KEY` loglanmaz, hata mesajına ve audit log'a yazılmaz.
 - Tüm DB erişimi `Store(data_dir, tenant_id)` üzerinden yapılır.
 - `tenant_id` ve rol yalnızca API anahtarından çözülür (`get_principal` bağımlılığı). Hiçbir endpoint

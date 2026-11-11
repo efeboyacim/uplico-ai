@@ -33,6 +33,7 @@ DecidedStatus = Literal["approved", "changes_requested"]
 
 _DB_NAME = "app.db"
 _RULES_NAME = "rules.yaml"
+_SYSTEM_ACTOR = "system"
 _AUDIT_EVENTS: frozenset[str] = frozenset(get_args(AuditEvent))
 _DECIDED_STATUSES: frozenset[str] = frozenset(get_args(DecidedStatus))
 
@@ -274,13 +275,31 @@ class Store:
             return cursor.rowcount == 1
 
     def save_findings(self, review_id: str, findings: Sequence[Finding]) -> bool:
+        """Store the verified findings, move `running` to `awaiting_lawyer` and append the
+        `awaiting_lawyer` audit row, all in one transaction: all of it or none.
+
+        Returns False (and writes nothing) when the review is not `running`.
+        """
         findings_json = _dumps([f.model_dump(mode="json") for f in findings])
+        payload_json = _dumps(
+            {
+                "finding_count": len(findings),
+                "needs_review_count": sum(1 for f in findings if f.needs_review),
+            }
+        )
         with self._write() as conn:
             cursor = conn.execute(
                 "UPDATE reviews SET findings = ?, status = ? WHERE review_id = ? AND status = ?",
                 (findings_json, "awaiting_lawyer", review_id, "running"),
             )
-            return cursor.rowcount == 1
+            if cursor.rowcount != 1:
+                return False
+            conn.execute(
+                "INSERT INTO audit_log (ts, review_id, actor, event, payload) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (_now(), review_id, _SYSTEM_ACTOR, "awaiting_lawyer", payload_json),
+            )
+            return True
 
     def complete_review(
         self,

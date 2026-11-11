@@ -57,7 +57,7 @@ Doğrulanamayan `spec.md` §10'da açık sorudur: `gpt-oss-120b`'nin Türkçe ka
   README bunu yazar.
 
 ## Uygulama katmanı
-- API: FastAPI + uvicorn (senkron endpoint'ler)
+- API: FastAPI + uvicorn (senkron endpoint'ler); `python -m src.api` `0.0.0.0:8000`'de dinler
 - Veritabanı: SQLite (stdlib `sqlite3`) — tenant başına ayrı dosya
 - Graph state: `langgraph-checkpoint-sqlite` (`SqliteSaver`) — tenant başına ayrı dosya,
   `sqlite3.connect(path, check_same_thread=False)` ile

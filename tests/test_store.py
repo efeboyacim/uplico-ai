@@ -506,6 +506,50 @@ def test_review_save_findings_twice_returns_false_and_keeps_first(data_dir: Path
     assert record is not None and record.findings == _findings()
 
 
+def test_review_save_findings_appends_awaiting_lawyer_row(data_dir: Path) -> None:
+    store = Store(data_dir, "acme")
+    review_id = store.create_review("metin", "groq", "m")
+    findings = [*_findings(), Finding(rule_id="liability_cap", status="not_found")]
+    assert store.save_findings(review_id, findings) is True
+    [row] = store.list_audit(review_id)
+    assert row.event == "awaiting_lawyer"
+    assert row.actor == "system"
+    assert row.payload == {"finding_count": 3, "needs_review_count": 2}
+
+
+def test_review_save_findings_not_running_writes_no_audit_row(data_dir: Path) -> None:
+    store = Store(data_dir, "acme")
+    review_id = store.create_review("metin", "groq", "m")
+    store.mark_failed(review_id)
+    assert store.save_findings(review_id, _findings()) is False
+    assert store.save_findings(str(uuid.uuid4()), _findings()) is False
+    assert store.list_audit(review_id) == []
+    awaiting = store.create_review("metin", "groq", "m")
+    assert store.save_findings(awaiting, []) is True
+    assert store.save_findings(awaiting, _findings()) is False
+    assert [r.event for r in store.list_audit(awaiting)] == ["awaiting_lawyer"]
+
+
+def test_review_save_findings_audit_failure_rolls_back_status_and_findings(
+    data_dir: Path,
+) -> None:
+    store = Store(data_dir, "acme")
+    review_id = store.create_review("metin", "groq", "m")
+    # TEMP: the trigger lives on the store's shared connection, not in the database file.
+    store._conn.execute(
+        "CREATE TEMP TRIGGER fail_awaiting BEFORE INSERT ON main.audit_log "
+        "WHEN NEW.event = 'awaiting_lawyer' BEGIN SELECT RAISE(ABORT, 'yazilamadi'); END"
+    )
+    with pytest.raises(sqlite3.IntegrityError, match="yazilamadi"):
+        store.save_findings(review_id, _findings())
+    record = store.get_review(review_id)
+    assert record is not None
+    assert record.status == "running"
+    assert record.findings == []
+    assert store.list_audit(review_id) == []
+    assert not store._conn.in_transaction
+
+
 def test_review_complete_with_invalid_status_raises(data_dir: Path) -> None:
     store = Store(data_dir, "acme")
     review_id = store.create_review("metin", "groq", "m")
