@@ -144,7 +144,7 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   - **Varsayılan modda maskeli sözleşme metni makineden çıkar ve Groq'a gider.** (Groq sakladığı
     veriyi ABD'de tutar; çıkarımın hangi ülkede yapıldığı belgelerinde yazmıyor.) Buna
     maskelenmeyen her şey dahildir: tutarlar, fiyatlar, ticari şartlar, şirket adları ve maskelemenin
-    kaçırdığı kimlik bilgileri (gövdede geçen ad, öneksiz telefon, boşluklu TCKN / IBAN).
+    kaçırdığı kimlik bilgileri (gövdede geçen ad, öneksiz telefon, boşluklu TCKN, düzensiz gruplanmış ya da satıra bölünmüş IBAN).
   - **"Veri makineden çıkmaz" yalnızca çevrimdışı mod (`LLM_PROVIDER=ollama`, LangSmith kapalı) için
     doğrudur.**
   - Arama her iki modda yereldir (yalnızca BM25, süreç içinde). PII eşlemesi ve ham sözleşme hiçbir
@@ -201,7 +201,7 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   o şirketin avukatıdır; kayda anahtarın sunucudaki adı yazılır. Anahtarı ele geçiren o rolü kazanır.
 - Sözleşmeler "Madde N" başlıklarıyla yazılmış, 5–30 sayfa arası.
 - Kişi adı maskeleme en iyi çabadır (taraf/imza blokları); gövdede geçen adlar, öneksiz telefon ve
-  boşluklu yazılmış TCKN / IBAN kaçabilir.
+  boşluklu yazılmış TCKN ile düzensiz gruplanmış ya da satıra bölünmüş IBAN kaçabilir.
 - Varsayılan mod bir Groq hesabı ve `GROQ_API_KEY` gerektirir. Geliştirme hesabında 250K TPM
   geçerlidir (teyit edildi); tam eval buna göre tasarlandı. Düşük limitli bir hesapta (8K TPM /
   200K TPD) tam eval bir güne sığmaz (`tech_stack.md` "Hangi plan?").

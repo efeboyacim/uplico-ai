@@ -244,7 +244,9 @@ yoktur.**
   - **Yalnızca kimlik bilgileri maskelenir:** TCKN, IBAN, telefon, e-posta, kişi adı.
   - **Maskelenmez:** tutarlar, süreler, tarihler, yüzdeler, madde numaraları, şirket adları. Kurallar
     bu değerlere ihtiyaç duyar; maskelenirlerse doğrulama çalışmaz.
-  - TCKN: 11 hane + checksum · IBAN: `TR` + mod-97 · e-posta: regex.
+  - TCKN: 11 hane + checksum · IBAN: `TR` + 24 hane + mod-97; bitişik ya da
+    standart dörtlü gruplarla (`TR33 0006 1005 1978 6457 8413 26`; gruplar arasında tek boşluk ya da
+    bölünemez boşluk) · e-posta: regex.
   - Telefon: yalnızca `+90` ya da `0` öneki ve ardından 3-3-2-2 haneli gruplar (`0XXX XXX XX XX`).
     Gruplar arasında en fazla tek bir boşluk, nokta ya da tire olabilir; grup içinde ayraç olmaz.
     Öneksiz rakam grupları eşleşmez; böylece tutar ("1.250.000 TL"), süre ("90 gün"), tarih
@@ -289,8 +291,8 @@ yoktur.**
     `lawyer` görünümünde eşlemedeki değerle açılabilir.
   - Aynı maskeleyici, avukatın karar sırasında yazdığı düzenlenmiş taslak metnine de uygulanır
     (incelemenin mevcut eşlemesiyle). Orada eşlemede olmayan yeni bir kişi adı yakalanmaz.
-  - Sınır: maskelenmesi garanti edilmeyenler kaçabilir: gövdede geçen ad, öneksiz telefon, boşluklu
-    TCKN / IBAN, etiketsiz imza satırındaki ad. Ad sözleşmenin hiçbir yerinde bir etiketin
+  - Sınır: maskelenmesi garanti edilmeyenler kaçabilir: gövdede geçen ad, öneksiz telefon,
+    boşluklu TCKN, düzensiz gruplanmış ya da satıra bölünmüş IBAN, etiketsiz imza satırındaki ad. Ad sözleşmenin hiçbir yerinde bir etiketin
     ("Ad Soyad:", "Yetkili:", "temsilen") yanında geçmiyorsa hiçbir yazımı yakalanmaz: imza
     bloğunda yalnızca "AHMET YILMAZ" satırı, gövdede "Ahmet Yılmaz" varsa ikisi de modele gider.
     Varsayılan modda maskelenmeyen her şey Groq'a gider (`architecture.md` §6 "Veri nereye gidiyor");

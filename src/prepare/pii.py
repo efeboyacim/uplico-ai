@@ -43,8 +43,18 @@ _BOUNDARIES: dict[str, tuple[str, str]] = {
 _EMAIL = re.compile(
     _EMAIL_BEFORE + r"[A-Za-z0-9._%+\-]+@(?:[A-Za-z0-9\-]+\.)+[A-Za-z]{2,}" + _EMAIL_AFTER
 )
-# Compact only: an IBAN written in groups with spaces is a documented limit.
-_IBAN = re.compile(_ALNUM_BEFORE + r"TR[0-9]{24}" + _ALNUM_AFTER)
+# Compact or in the standard print grouping ("TR33 0006 1005 1978 6457 8413 26"): at most one
+# space or no-break space at each group boundary. Other groupings are a documented limit.
+_IBAN_GAP = "[ \u00a0]?"
+_IBAN = re.compile(
+    _ALNUM_BEFORE
+    + r"TR[0-9]{2}(?:"
+    + _IBAN_GAP
+    + r"[0-9]{4}){5}"
+    + _IBAN_GAP
+    + r"[0-9]{2}"
+    + _ALNUM_AFTER
+)
 _TCKN = re.compile(r"(?<![0-9])[1-9][0-9]{10}(?![0-9])")
 # "+90" or "0", then 3-3-2-2 digits; at most one space, dot or hyphen between parts. No generic
 # digit-group pattern, so amounts, durations and dates are never taken for a phone number.
@@ -364,7 +374,8 @@ def _tckn_valid(digits: str) -> bool:
 
 
 def _iban_valid(iban: str) -> bool:
-    rearranged = iban[4:] + iban[:4]
+    compact = "".join(iban.split())
+    rearranged = compact[4:] + compact[:4]
     numeric = "".join(str(int(ch, 36)) for ch in rearranged)
     return int(numeric) % 97 == 1
 

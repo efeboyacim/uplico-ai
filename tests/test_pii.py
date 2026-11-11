@@ -127,9 +127,18 @@ def test_mask_iban_valid_masked() -> None:
     assert mapping == {"[IBAN_1]": IBAN}
 
 
-@pytest.mark.parametrize("iban", [IBAN_BAD, IBAN_SPACED])
-def test_mask_iban_bad_checksum_or_spaced_not_masked(iban: str) -> None:
-    # The spaced form is a documented limit (docs/agent_design.md "Sınır").
+@pytest.mark.parametrize(
+    "iban",
+    [
+        IBAN_BAD,
+        "TR34 0006 1005 1978 6457 8413 26",  # grouped, wrong checksum
+        "TR33  0006 1005 1978 6457 8413 26",  # two spaces
+        "TR33 000 61005 1978 6457 8413 26",  # irregular grouping (documented limit)
+        "TR33 0006 1005 1978\n6457 8413 26",  # split over two lines (documented limit)
+        "TR33-0006-1005-1978-6457-8413-26",
+    ],
+)
+def test_mask_iban_bad_checksum_or_irregular_grouping_not_masked(iban: str) -> None:
     text = f"IBAN: {iban}"
     assert _mask(text) == (text, {})
 
@@ -531,3 +540,28 @@ def test_mask_name_other_case_inside_longer_word_not_masked() -> None:
 def test_mask_unlabelled_name_everywhere_nothing_masked_documented_limit() -> None:
     text = _BODY + "AHMET YILMAZ\nİmza:"
     assert mask(text, {}) == (text, {})
+
+
+@pytest.mark.parametrize(
+    "iban",
+    [IBAN_SPACED, IBAN_SPACED.replace(" ", "\u00a0"), "TR33 0006 1005 1978 6457 841326"],
+)
+def test_mask_iban_standard_grouping_masked(iban: str) -> None:
+    text = f"Ödemeler {iban} numaralı hesaba 30 gün içinde yapılır."
+    masked, mapping = mask(text, {})
+    assert masked == "Ödemeler [IBAN_1] numaralı hesaba 30 gün içinde yapılır."
+    assert mapping == {"[IBAN_1]": iban}
+    assert unmask(masked, mapping) == text
+    assert mask(masked, mapping) == (masked, mapping)
+
+
+def test_mask_iban_grouped_and_compact_spelling_two_placeholders() -> None:
+    masked, mapping = mask(f"{IBAN_SPACED} / {IBAN}", {})
+    assert masked == "[IBAN_1] / [IBAN_2]"
+    assert mapping == {"[IBAN_1]": IBAN_SPACED, "[IBAN_2]": IBAN}
+
+
+def test_mask_grouped_iban_followed_by_amount_and_date_only_iban_masked() -> None:
+    text = f"IBAN: {IBAN_SPACED} 1.250.000 TL 01.01.2026 90 gün"
+    masked, _ = mask(text, {})
+    assert masked == "IBAN: [IBAN_1] 1.250.000 TL 01.01.2026 90 gün"

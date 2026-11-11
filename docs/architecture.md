@@ -263,7 +263,7 @@ model adını basan `python -m src.config` eklenir.
 | Maskeli madde metni, kural metni, agent mesajları | **Groq'a gider** | Makinede kalır |
 | Tutarlar, fiyatlar, süreler, tarihler, ticari şartlar, şirket adları | **Groq'a gider** (maskelenmez; kurallar bunlara ihtiyaç duyar) | Makinede kalır |
 | Avukatın düzenlediği taslak metni | Modele gitmez (karar agent çalıştıktan sonra verilir); maskeli saklanır | Makinede kalır |
-| Maskelemenin kaçırdığı kimlik bilgileri (gövdede geçen ad, öneksiz telefon, boşluklu TCKN / IBAN) | **Groq'a gidebilir** | Makinede kalır |
+| Maskelemenin kaçırdığı kimlik bilgileri (gövdede geçen ad, öneksiz telefon, boşluklu TCKN, düzensiz gruplanmış ya da satıra bölünmüş IBAN) | **Groq'a gidebilir** | Makinede kalır |
 | Trace (yalnızca `LANGSMITH_API_KEY` varsa) | LangSmith'e gider, maskeli | Kapalı tutulur |
 
 Groq tarafı (2026-11-10'da okunan belgeler, `tech_stack.md`): varsayılan olarak saklamaz; güvenilirlik

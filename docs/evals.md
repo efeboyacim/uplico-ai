@@ -146,9 +146,9 @@ README'ye sınır olarak yazılır.
   ]
 }
 ```
-`pii_values`: maskelenmesi garanti edilenler (TCKN, IBAN, önekli telefon, e-posta, taraf/imza bloğundaki adlar).
+`pii_values`: maskelenmesi garanti edilenler (TCKN, bitişik ya da dörtlü gruplarla yazılmış IBAN, önekli telefon, e-posta, taraf/imza bloğundaki adlar).
 `pii_best_effort`: maskelenmesi **garanti edilmeyen** her kimlik bilgisi (gövdede geçen ad, öneksiz
-telefon, boşluklu TCKN / IBAN, etiketsiz imza satırındaki ad).
+telefon, boşluklu TCKN, düzensiz gruplanmış ya da satıra bölünmüş IBAN, etiketsiz imza satırındaki ad).
 Değerler maskeleyicinin onları yakalayıp yakalamadığına göre değil, ne olduklarına göre etiketlenir.
 Kuralın önemi (`critical` / `normal`) etiketten değil, tenant'ın `rules.yaml` dosyasından okunur.
 
