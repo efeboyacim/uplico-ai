@@ -40,6 +40,11 @@
   `LLM_PROVIDER=ollama` iken `GROQ_API_KEY` olmadan config yüklenir → hata yok.
 - **Hız limiti → `rate_limited`:** sahte model gerçek `groq.RateLimitError` fırlatır → kural
   `no_finding` (sebep `rate_limited`, `needs_review=true`) döner, diğer kurallar etkilenmez.
+- **Yarıda kesilen koşu avukata gider:** agent bulgu bildirir, sonra (a) adım limitine takılır ya da
+  (b) sonraki model çağrısı hata verir → bulgu korunur, `interrupted_by` doludur, `verify`
+  `run_interrupted` ekler ve `needs_review=true` olur (alıntı ve sayı doğrulansa bile). Bulgu
+  bildirip tam 8. çağrıda kendiliğinden biten koşu işaretlenmez. Bulgu bildirilmemişse sonuç
+  `no_finding`'dir ve agent'ın yazdığı taslak ya da devretme ona eklenmez.
 - **Yeniden deneme sınırlı:** `src/llm.py`'nin kurduğu Groq modeline, her isteğe 429 dönen sahte bir
   HTTP taşıyıcısı verilir (ağ yok) → tam 4 istek atılır, sonra hata fırlar.
 - **Kimlik / yapılandırma hatası:** sahte model Groq 401, 403 ve 404 ile Ollama 404 hatalarını
@@ -203,7 +208,7 @@ Sözleşme 7'de eşik tutmazsa bu dürüstçe raporlanır; tarama kalıbı eklem
 - Eval her sözleşme için graph'ı **bir kez** `interrupt`'a kadar çalıştırır ve state'ten agent'ın ham
   bulgularını (`findings`) alır. Model bir kez çalışır.
 - **Önce:** `verify(..., enabled=False)` — ham bulgular olduğu gibi kabul edilir; yalnızca agent'ın
-  kendi `escalate_to_lawyer` çağrıları ve `no_finding` kuyruğa düşer.
+  kendi `escalate_to_lawyer` çağrıları, `no_finding` ve `run_interrupted` kuyruğa düşer.
 - **Sonra:** `verify(..., enabled=True)` — alıntı, sayı ve tüm sinyaller kontrol edilir.
 - Fark yalnızca doğrulama katmanından gelir. Tek komut iki ölçümü yapar ve tabloyu basar:
 

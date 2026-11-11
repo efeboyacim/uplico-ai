@@ -29,6 +29,10 @@ maddeler girer.
 - Graph tenant başına bir kez derlenir ve önbelleğe alınır:
   `SqliteSaver(sqlite3.connect(path, check_same_thread=False))`. `thread_id = review_id`.
 - `max_concurrency` config anahtarı = `MAX_CONCURRENCY` (varsayılan: Groq 4, Ollama 1).
+- **Kural agent'ı checkpoint'e yazılmaz:** `create_agent(..., checkpointer=False)`. Bu verilmezse
+  agent, içinde çağrıldığı graph'ın `SqliteSaver`'ını devralır ve her kuralın tüm mesaj geçmişini
+  (her adımda) `checkpoints.db`'ye ayrı bir ad alanıyla yazar. Checkpoint yalnızca üst graph'ın
+  state'ini tutar; resume `review_rule`'a geri dönmez.
 
 ## 2. Tool'lar
 Agent'ın **onay verebileceği hiçbir tool yoktur.** `tenant_id`, `review_id`, kural ve indeks modele
@@ -37,7 +41,7 @@ sorulmaz; koddan `ToolRuntime.context` ile gelir.
 ### Okuma tool'ları
 | Ad | Açıklama (LLM'e gösterilen) | Girdi | Çıktı | Limit |
 |---|---|---|---|---|
-| `search_contract` | Kuralla ilgili maddeleri bulmak için sözleşmede ara. İlk adım olarak kullan. | `query: str` | `[{clause_id, clause_no, snippet}]`; özetler `<sozlesme_maddesi>` etiketleri içinde | En fazla 5 madde, 300 karakter özet |
+| `search_contract` | Kuralla ilgili maddeleri bulmak için sözleşmede ara. İlk adım olarak kullan. | `query: str` | Madde başına bir blok: `clause_id=c3 madde_no=5` satırı ve altında `<sozlesme_maddesi>` etiketleri içinde özet | En fazla 5 madde, 300 karakter özet |
 | `get_clause` | Bir maddenin tam metnini oku. Alıntı yapmadan önce mutlaka kullan. | `clause_id: str` | `<sozlesme_maddesi>` etiketleri içinde tam madde metni | Tek madde |
 
 ### Kayıt tool'ları
@@ -58,8 +62,29 @@ Tek etkileri agent state'ine bir öneri yazmaktır; dış sisteme dokunmazlar.
 - Tool'lar yalnızca şemayı ve `clause_id`'nin varlığını kontrol eder. Alıntı, sayı ve taslak
   doğrulaması tool'da değil `verify.py`'dedir.
 - Kayıt tool'ları `Command(update=...)` ile state'e yazar ve `ToolMessage` döner.
+- **Modele giden açıklama docstring'in tamamıdır** (`Args:` bölümü dahil; `runtime` parametresi
+  şemadan çıkar ama docstring'deki metin çıkmaz). Bu yüzden her tool'un docstring'i yukarıdaki
+  tablodaki Türkçe açıklamanın birebir aynısıdır; başka metin içermez.
+- **Madde metni etiketlerin arasına saklandığı gibi konur:** kaçışlanmaz, içindeki bir etiket
+  silinmez (§5 "Girdi güvenliği"; `verify.py` alıntıyı saklanan maskeli metinle eşleştirir). Tool
+  her özetin ve her maddenin ardından kendi kapanış etiketini yazar. `madde_no` satırı etiketlerin
+  dışındadır ve yalnızca kimlik ile başlıktaki numarayı taşır (numarası olmayan parçada `-`).
+  Açılış ve kapanış etiketi kendi satırındadır. Hiçbir maddeyle eşleşmeyen arama hata değildir;
+  modele "başka sözcüklerle ara" diyen düz bir sonuç döner.
+- **Kanıt hatası tool gövdesinden döner:** `submit_finding`'in argüman şeması yalnızca alan
+  tiplerini taşır (eksik alan ve geçersiz `status` kütüphaneden açık bir hata metniyle döner).
+  `compliant` / `non_compliant` için `clause_id` ve `quote` zorunluluğu gövdede, `Finding`
+  kurulurken denetlenir ve hata metni modele döner. Sebep: argüman şemasındaki bir
+  `model_validator` hatası modele **boş** sebep metniyle ulaşır (kütüphane yalnızca alana bağlı
+  hataları iletir).
+- Tool'un kendi ürettiği her hata (kanıt eksik, olmayan madde) `ToolMessage(status="error")`'dır ve
+  state'e yazmaz; daha önce kaydedilmiş geçerli bulgu ya da taslak yerinde kalır. Verilen her
+  `clause_id` (`not_found` bulgusundaki dahil) indekste aranır.
+- **Bilinen sınır:** taslağın `clause_id`'si bulgunun `clause_id`'siyle karşılaştırılmaz ve
+  `compliant` / `not_found` bulguya yazılan taslak reddedilmez; ne tool'da ne `verify.py`'de böyle
+  bir kontrol vardır. Avukat taslağın hangi maddeye yazıldığını görür.
 - İki middleware audit log'a yazar: `wrap_tool_call` (ad, argümanlar, sonuç özeti) ve
-  `wrap_model_call` (modele giden maskeli metin, `usage_metadata`).
+  `wrap_model_call` (modele giden maskeli metin, `usage_metadata`). Yüklerin biçimi §7'dedir.
 
 ## 3. Prompt'lar
 - **Konum:** `src/prompts/rule_agent.md`
@@ -157,6 +182,7 @@ yoktur.**
 | `proposal_noncompliant` | Kuralda `check` var ve taslak kod kontrolünden geçmiyor (aşağıda) |
 | `agent_escalated` | Agent `escalate_to_lawyer` çağırdı |
 | `no_finding` | Agent `submit_finding` çağırmadı, adım limitine takıldı ya da hata verdi. Sebep kaydedilir: `no_submit` / `step_limit` / `rate_limited` / `llm_error`. Bulgu `status=not_found` ve dolu `no_finding_reason` ile temsil edilir; böyle bir bulguya `unverified_not_found`, `critical_not_found` ve `missing_proposal` eklenmez (kural "bulunamadı" değil, incelenemedi) |
+| `run_interrupted` | Agent bulgu bildirdi ama koşu kendiliğinden bitmedi: adım limitine takıldı ya da sonraki bir model çağrısı hata verdi. Bulgu korunur, `interrupted_by` alanı sebebi taşır (`step_limit` / `rate_limited` / `llm_error`) ve bulgu **her zaman** kuyruğa girer: kod, agent'ın bulguyu düzeltmeyeceğini, taslak yazmayacağını ya da avukata devretmeyeceğini bilemez. Diğer sinyaller yine hesaplanır. `no_finding` ile birlikte bulunmaz; doğrulama kapalıyken de (`enabled=False`) eklenir |
 | `injection_suspected` | Sözleşmede enjeksiyon şüphesi var (o sözleşmenin tüm bulguları) |
 
 - Alıntı ve sayı sinyalleri (`quote_not_found`, `numeric_mismatch`, `ambiguous_value`,
@@ -434,6 +460,30 @@ yoktur.**
 `review_rule` her kural için tam olarak bir bulgu döner: agent'ın son `submit_finding` çağrısı; hiç
 çağrı yoksa kod `not_found` + `no_finding` bulgusu üretir. Bu bulguya `unverified_not_found` ve
 `critical_not_found` eklenmez; sebebi yalnızca `no_finding`'dir (varsa `injection_suspected` ile).
+Agent'ın bu koşuda yazdığı taslak ve devretme sebebi `no_finding` bulgusuna **eklenmez** (incelenmemiş
+kural için avukattan taslak kararı istenmez); ikisi de audit'teki `tool_call` satırlarında kalır.
+
+**Koşu kendiliğinden bitmediyse sonucu her zaman avukat görür:**
+
+| Koşu nasıl bitti | Bulgu bildirilmiş | Bulgu bildirilmemiş |
+|---|---|---|
+| Kendiliğinden (model tool çağırmadan yanıt verdi) | Normal bulgu; doğrulama karar verir | `no_finding` (`no_submit`) |
+| Adım limiti | Bulgu (taslağı ve devretme sebebiyle) korunur + `run_interrupted` (`step_limit`) | `no_finding` (`step_limit`) |
+| Hız limiti / diğer LLM hatası | Bulgu korunur + `run_interrupted` (`rate_limited` / `llm_error`) | `no_finding` (aynı sebep) |
+
+- **Kim üretir:** `src/agent.py`'deki `run_rule_agent` ilk iki satırı kendisi üretir. Hata
+  durumunda son state'i taşıyan `RuleRunInterrupted`'ı fırlatır (asıl hata `__cause__`'tadır);
+  `review_rule` onu `classify_provider_error` ile sınıflandırır ve aynı yardımcıyla
+  (`interrupted_finding`) bulguyu kurar. `config` sınıfı hata yeniden fırlatılır. Audit yazımından
+  gelen `sqlite3.Error` sarmalanmaz, olduğu gibi fırlar.
+- **Son state nasıl korunur:** agent `invoke` ile değil senkron `stream(stream_mode="values")` ile
+  koşar; `invoke` hata fırlatınca state kaybolur, `stream`'de son değer elde kalır.
+- **Adım limiti nasıl ayırt edilir:** sonuçtaki `AIMessage` sayısı `RUN_LIMIT`'ten (8) büyükse limit
+  devreye girmiştir. Limit 9. çağrıyı engelleyip yapay bir mesaj eklediği için sayı yalnızca o
+  zaman 8'i aşar; tam 8. çağrıda kendiliğinden biten koşu 8 mesaj verir. Kütüphanenin mesaj
+  metnine bakılmaz; sayaç tutulmaz.
+- **Bedeli:** agent 8. çağrıda son tool'unu çağırıp 9.'da yalnızca bitirecek idiyse bulgu aslında
+  tamdır ama kuyruğa gider (gereksiz yönlendirme). Olağan yol 5 çağrıdır.
 
 | Durum | Davranış |
 |---|---|
@@ -444,7 +494,9 @@ yoktur.**
 | Tool hatası | Açıklayıcı hata mesajı modele döner; model düzeltir |
 | Geçersiz tool argümanı | Şema hatası modele döner |
 | Düşük güven / belirsiz madde | Agent `escalate_to_lawyer` çağırır |
-| Max adım aşıldı | Görev biter; `submit_finding` yoksa `no_finding` → avukat kuyruğu |
+| Max adım aşıldı | Görev biter; `submit_finding` yoksa `no_finding`, varsa bulgu korunur + `run_interrupted` → ikisi de avukat kuyruğu |
+| Bulgu bildirildikten sonra LLM hatası (429, zaman aşımı, 5xx, 400) | Bulgu korunur + `run_interrupted` → avukat kuyruğu |
+| Model bozuk tool çağrısı üretti | Sağlayıcı 400 dönerse "diğer LLM hatası"dır (SDK 400'ü yeniden denemez). Sağlayıcı geçirir de çağrı ayrıştırılamazsa (`invalid_tool_calls`) hata fırlamaz; mesajda geçerli çağrı yoksa koşu orada kendiliğinden biter (`submit_finding` yoksa `no_submit`). İkisinde de yalnızca o kural etkilenir |
 | Alıntı / sayı doğrulanamadı | Bulgu silinmez; `needs_review` ile avukata gider |
 | Alıntıda birden çok farklı değer | Kod seçim yapmaz; `ambiguous_value` → avukat kuyruğu |
 | Süre çevirmesinin uçları farklı sonuç veriyor | Kod seçim yapmaz; `unit_conversion_uncertain` → avukat kuyruğu |
@@ -482,6 +534,24 @@ tüm kuralları `no_finding` yapmak yerine inceleme `failed` olur.
     `report_created` ve `review_closed`'ı `finalize`.
   - İstisna: hazırlık yarıda kalırsa `review_failed`'ı (`reason: prepare_error`) hazırlık
     fonksiyonunun kendisi yazar; çağıran o noktada `review_id`'yi henüz bilmez.
+  - **Agent olaylarının yükü** (`actor` = `agent`):
+    - `model_call`: `rule_id`, `system_prompt`, `messages` (modele giden tüm mesajlar; her biri
+      `role`, `content`, varsa `tool_calls` ve `tool_call_id`), `response` (`content`,
+      `tool_calls`, `invalid_tool_calls`), `usage_metadata`. Model çağrısı hata verirse satır yine
+      yazılır (maskeli metin dışarı gitmiştir): `response` ve `usage_metadata` `null`, `error`
+      alanında hata sınıfının adı (`type`) ve hata taşıyorsa HTTP durum kodu (`code`). Hata
+      mesajının metni yazılmaz (isteği yansıtabilir). Sağlayıcının kendi hata kodu (ör. Groq'un
+      bozuk tool çağrısı için döndürdüğü kod) yalnızca yanıt gövdesindedir ve yazılmaz; bu yüzden
+      audit'te bozuk tool çağrısından gelen 400 ile başka bir 400 ayırt edilemez (sınır).
+    - Mesaj rolleri `user` / `assistant` / `tool` olarak yazılır.
+    - `tool_call`: `rule_id`, `name`, `args` (modelin yazdığı ham argümanlar), `status`
+      (`success` / `error`), `result` (sonucun ilk 300 karakteri). `search_contract` için ayrıca
+      `clause_ids`: dönen tüm maddelerin kimliği, sırasıyla (özet ilk maddede kesilir; "arama
+      isabeti" metriği bu alandan hesaplanır; liste sonuç metninden ayrıştırılmaz, tool'un kendisinden
+      gelir, eşleşme yoksa boştur). Şema hatası ve bilinmeyen tool adı da satır üretir. Tool
+      gövdesi beklenmeyen bir hata fırlatırsa satır yazılmaz; hata koşuyu keser (§6).
+    - Aynı model yanıtındaki birden çok tool çağrısının satır sırası tamamlanma sırasıdır, çağrı
+      sırası değil.
   - Raporu okumak (`GET`) kayıt üretmez.
   - `<name>` API anahtarının sunucudaki kaydından gelir; istek gövdesinden okunmaz.
   - Reddedilen istekler (401 / 403 / 404 / 409 / 422) inceleme durumunu ve audit log'u değiştirmez;

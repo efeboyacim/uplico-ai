@@ -11,7 +11,9 @@
 
 ## Hata yönetimi
 - Çıplak `except:` yok; yakalanan hata ya ele alınır ya da loglanıp yeniden fırlatılır.
-- Bir kural agent'ının hatası `review_rule` düğümünde yakalanır ve `no_finding` bulgusuna çevrilir.
+- Bir kural agent'ının hatası `review_rule` düğümünde yakalanır ve `no_finding` bulgusuna çevrilir;
+  agent hatadan önce bulgu bildirmişse bulgu korunur ve `run_interrupted` ile avukata gider
+  (`agent_design.md` §6).
   İki istisna yakalanmaz, yeniden fırlatılır ve inceleme `failed` olur: sağlayıcı kimlik ya da
   yapılandırma hatası (Groq 401 / 403 / 404, Ollama 404) ve audit yazımından gelen `sqlite3.Error`
   (eksik kayıtla tamamlanmış inceleme olmaz).

@@ -10,6 +10,8 @@ CheckUnit = Literal["gün", "hafta", "ay", "yıl", "%", "TL"]
 FindingStatus = Literal["compliant", "non_compliant", "not_found"]
 CodeCheck = Literal["passed", "failed", "unverifiable"]
 NoFindingReason = Literal["no_submit", "step_limit", "rate_limited", "llm_error"]
+# Why a run that had already submitted a finding did not end by itself (agent_design.md §6).
+InterruptReason = Literal["step_limit", "rate_limited", "llm_error"]
 ReviewReason = Literal[
     "quote_not_found",
     "numeric_mismatch",
@@ -21,6 +23,7 @@ ReviewReason = Literal[
     "proposal_noncompliant",
     "agent_escalated",
     "no_finding",
+    "run_interrupted",
     "injection_suspected",
 ]
 ReviewStatus = Literal["running", "awaiting_lawyer", "approved", "changes_requested", "failed"]
@@ -116,6 +119,7 @@ class Finding(_Model):
     proposal: Proposal | None = None
     escalation_reason: str | None = None
     no_finding_reason: NoFindingReason | None = None
+    interrupted_by: InterruptReason | None = None
     needs_review: bool = False
     review_reasons: list[ReviewReason] = Field(default_factory=list)
 
@@ -126,6 +130,12 @@ class Finding(_Model):
                 raise ValueError(f"{self.status} sonucu için clause_id zorunlu.")
             if not self.quote or not self.quote.strip():
                 raise ValueError(f"{self.status} sonucu için quote zorunlu.")
+        return self
+
+    @model_validator(mode="after")
+    def _interrupted_or_no_finding(self) -> Self:
+        if self.interrupted_by is not None and self.no_finding_reason is not None:
+            raise ValueError("interrupted_by ve no_finding_reason birlikte dolu olamaz.")
         return self
 
 

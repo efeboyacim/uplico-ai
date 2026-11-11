@@ -906,6 +906,8 @@ def _verify_one(
         reasons.add("agent_escalated")
     if finding.no_finding_reason is not None:
         reasons.add("no_finding")
+    if finding.interrupted_by is not None:
+        reasons.add("run_interrupted")
 
     if not enabled:
         if proposal is not None:
@@ -960,8 +962,10 @@ def verify(
     """Return new findings, in the same order, with the lawyer-queue signals set by code.
 
     The input is not changed and the result does not depend on earlier calls. `enabled=False` is
-    only for the eval's "before" run: then only `agent_escalated` and `no_finding` are set, the
-    quote is left as the model wrote it and `code_check` stays empty.
+    only for the eval's "before" run: then only `agent_escalated`, `no_finding` and
+    `run_interrupted` are set, the quote is left as the model wrote it and `code_check` stays
+    empty. `run_interrupted` (a submitted finding whose run did not end by itself) is set in both
+    modes; the other signals are still computed for such a finding.
     """
     rules_by_id = {rule.id: rule for rule in rules}
     for finding in findings:

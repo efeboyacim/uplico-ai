@@ -1,4 +1,5 @@
 import pytest
+from pydantic import ValidationError
 
 from src.models import (
     Check,
@@ -1245,6 +1246,47 @@ def test_verify_disabled_only_escalation_and_no_finding() -> None:
     assert out[0].quote == 'Bildirim "15 gün" önceden yapılır.'
     assert out[0].proposal is not None
     assert out[0].proposal.code_check is None
+
+
+def test_verify_interrupted_run_verified_quote_needs_review() -> None:
+    finding = _finding("30 gün önceden", value=30, unit="gün", interrupted_by="step_limit")
+    result = _run(finding, AT_LEAST_30_DAYS)
+    assert result.needs_review is True
+    assert result.review_reasons == ["run_interrupted"]
+    assert result.quote == "30 gün önceden"
+    # Without the mark the same finding passes: the mark alone queues it.
+    assert _reasons(_finding("30 gün önceden", value=30, unit="gün"), AT_LEAST_30_DAYS) == []
+
+
+@pytest.mark.parametrize("reason", ["step_limit", "rate_limited", "llm_error"])
+def test_verify_disabled_interrupted_run_still_queued(reason: str) -> None:
+    finding = _finding("uydurma alıntı", status="non_compliant", interrupted_by=reason)
+    result = _run(finding, AT_LEAST_30_DAYS, "Başka metin.", enabled=False)
+    assert result.review_reasons == ["run_interrupted"]
+    assert result.needs_review is True
+
+
+def test_verify_interrupted_run_other_signals_still_computed() -> None:
+    finding = _finding(
+        "uydurma alıntı", escalation_reason="Emin değilim.", interrupted_by="llm_error"
+    )
+    result = _run(finding, AT_LEAST_30_DAYS, "Başka metin.", injection=True)
+    assert result.review_reasons == [
+        "quote_not_found",
+        "agent_escalated",
+        "run_interrupted",
+        "injection_suspected",
+    ]
+
+
+def test_finding_interrupted_with_no_finding_reason_rejected() -> None:
+    with pytest.raises(ValidationError, match="interrupted_by ve no_finding_reason"):
+        _finding(
+            status="not_found",
+            clause_id=None,
+            no_finding_reason="step_limit",
+            interrupted_by="step_limit",
+        )
 
 
 def test_verify_input_not_mutated() -> None:

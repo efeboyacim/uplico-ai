@@ -56,9 +56,9 @@
   maskelenmez, maskeli madde metninden alınır ve kesilen değerin yer tutucusunu bütün alacak
   kadar genişler (iki satıra bölünmüş adın soyadı ifadede yalın kalıyordu). Audit yükleri:
   `clauses_split {count}`, `pii_masked {counts: tür → adet}`, `index_built {count}`,
-  `injection_flagged` = maskeli işaretin alanları. Adım 9 için not: tool'lar indeksi
-  `get_index(tenant_id, review_id)` ile alır; `<sozlesme_maddesi>` etiketini indeks değil tool
-  ekler; `ClauseIndex.get` maskeli maddeyi verir. Adım 8 sonrası düzeltme: `injection_flagged`
+  `injection_flagged` = maskeli işaretin alanları. Adım 9 için not: indeksi `review_rule`
+  `get_index(tenant_id, review_id)` ile alır ve tool'lara `ReviewContext.index` ile verir;
+  `<sozlesme_maddesi>` etiketini indeks değil tool ekler; `ClauseIndex.get` maskeli maddeyi verir. Adım 8 sonrası düzeltme: `injection_flagged`
   satırları artık `Store.append_audit_many` ile tek transaction'da yazılır (ya hepsi ya hiçbiri;
   karar `code_standards.md`'de). Önce her işaret ayrı commit'ti ve süre işaret sayısıyla
   büyüyordu; dosya boyutu değil, sözleşmeyi yazanın belirlediği işaret sayısı belirleyiciydi.
@@ -70,7 +70,29 @@
   kendisi hâlâ sınırsızdır: her işaret bir audit satırıdır ve avukatın gördüğü listeye girer;
   bir üst sınır ya da özet satırı orada değerlendirilecek. (3) Hazırlık hata verirse `prepare_contract` satırı zaten `failed` yapmıştır; API yalnızca hatayı
   yanıta çevirir.
-- **Sıradaki:** Adım 9 — Tool'lar ve kural agent'ı.
+  Adım 9: `src/tools.py` (`ReviewContext`, `RuleAgentState`, 5 tool), `src/agent.py`
+  (`build_rule_agent(model)`, `run_rule_agent(agent, context) -> Finding`, `interrupted_finding`,
+  `RuleRunInterrupted`, `RUN_LIMIT`), `src/prompts/rule_agent.md` ve betikli sahte model
+  (`tests/conftest.py`: `ScriptedChatModel.single(...)` / `.keyed({kural metni: [...]})`) yazıldı.
+  Tasarım kurulu sürümlere (langchain 1.4.10, langgraph 1.2.20) karşı script'lerle sınandı; bu
+  sırada alınan kararlar `agent_design.md` §1, §2, §5, §6, §7, `evals.md` §2, `code_standards.md`
+  ve `architecture.md`'ye işlendi: agent `checkpointer=False` ile kurulur (yoksa üst graph'ın
+  `SqliteSaver`'ını devralır); kanıt hatası tool gövdesinden döner (şemadaki `model_validator`
+  hatası modele boş metinle ulaşır); adım limiti sayaçsız, `AIMessage` sayısı > 8 ile ayırt
+  edilir; **koşu kendiliğinden bitmediyse sonucu her zaman avukat görür**: bulgu bildirildikten
+  sonra adım limiti ya da LLM hatası gelirse bulgu korunur, `Finding.interrupted_by` dolar ve
+  `verify` yeni `run_interrupted` sebebiyle kuyruğa sokar (bunun için agent `invoke` değil
+  senkron `stream` ile koşar); `no_finding` bulgusuna taslak ve devretme eklenmez; `tool_call`
+  satırı `search_contract` için tüm `clause_ids`'i taşır; başarısız model çağrısı da `model_call`
+  satırı yazar (`error`: sınıf adı + HTTP durum kodu). Bilinen sınırlar: taslağın maddesi
+  bulgunun maddesiyle karşılaştırılmaz; sağlayıcının kendi hata kodu audit'e yazılmaz. Adım 10
+  için notlar: (1) `review_rule` `RuleRunInterrupted`'ı yakalar, `__cause__`'u sınıflandırır,
+  `config` ise onu yeniden fırlatır; `sqlite3.Error` sarmalanmadan gelir. (2) Sahte model kural
+  metnine göre anahtarlıdır; paralel testte kuralların metni farklı olmalıdır. (3) Aynı model
+  yanıtındaki tool çağrılarının audit satır sırası tamamlanma sırasıdır; testler sayıyı doğrular.
+  Adım 12 için not: Groq'un bozuk tool çağrısında döndürdüğü hata gövdesine gerçek çağrıda
+  bakılacak; kod ayırt etmeye değerse `src/llm.py`'ye bir yardımcı eklenir.
+- **Sıradaki:** Adım 10 — Graph: dağıtım, doğrulama, durma noktası.
 - Bu bölüm her adımın commit'inde güncellenir; sıradaki adım, aşağıdaki ilk işaretsiz kutudur.
 
 ## Bağlam
@@ -386,7 +408,7 @@ gereksiz yönlendirme satırları bunu gösterir.
   içindeki dahil); `pii_map` yalnızca tenant'ın `app.db`'sinde.
 - **Commit:** `feat: add BM25 clause index and contract preparation`
 
-### [ ] Adım 9 — Tool'lar ve kural agent'ı
+### [x] Adım 9 — Tool'lar ve kural agent'ı
 - **Ne:** 5 tool (`search_contract`, `get_clause`, `submit_finding`, `propose_change`,
   `escalate_to_lawyer`); bağlam `ToolRuntime.context`'ten; sözleşme metni yalnızca
   `<sozlesme_maddesi>` etiketli tool sonucu olarak. `create_agent` + system prompt dosyası + iki audit
@@ -395,25 +417,52 @@ gereksiz yönlendirme satırları bunu gösterir.
   bir alt sınıfı (`GenericFakeChatModel` `bind_tools`'u kendisi desteklemez; `create_agent`'a olduğu
   gibi verilirse `NotImplementedError` fırlatır).
 - **Adım limitini ayırt etme:** `exit_behavior="end"` bir bayrak ya da hata vermez; yalnızca sona
-  yapay bir `AIMessage` ekler ve sayaçları çıktıda göstermez. Bu yüzden kendi `model_call`
-  middleware'imiz gerçek çağrıları sayar: sonuçtaki `AIMessage` sayısı bu sayıdan bir fazlaysa
-  limit devreye girmiştir. `submit_finding` yoksa sebep `step_limit`, aksi halde `no_submit` olur.
-  Kütüphanenin mesaj metnine bakılmaz. Limite takılmadan önce bildirilen bulgu korunur.
-- **Dosyalar:** `src/tools.py`, `src/agent.py`, `src/prompts/rule_agent.md`, `tests/conftest.py`,
-  `tests/test_tools.py`, `tests/test_agent.py`
-- **Doğrulama:** Testler: *Onay yok* (tool listesi tam olarak bu 5 ad); olmayan madde → hata mesajı
-  modele döner ve koşu sürer; alıntısız `compliant` → şema hatası; son `submit_finding` geçerli (aynı
-  mesajda iki çağrı da çökmez); betikli koşuda bulgu + taslak agent state'inde; audit'te `model_call`
-  (system prompt + mesajlar + `usage_metadata`) ve `tool_call` var; system prompt'ta sözleşme metni
-  yok; adım limiti koşuyu bitirir ve ayırt edilir.
+  yapay bir `AIMessage` ekler ve sayaçları çıktıda göstermez. Limit 9. çağrıyı engellediği için
+  sonuçtaki `AIMessage` sayısı yalnızca o zaman `RUN_LIMIT`'i (8) aşar: sayı 8'den büyükse limit
+  devreye girmiştir (sayaç tutulmaz; tam 8. çağrıda kendiliğinden biten koşu 8 mesaj verir).
+  Kütüphanenin mesaj metnine bakılmaz.
+- **Koşu kendiliğinden bitmediyse** (`agent_design.md` §6): `submit_finding` yoksa `no_finding`
+  (`step_limit`; limit yoksa `no_submit`); varsa bulgu korunur, `interrupted_by` dolar ve
+  `verify` `run_interrupted` ile her zaman kuyruğa sokar. Aynısı bulgu bildirildikten sonra gelen
+  LLM hatası için geçerlidir: `run_rule_agent` senkron `stream(stream_mode="values")` ile koşar,
+  hata gelirse son state'i taşıyan `RuleRunInterrupted`'ı fırlatır; sınıflandırma Adım 10'dadır.
+  Bunun için `Finding.interrupted_by` alanı, `run_interrupted` sebebi ve `verify.py`'de tek satırlık
+  sinyal bu adımda eklenir.
+- **Checkpoint:** `create_agent(..., checkpointer=False)`; yoksa agent Adım 10'da üst graph'ın
+  `SqliteSaver`'ını devralır.
+- **Sahte model:** betikte istisna öğesi, gelen mesajların kaydı, kural metnine göre anahtarlı ve
+  kilitli betikler (Adım 10'un paralel testleri aynı sahte modeli kullanır).
+- **Dosyalar:** `src/tools.py`, `src/agent.py`, `src/prompts/rule_agent.md`, `src/models.py`,
+  `src/verify.py`, `tests/conftest.py`, `tests/test_tools.py`, `tests/test_agent.py`,
+  `tests/test_verify.py`
+- **Doğrulama:** Testler: *Onay yok* (derlenmiş agent'ın tool düğümünde tam olarak bu 5 ad); tool
+  açıklamaları `agent_design.md` §2'deki metinle aynı, şemada tenant / inceleme / kural alanı yok;
+  olmayan madde → hata mesajı modele döner ve koşu sürer; alıntısız `compliant` → sebebi dolu hata
+  mesajı (`status="error"`), state'e yazılmaz, önceki geçerli bulgu silinmez; kapanış etiketi
+  içeren madde iki okuma tool'undan da olduğu gibi döner; son `submit_finding` geçerli (aynı
+  mesajda iki çağrı da çökmez; satır sırası değil sayısı doğrulanır); betikli koşuda bulgu + taslak;
+  audit'te `model_call` (system prompt + mesajlar + `usage_metadata`) ve `tool_call` (durum, sonuç,
+  `search_contract`'ta tüm `clause_ids`) var; system prompt'ta sözleşme metni yok, sözleşme metni
+  modele yalnızca etiketli tool sonucunda gider; 8 çağrı sınırı (8. çağrıda biten koşu `no_submit`,
+  8 tool çağrısı `step_limit`; ikisinde de tam 8 `model_call`); bulgudan sonra limit ve bulgudan
+  sonra model hatası → bulgu korunur ve işaretlenir, `verify` `run_interrupted` ekler; `no_finding`
+  bulgusuna taslak ve devretme eklenmez; yalnızca bozuk tool çağrısı → `no_submit`, audit'te
+  görünür; model hatası `model_call` satırına `error` ile yazılır; audit yazım hatası iki kancadan
+  ayrı ayrı (TEMP TRIGGER) dışarı fırlar; aynı derlenmiş agent art arda iki koşuda birbirini
+  etkilemez; `SqliteSaver`'lı üst graph içinde koşan agent checkpoint'e alt ad alanı yazmaz.
 - **Commit:** `feat: add rule agent with five tools and audit middleware`
 
 ### [ ] Adım 10 — Graph: dağıtım, doğrulama, durma noktası
 - **Ne:** `START → review_rule × N (Send) → verify → human_review (interrupt)`; tenant başına
   derlenmiş graph + `SqliteSaver` (önbellek `(data_dir, tenant_id)` ile anahtarlanır; graph kurucusu
-  `Settings`'i parametre alır); `max_concurrency` config anahtarı; `review_rule` hata eşlemesi
-  (`rate_limited`, `llm_error`, `no_submit`, `step_limit`; `config` sınıfı hata ve audit yazımından gelen
-  `sqlite3.Error` yeniden fırlatılır, inceleme `failed` olur). `review_rule`
+  `Settings`'i parametre alır); `max_concurrency` config anahtarı; `review_rule` hata eşlemesi:
+  `run_rule_agent`'ın fırlattığı `RuleRunInterrupted`'ın `__cause__`'u `classify_provider_error`
+  ile sınıflandırılır (`rate_limited`, `llm_error`) ve bulgu `interrupted_finding` ile kurulur
+  (bulgu bildirilmişse korunur + `interrupted_by`, yoksa `no_finding`); `no_submit` ve `step_limit`
+  `run_rule_agent`'tan hazır gelir; `config` sınıfı hata ve audit yazımından gelen
+  `sqlite3.Error` yeniden fırlatılır, inceleme `failed` olur. Üst state'teki `findings` listesi
+  checkpoint'e yazılır: `Finding` nesnesi `langgraph-checkpoint` 4.3'te "kayıtsız tip" uyarısı
+  verir; `model_dump()` sözlükleri mi, izin listesi mi kullanılacağı bu adımda kararlaştırılır. `review_rule`
   `finding`, `verify` düğümü `verification` olayını audit log'a yazar. (`finalize` Adım 13'te eklenir.)
 - **Karar — graph senkron çalışır:** yalnızca `graph.invoke` / `agent.invoke`, senkron düğümler ve
   senkron middleware kancaları (`wrap_model_call`, `wrap_tool_call`) kullanılır. `ainvoke`, `astream`
