@@ -1,5 +1,11 @@
 # Uygulama Planı — Sözleşme İnceleme Agent'ı
 
+## Durum
+- **Biten:** Adım 0 (`49a13c8`), Adım 1 (`fd4cf9b`). Dokümanlar planla uyumlu; iki karar değişikliği
+  ve on üç netleştirme `docs/` altına yazıldı. Henüz kod yok.
+- **Sıradaki:** Adım 2 — Proje iskeleti ve config.
+- Bu bölüm her adımın commit'inde güncellenir; sıradaki adım, aşağıdaki ilk işaretsiz kutudur.
+
 ## Bağlam
 Repoda yalnızca dokümanlar var (`CLAUDE.md`, `docs/*.md`); kod yok. Bu plan, dokümanlardaki
 kararlara uyarak (istisnalar aşağıdaki iki karar değişikliği) uygulamayı sıfırdan, küçük ve sırayla yapılan

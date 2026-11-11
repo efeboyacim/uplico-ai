@@ -24,6 +24,11 @@ sağlayıcısı Groq, çevrimdışı mod Ollama'dır. İki kurgusal şirketin (t
 
 Bir işe başlamadan önce ilgili dokümanı oku; buradaki özet onun yerini tutmaz.
 
+## İlerleme
+Uygulama `docs/plan.md`'deki adımlarla, sırayla yazılır. Hangi adımda olunduğu o dosyanın "Durum"
+bölümünde ve adım kutularında yazar; bir oturuma başlarken önce oraya bak. Bir adım doğrulanıp
+commit edilince dur ve sıradaki adıma geçmeden önce kullanıcıdan onay al.
+
 ## Komutlar
 ```bash
 docker compose up                                        # çalıştır
