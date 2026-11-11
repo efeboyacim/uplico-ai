@@ -1,6 +1,5 @@
 import json
 import sqlite3
-import time
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -451,16 +450,25 @@ def test_prepare_phrase_cut_through_name_widens_to_placeholder(
         ),
     ],
 )
-def test_prepare_many_flags_in_one_clause_stays_linear(
-    data_dir: Path, sentences: list[str], phrases: list[str]
+def test_prepare_many_flags_in_one_clause_computes_clause_work_once(
+    data_dir: Path, monkeypatch: pytest.MonkeyPatch, sentences: list[str], phrases: list[str]
 ) -> None:
-    # Per-clause work is done once, not once per flag: redoing it made this ~30 s and more.
+    # Per-clause work is done once, not once per flag: redoing it for each of the 2000 flags made
+    # preparation ~30 s and more. The call count is checked instead of the time.
     store = Store(data_dir, "acme")
     text = "Madde 1 - X\n" + "".join(f"{sentence} " for sentence in sentences)
-    started = time.perf_counter()
+    original_segments = prepare_module._masked_segments
+    calls: list[int] = []
+
+    def counting_segments(
+        source: str, masked: str, mapping: Mapping[str, str]
+    ) -> list[tuple[int, int, int, int]]:
+        calls.append(len(source))
+        return original_segments(source, masked, mapping)
+
+    monkeypatch.setattr(prepare_module, "_masked_segments", counting_segments)
     prepared = _prepare(store, text)
-    elapsed = time.perf_counter() - started
-    assert elapsed < 10, f"prepare_contract took {elapsed:.1f} s"
+    assert len(calls) == 1
     assert len(prepared.clauses) == 1
     assert [f.phrase for f in prepared.injection_flags] == phrases
     flagged = [r for r in store.list_audit(prepared.review_id) if r.event == "injection_flagged"]
