@@ -60,6 +60,12 @@
   kuralında `unit_conversion_uncertain` ile kuyruğa düşer. "60 gün … iki ay" aynı kuralda kuyruğa
   düşmez. Kurala istisna yoktur: alıntıda kesin bir gün değeri olsa da ayın aralığı hesaba girer.
   "on iki (12) ay, yani bir yıl" tek değerdir.
+- **Okunamayan değer atılmaz:** "en az 30 gün" kuralı, alıntı "Satıcı 30 gün önceden, Alıcı ise 5 iş
+  günü önceden bildirir", model `compliant` + 30 gün → `ambiguous_value`, kuyruk. "en fazla 60 gün"
+  kuralı, alıntı "30 gün içinde, gecikme halinde 90 güne kadar" → iki farklı değer,
+  `ambiguous_value`. Yalnızca "5 iş günü" → `numeric_mismatch`. "30 takvim günü" 30 gün okunur.
+  Listede olmayan ek ("5 ayrı") okunamayandır. Değişmez: "sayı + birim kökü + herhangi bir ek"
+  ya değer ya da okunamayan ifade verir; hiçbir zaman boş dönmez.
 - **Kritik kural:** `normal` kuralın `not_found` sonucu da `critical` kuralınki de kuyruğa düşer
   (`unverified_not_found`); `critical` olanda ek sebep `critical_not_found`.
 - **Taslak kontrolü:** "en az 30 gün" kuralı için "15 gün" yazan taslak → `code_check=failed`,

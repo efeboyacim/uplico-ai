@@ -137,14 +137,14 @@ yoktur.**
 |---|---|
 | `quote_not_found` | Alıntı, gösterilen maddenin maskeli metninde geçmiyor. Bu durumda sayı çıkarılmaz ve `numeric_mismatch` eklenmez |
 | `numeric_mismatch` | Kuralda `check` var ve: kod alıntıdan kuralın birim türünde bir değer çıkaramıyor, ya da kodun hesabı modelin `status`'üyle çelişiyor, ya da modelin verdiği `value` kodun çıkardığından farklı. `ambiguous_value` varsa eklenmez |
-| `ambiguous_value` | Kuralda `check` var ve alıntıda aynı türden birden çok farklı değer geçiyor |
+| `ambiguous_value` | Kuralda `check` var ve alıntıda aynı türden birden çok farklı değer geçiyor, ya da okunan en az bir değerin yanında kodun okuyamadığı bir değer ifadesi var (aşağıda "Okunamayan değer ifadesi") |
 | `unit_conversion_uncertain` | Kuralda `check` var ve süre çevirmesinin uçları `check`'te aynı sonucu vermiyor ("1 ay" ile "en az 30 gün": 28–31) |
 | `unverified_not_found` | `status` `not_found` ise her zaman (kanıtsız sonuç avukatsız geçmez) |
 | `critical_not_found` | `severity: critical` bir kural `not_found` çıktı. Yalnızca sebep etiketidir; kuyruğa ayrıca etkisi yoktur |
 | `missing_proposal` | `non_compliant` ama değişiklik taslağı yok |
 | `proposal_noncompliant` | Kuralda `check` var ve taslak kod kontrolünden geçmiyor (aşağıda) |
 | `agent_escalated` | Agent `escalate_to_lawyer` çağırdı |
-| `no_finding` | Agent `submit_finding` çağırmadı, adım limitine takıldı ya da hata verdi. Sebep kaydedilir: `no_submit` / `step_limit` / `rate_limited` / `llm_error` |
+| `no_finding` | Agent `submit_finding` çağırmadı, adım limitine takıldı ya da hata verdi. Sebep kaydedilir: `no_submit` / `step_limit` / `rate_limited` / `llm_error`. Bulgu `status=not_found` ve dolu `no_finding_reason` ile temsil edilir; böyle bir bulguya `unverified_not_found`, `critical_not_found` ve `missing_proposal` eklenmez (kural "bulunamadı" değil, incelenemedi) |
 | `injection_suspected` | Sözleşmede enjeksiyon şüphesi var (o sözleşmenin tüm bulguları) |
 
 - Alıntı ve sayı sinyalleri (`quote_not_found`, `numeric_mismatch`, `ambiguous_value`,
@@ -153,17 +153,84 @@ yoktur.**
   boşlukları tekilleştir, tırnak/tire türlerini eşitle. `casefold()` kullanılmaz (Türkçe İ/ı bozulur).
   - Normalleştirmenin yok saydıkları: Unicode yazım biçimleri, sıfır genişlikli karakterler, boşluk,
     tırnak ve tire türleri. Büyük-küçük harf, noktalama ve Türkçe harfler yok sayılmaz.
+  - **Eşleşme sözcüğü ya da sayıyı ortasından kesemez.** Eşleşmenin başı ve sonu, maddede iki harf
+    ya da rakamın arasına denk gelemez; rakamla başlayan ya da biten eşleşme bir sayının parçası da
+    olamaz (bitişiğinde, nokta ya da virgülle bağlı rakam bulunamaz). Aksi halde eşleşme sayılmaz:
+    "130 gün içinde" yazan maddede "30 gün içinde", "1.250.000 TL"de "250.000 TL", "5 ayrı"da
+    "5 ay", "45 gündür"de "45 gün" alıntısı `quote_not_found`'dur. (Yoksa kod sözleşmede olmayan
+    bir değeri okur.) Kurala uyan başka bir geçiş varsa o alınır.
+  - **Eşleşme bir değer ifadesini de ortasından kesemez.** Kod maddenin metnindeki değer
+    ifadelerini (üç türün hepsi; okunan ve okunamayan) çıkarır; eşleşmenin başı ya da sonu bunlardan
+    birinin içine düşüyorsa eşleşme sayılmaz. İfade önekini, sayısını, aradaki sözcüğü ve birimini
+    kapsar: "%15 oranında" yazan maddede "15 oranında", "30 gün içinde"de "… 30", "5 iş günü"nde
+    "5 iş", "1,5 milyon TL"de "1,5" ile biten alıntı `quote_not_found`'dur. Böylece alıntıdan
+    okunan her değer maddede yazan değerin tamamıdır.
   - Doğrulama geçince bulgunun `quote` alanı **sözleşmedeki eşleşen parçayla** değiştirilir; saklanan,
     avukata gösterilen ve arayüzde işaretlenen metin budur. Sayı ve birim de bu parçadan çıkarılır.
   - Modelin yazdığı ham metin audit log'daki `tool_call` kaydında kalır.
   - Doğrulanamayan alıntı olduğu gibi kalır ve `quote_not_found` ile işaretlenir.
 - **Sayı/birim — kod kendisi çıkarır:**
-  - Kod sayıyı ve birimi yalnızca **doğrulanmış alıntıdan kendisi** çıkarır: rakam ya da küçük bir
-    sözlükteki Türkçe sayı sözcüğü (bir…on, on beş, yirmi, otuz, altmış, doksan), ardından birim.
-    Yüzde sayıdan önce yazılır (`%15`, `yüzde 15`).
-  - Birimler sözcük sınırında ve yaygın eklerle eşleşir (`günlük`, `aylık`). `%` ve `TL` ayrı
-    birimdir; ikisinde de nokta binlik, virgül ondalık ayracıdır. Yalnızca kuralın `check.unit`'iyle
-    aynı türdeki değerlere bakılır.
+  - Kod sayıyı ve birimi yalnızca **doğrulanmış alıntıdan kendisi** çıkarır: rakam ya da Türkçe
+    sayı sözcüğü, ardından birim. Yüzde sayıdan önce yazılır (`%15`, `% 15`, `yüzde 15`).
+  - **Sayı sözcükleri:** birlikler (bir…dokuz), onluklar (on…doksan) ve `yüz` bileşimiyle 1–999
+    ("on iki", "yüz yirmi"). Harf büyüklüğüne Türkçe kurallarıyla bakılmaz (`İ`→`i`, `I`→`ı`).
+    Tutar (`TL`) sözcükle okunmaz.
+  - **Rakamla yazılan sayı:** rakam, nokta ve virgülden oluşan en uzun dizidir; her türde nokta
+    binlik, virgül ondalık ayracıdır ("1.250.000", "1,5"). Bu biçime uymayan dizi ("1.5") sayı
+    olarak okunmaz; ardından birim geliyorsa okunamayan değer ifadesidir. Sıra sayısı da böyledir:
+    "ayın 15. günü" 15 gün okunmaz, okunamayandır. Ardından birim gelmeyen dizinin sonundaki nokta
+    ya da virgül cümle noktalamasıdır ("%15." 15'tir).
+  - **Çekimli sayı sözcüğü okunmaz, atılmaz da:** bir sayı sözcüğüyle başlayan ama sayı sözcüğü
+    olmayan sözcük ("beşi", "beşer", "birkaç", "üçüncü") sayının yerinde duruyorsa ifade
+    okunamayandır: "yüzde on beşi" 10 okunmaz; "yüzde beşi", "beşer gün" ve "birkaç gün" okunamayan
+    değer ifadesidir.
+  - **Yer tutucular sayı değildir:** maskeleme yer tutucusu (`[TCKN_1]`, `[TELEFON_2]`) tek bir
+    sözcük sayılır; içindeki rakam sayı olarak okunmaz ("[TELEFON_2] gün" değer değildir).
+  - **Sayıyı sürdüren komşu ifadeyi okunamayan yapar.** Okunan bir sayı, yazıldığı sayının tamamı
+    olmalıdır; kod bir sayının parçasını değer olarak okumaz. Önekli (`%`, `yüzde`, `₺`, `TL`) ya da
+    sonekli her biçimde, sayıya bitişik şunlardan biri varsa ifade okunamayandır:
+    - çarpan ya da kesir sözcüğü, sayıdan hemen sonra: `bin`, `milyon`, `milyar`, `trilyon`, `mn`,
+      `mln`, `mlr`, `buçuk`, `yarım`, `çeyrek`, `virgül`, `nokta` ("₺1,5 milyon", "yüzde bir
+      buçuk", "%1 buçuk", "yüzde iki virgül beş"). Önünde sayı olmayan `bin`, `milyon`, `milyar`,
+      `trilyon`, `yarım`, `çeyrek` de sayıdır ve okunmaz ("bin beş yüz gün", "yarım yıl");
+    - üst ya da alt simge rakam ("30¹ gün": dipnot işareti sayının hanesi olmaz);
+    - `/` ya da `⁄` ile bağlı rakam ("1/2 yıl"; NFKC sonrası "½ yıl" da böyledir);
+    - boşlukla gruplanmış rakam: tek boşlukla (ya da bölünemez boşlukla) ayrılmış, sonrakilerin
+      her biri tam üç haneli rakam dizileri ("1 000 000 TL").
+  - **Önekli tutar:** `₺` ve `TL` sayıdan önce de yazılabilir ("₺1.000", "TL 500.000") ve okunur.
+    Sayıdan önce yazılmış başka para birimi ("USD 500.000", "$500", "EUR 1.000") tutar türünde
+    okunamayan değer ifadesidir. Bir işaret ya da önek yalnızca bitişiğindeki (arada en çok
+    boşluk olan) sayıya aittir; araya noktalama girerse ait değildir ("1.000 ₺, 30 gün"de 30 tutar
+    değildir).
+  - **Parantezli yazım:** "otuz (30) gün" ve "30 (otuz) gün" aynı birimle iki değerdir; eşitse tek
+    değer sayılır, farklıysa `ambiguous_value`. Önekli biçimde de böyledir ("₺1.000 (5.000)").
+    Parantezin içi tek bir sayı değilse ifade okunamayandır. Bir sayı sözcüğünün parçaları arasında
+    en çok bir boşluk olur; araya noktalama girerse iki ayrı sayıdır.
+  - **Süre birimleri kapalı bir ek listesiyle okunur:** kök (`gün`, `hafta`, `ay`, `yıl`) yalın
+    halde ya da şu eklerle: `-lik` (`günlük`, `aylık`), iyelik (`günü`, `haftası`), yönelme
+    (`güne`), bulunma (`günde`), ayrılma (`günden`), tamlayan (`günün`), çoğul (`günler`), iyelik
+    + hal (`gününe`, `gününde`, `gününden`) ve ek-fiil (`gündür`, `haftadır`, `aydır`, `yıldır`). Sayı ile birim arasına yalnızca `takvim` girebilir
+    ("30 takvim günü" 30 gündür).
+  - `%` ve `TL` ayrı türlerdir. `TL` türü `TL`, `₺` ve `lira` köküyle ("Türk Lirası") okunur.
+    Yalnızca kuralın `check.unit`'iyle aynı türdeki değerlere bakılır (süre / yüzde / tutar).
+  - **Okunamayan değer ifadesi — kod sayı içeren bir ifadeyi sessizce atmaz.** Bir sayıdan sonra,
+    hemen ya da tek sözcük arayla, kuralın türündeki bir birim köküyle **başlayan** bir sözcük
+    geliyorsa ve ifade yukarıdaki kurallarla okunamıyorsa, ifade "okunamayan" sayılır: listede
+    olmayan ek ("5 ayrı"), araya giren sözcük ("5 iş günü", "bir buçuk ay", "1 milyon TL"), biçimi
+    bozuk sayı ("1.5 yıl"). Yüzde türünde sayıdan sonra yazılmış işaret ("15%"), tutar türünde
+    başka para birimi ("50.000 USD", `$`, `€`, `£`, `¥`, `EUR`, `GBP`, `CHF`, `JPY`, `dolar`,
+    `avro`, `euro`, `sterlin`, `frank`) da okunamayandır; `TRY` `TL` gibi okunur. Süre türünde
+    kodun çevirmediği zaman birimleri (`sene`, `saat`, `dakika`) okunamayandır ("48 saat"). Bu
+    listeler kapalıdır: listede olmayan bir para ya da zaman birimi ("yen", "asır") görülmez;
+    bilinen sınırdır. Araya giren "sözcük" rakamla yazılmış bir sayı olamaz ("Madde 5.2
+    30 gün" tek değerdir). Bağlama kuralı ("ila / ile / – / veya") yönsüzdür ("15 ila %20", "30 gün
+    veya 15" ikişer değerdir) ve yalnızca birimsiz sayıya uygulanır ("%2 ile 30 gün"de 2 gün yoktur).
+    Sonucu: yanında okunan bir değer varsa `ambiguous_value`; tek başınaysa değer çıkarılamamış
+    olur (`numeric_mismatch`); taslakta `code_check=failed`. Bedeli gereksiz yönlendirmedir
+    ("5 ayrı teslimat" süre kuralında kuyruğa düşürür); hata güvenli yöndedir.
+  - **Bilinen sınır:** birimi hiç yazılmamış sayı ("30, gecikme halinde 90 gün içinde" ifadesindeki
+    30), araya iki ya da daha çok sözcük girmiş ifade ve sayı içermeyen yükümlülük ("derhal
+    feshedebilir") kod tarafından görülmez; bunlar modelin `status`'üne ve avukata kalır.
   - `check.op`: `>=`, `<=`, `>`, `<`, `==`.
   - **Süre çevirme:** `gün/hafta/ay/yıl` iki ailedir. Aile içi çevirme kesindir: gün ↔ hafta
     (1 hafta = 7 gün), ay ↔ yıl (1 yıl = 12 ay). Aileler arası çevirme aralıktır: ay ya da yıl, gün
@@ -181,9 +248,14 @@ yoktur.**
     30 gün"); sonuçlar aynı değilse seçim yapmaz: `unit_conversion_uncertain` ("1 ay" ile "en az 30
     gün": 28–31). Kurala istisna yoktur: alıntıda kesin bir gün değeri olsa da ayın aralığı hesaba
     girer ("30 gün … bir ay", "en az 30 gün" kuralında kuyruğa düşer; "60 gün … iki ay" düşmez).
+  - "Tüm uçlar" aralık karşılaştırmasıdır: değer ve eşik birer aralıktır (kesin değer tek noktalı
+    aralık). Eşitsizliklerde uçlara bakmak yeter. `==` için uçlar yetmez: iki taraf da tek nokta
+    ve eşitse kesin doğru, aralıklar kesişmiyorsa kesin yanlış, aksi halde belirsizdir ("1 ay" ile
+    "== 30 gün": 30, 28–31'in içindedir → `unit_conversion_uncertain`).
   - Modelin `submit_finding`'de verdiği `value` + `unit` yalnızca **çapraz kontroldür**; kodun
     çıkardığı değerle aynı çevirme fonksiyonundan geçirilip karşılaştırılır, farklıysa
-    `numeric_mismatch`.
+    `numeric_mismatch`. `value` yoksa çapraz kontrol yapılmaz. `value` var ama `unit` boşsa kuralın
+    birimi varsayılır; tanınmayan ya da başka türden birim `numeric_mismatch`'tir.
   - Alıntıda aynı türden birden çok farklı değer varsa kod seçim yapmaz: `ambiguous_value`. Bu
     durumda `numeric_mismatch` eklenmez.
 - **Taslak kontrolü (`proposal.code_check`):**
@@ -198,7 +270,13 @@ yoktur.**
   doğrulayamaz; bu bilinen bir sınırdır.
 - **`verify(findings, ..., enabled=True)` saf fonksiyondur.** Uygulamada her zaman açıktır; kapatan
   bir ayar yoktur. `enabled=False` yalnızca eval'deki "önce" ölçümünde kullanılır; o durumda yalnızca
-  `agent_escalated` ve `no_finding` kuyruğa düşer.
+  `agent_escalated` ve `no_finding` kuyruğa düşer; alıntı değiştirilmez ve `code_check` boş kalır
+  (doğrulama koşmamıştır).
+- `verify` girdiyi değiştirmez; aynı sırada yeni bulgular döner. `needs_review` ve `review_reasons`
+  her çağrıda sıfırdan kurulur (tekrar çağrılabilir); sebepler sinyal tablosundaki sırayla yazılır.
+  Kural setinde olmayan bir `rule_id` programlama hatasıdır (`ValueError`). Gösterilen `clause_id`
+  maddeler arasında yoksa ya da alıntı normalleştirilince boş kalıyorsa sonuç `quote_not_found`'dur.
+  Alıntı maddede birden çok kez geçiyorsa ilk geçtiği yer alınır.
 
 ### Avukat kararından sonra
 - Kuyruk dışındaki bulgular kodun doğruladığı haliyle kalır; avukat isterse onları da düzeltebilir.

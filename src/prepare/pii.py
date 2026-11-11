@@ -17,7 +17,7 @@ PiiMapping = dict[str, str]  # placeholder -> raw value, e.g. {"[KISI_1]": "Ahme
 KINDS: tuple[str, ...] = ("KISI", "TCKN", "IBAN", "TELEFON", "EPOSTA")
 
 _KIND_ALT = "|".join(KINDS)
-_PLACEHOLDER = re.compile(r"\[(?:" + _KIND_ALT + r")_[0-9]+\]")
+PLACEHOLDER = re.compile(r"\[(?:" + _KIND_ALT + r")_[0-9]+\]")
 _MAPPING_KEY = re.compile(r"\[(" + _KIND_ALT + r")_([1-9][0-9]*)\]")
 # Placeholders already in the text are blanked with this character before any search, so nothing
 # inside them is matched and the name scanner treats them as punctuation.
@@ -448,7 +448,7 @@ def _validate(mapping: Mapping[str, str]) -> dict[str, int]:
 
 
 def _blank_placeholders(text: str) -> str:
-    return _PLACEHOLDER.sub(lambda m: _FILLER * len(m.group()), text)
+    return PLACEHOLDER.sub(lambda m: _FILLER * len(m.group()), text)
 
 
 def _resolve(spans: list[tuple[int, int, str]]) -> list[tuple[int, int, str]]:
@@ -589,4 +589,4 @@ def mask(text: str, mapping: Mapping[str, str]) -> tuple[str, dict[str, str]]:
 
 def unmask(text: str, mapping: Mapping[str, str]) -> str:
     """Put the raw values back; placeholders missing from `mapping` stay as they are."""
-    return _PLACEHOLDER.sub(lambda m: mapping.get(m.group(), m.group()), text)
+    return PLACEHOLDER.sub(lambda m: mapping.get(m.group(), m.group()), text)

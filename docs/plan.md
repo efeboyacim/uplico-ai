@@ -21,7 +21,17 @@
   değiştirildiğinden `prepare_contract` eşlemeyi önce tüm metinle kurar, sonra her maddeyi o
   eşlemeyle maskeler; maskeleme görünmez karakterleri çıkarılmış kopyada çalışır (araya gizli
   karakter konmuş TCKN kaçmasın).
-- **Sıradaki:** Adım 6 — Doğrulama katmanı.
+  Adım 6: `src/verify.py` yazıldı (`verify(...)` saf; tek çıkarma fonksiyonu `extract`, tek süre
+  çevirme fonksiyonu `align`); bu sırada alınan kararlar `agent_design.md` §5'e işlendi:
+  `no_finding`'in temsili (`status=not_found` + `no_finding_reason`), sayı sözcükleri 1–999, kapalı
+  ek listesi, **okunamayan değer ifadesi** (kod sayı içeren ifadeyi sessizce atmaz; okunan sayı
+  yazılan sayının tamamıdır), önekli tutar, yer tutucuların sayı sayılmaması, `==` için aralık
+  karşılaştırması, modelin `unit`'i, alıntının sözcüğü / sayıyı / değer ifadesini ortasından
+  kesememesi, `enabled=False`'ta alıntının ve `code_check`'in dokunulmadan kalması. Yeni zorunlu
+  test "Okunamayan değer atılmaz" `evals.md` §2'ye eklendi. `pii.py`'deki yer tutucu kalıbı
+  `PLACEHOLDER` adıyla dışa açıldı (`verify.py` aynı kalıbı kullanır). Adım 18 için not: kapalı
+  listeler gereksiz yönlendirme üretir ("5 ayrı", "onay günü"); oran eval'de görülecek.
+- **Sıradaki:** Adım 7 — LLM kurulumu.
 - Bu bölüm her adımın commit'inde güncellenir; sıradaki adım, aşağıdaki ilk işaretsiz kutudur.
 
 ## Bağlam
@@ -266,7 +276,7 @@ gereksiz yönlendirme satırları bunu gösterir.
   tutucuyu alır; `unmask` geri çevirir.
 - **Commit:** `feat: mask identity data with a reversible per-review mapping`
 
-### [ ] Adım 6 — Doğrulama katmanı
+### [x] Adım 6 — Doğrulama katmanı
 - **Ne:** `verify(findings, rules, clauses, injection_suspected, enabled=True)` saf fonksiyonu:
   alıntı eşleştirme (iki tarafta aynı normalleştirme, `casefold` yok; Adım 4'teki `src/text.py`
   yardımcısıyla, kendi kopyası yazılmaz; eşleşince `quote` sözleşmedeki parçayla değiştirilir),
@@ -276,8 +286,10 @@ gereksiz yönlendirme satırları bunu gösterir.
 - **Süre çevirme:** tek fonksiyon (Adım 1 madde 12): gün ↔ hafta ve ay ↔ yıl kesin; aileler arası
   aralık (ay 28–31, yıl 365–366 gün). `check`, belirsiz değer kontrolü, modelin `value`'suyla kıyas
   ve taslak kontrolü bu fonksiyonu kullanır; başka çevirme kodu yazılmaz.
-- **Dosyalar:** `src/verify.py`, `tests/test_verify.py`
-- **Doğrulama:** Testler: *Alıntı doğrulama*, *Sayıyı kod çıkarır*, *Belirsiz değer*, *Kritik kural*,
+- **Dosyalar:** `src/verify.py`, `tests/test_verify.py`, `src/prepare/pii.py` (yalnızca
+  `PLACEHOLDER` adı), `docs/agent_design.md`, `docs/evals.md`
+- **Doğrulama:** Testler: *Alıntı doğrulama*, *Sayıyı kod çıkarır*, *Belirsiz değer*, *Okunamayan
+  değer atılmaz*, *Kritik kural*,
   *Taslak kontrolü*; ayrıca `missing_proposal`, `unverified_not_found`, `agent_escalated`,
   `no_finding`, `injection_suspected` ve `enabled=False` (yalnızca `agent_escalated` + `no_finding`).
   Saklanan alıntı sözleşmedeki parçadır: model alıntıyı farklı boşluk ve tırnakla yazınca doğrulama

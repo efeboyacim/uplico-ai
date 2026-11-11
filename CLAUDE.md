@@ -29,8 +29,8 @@ Uygulama `docs/plan.md`'deki adımlarla, sırayla yazılır. Hangi adımda olund
 bölümünde ve adım kutularında yazar; bir oturuma başlarken önce oraya bak. Bir adım doğrulanıp
 commit edilince dur ve sıradaki adıma geçmeden önce kullanıcıdan onay al.
 
-**Şu an:** Adım 0–5 bitti (Adım 5: `src/prepare/pii.py`).
-Sıradaki: Adım 6 — Doğrulama katmanı.
+**Şu an:** Adım 0–6 bitti (Adım 6: `src/verify.py`).
+Sıradaki: Adım 7 — LLM kurulumu.
 
 ## Komutlar
 ```bash
