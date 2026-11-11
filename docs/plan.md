@@ -346,7 +346,7 @@ gereksiz yönlendirme satırları bunu gösterir.
 
 ### [ ] Adım 8 — İndeks ve `prepare_contract`
 - **Ne:** BM25 indeksi (rank-bm25; embedding yok) ve Adım 1'de tanımlanan tokenizer (küçük harf →
-  her sözcüğün 3, 4 ve 5 harflik başlangıçları; kodda sözcük listesi yok). `review_id` anahtarlı süreç içi kayıt (koy / al / sil). `prepare_contract()`: Adım 1'de yazılan sırayla asıl metni kaydeder, böler,
+  her sözcüğün 3, 4 ve 5 harflik başlangıçları; kodda sözcük listesi yok). `(tenant_id, review_id)` anahtarlı süreç içi kayıt (koy / al / sil). `prepare_contract()`: Adım 1'de yazılan sırayla asıl metni kaydeder, böler,
   tarar, maskeler, indeksler; her adımı audit log'a yazar. Testlerde ve Adım 12'deki elle denemede
   kullanılacak örnek sözleşme (PII + gizli talimat içeren) burada eklenir.
 - **Dosyalar:** `src/prepare/index.py`, `src/prepare/__init__.py`,

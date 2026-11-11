@@ -22,7 +22,7 @@
 | Agent framework | LangChain v1 `create_agent` + LangGraph `StateGraph` | Kural agent'ı `create_agent`; akış LangGraph. |
 | Tool protokolü | Native tool calling (`@tool`) | MCP yok. Tool'lar sırayla çağrılır; paralel tool çağrısına güvenilmez. |
 | Model kurulumu | `init_chat_model(model, model_provider=...)` | Sağlayıcı değişimi tek yerde: `src/llm.py`. Sağlayıcı ve model ayrı env'lerdir. |
-| Arama | Yalnızca BM25: `rank-bm25` (doğrudan) | `langchain-community` arşivlendi; sarmalayıcı kullanılmaz. İndeks inceleme başına bellekte kurulur; paylaşılan indeks yok. |
+| Arama | Yalnızca BM25: `rank-bm25` (doğrudan, `BM25Plus`) | `langchain-community` arşivlendi; sarmalayıcı kullanılmaz. İndeks inceleme başına bellekte kurulur; paylaşılan indeks yok. |
 
 ### Groq: doğrulanan bilgiler (2026-11-10)
 | Konu | Bulgu | Kaynak |

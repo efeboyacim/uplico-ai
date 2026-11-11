@@ -104,6 +104,9 @@
 - Ham PII ve PII eşlemesi loglanmaz, trace'e, audit log'a ve graph state'ine yazılmaz.
 - Model, indeks ve checkpoint yalnızca maskeli metin görür. Varsayılan modda model dış sağlayıcıdır
   (Groq); maskelemeyi atlayan ya da sağlayıcıya göre değiştiren bir kod yolu yazılmaz.
+- Maskeli metnin tipi `MaskedText`'tir ve onu yalnızca `mask` üretir. Uygulama kodunda başka hiçbir
+  yerde `MaskedText(...)` yazılmaz (testler hariç); `Clause` yalnızca `mask` çıktısıyla kurulur.
+- İndeks kaydına yalnızca `(tenant_id, review_id)` ile erişilir; `tenant_id` `Store`'dan gelir.
 - Yalnızca kimlik bilgileri maskelenir (TCKN, IBAN, telefon, e-posta, kişi adı). Tutar, süre, tarih
   ve yüzdeleri yakalayabilecek genel bir "rakam grubu" kalıbı yazılmaz; telefon kalıbı `+90` ya da
   `0` öneki ister.

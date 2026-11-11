@@ -97,8 +97,16 @@ Tek etkileri agent state'ine bir öneri yazmaktır; dış sisteme dokunmazlar.
     zayıf eşleşir. Kodda eş biçim listesi yoktur.
   - **Bilinen sınır:** üçüncü harfi değişen ya da kökü 3 harften kısa sözcükler (`ret` / `reddi`,
     `ay` / `aylık`) ve dolaylı ifade eşleşmez.
+  - **Sıralama ve eşleşme:** `rank-bm25`'in `BM25Plus` sınıfı kullanılır. `BM25Okapi` kısa
+    sözleşmede kullanılamaz: maddelerin tam yarısında geçen terimin ağırlığı 0, çoğunda geçenin
+    ağırlığı negatif olur. `BM25Plus` terimi içermeyen maddeye de taban puan verdiği için sonuca
+    girme şartı skor değil ortak anahtardır: yalnızca sorguyla en az bir ortak anahtarı olan
+    maddeler döner, sıra skora göredir (eşitlikte belge sırası). Ortak anahtar yoksa, sorgu boşsa
+    ya da hiç madde yoksa arama boş liste döner.
 - **İndeks nerede durur:** State'e ya da `Send` yüküne konmaz (checkpoint'e serileştirilemez).
-  Hazırlık onu süreç içinde `review_id` anahtarlı bir sözlükte tutar; `review_rule` oradan alıp
+  Hazırlık onu süreç içinde `(tenant_id, review_id)` anahtarlı bir sözlükte tutar (`review_id`
+  her tenant'ın kendi veritabanında üretilir, tenant'lar arasında tekilliği zorlanmaz; anahtardaki
+  `tenant_id` bir tenant'ın ötekinin indeksini görmesini ya da ezmesini yapısal olarak önler); `review_rule` oradan alıp
   `ReviewContext` ile tool'lara verir. Graph `interrupt`'a ulaşınca silinir; resume indekse ihtiyaç duymaz.
 - **State saklama:** Graph state'i tenant'ın `checkpoints.db` dosyasında. State yalnızca
   **maskeli** metin ve kimlik tutar; ham metin ve PII eşlemesi state'e girmez.
@@ -463,6 +471,8 @@ tüm kuralları `no_finding` yapmak yerine inceleme `failed` olur.
     `finding` ve `verification`'ı ilgili düğümler; `awaiting_lawyer` ve `review_failed`'ı graph
     döndükten sonra API (`human_review`'da `interrupt()`'tan önce yan etki yok); karar olaylarını,
     `report_created` ve `review_closed`'ı `finalize`.
+  - İstisna: hazırlık yarıda kalırsa `review_failed`'ı (`reason: prepare_error`) hazırlık
+    fonksiyonunun kendisi yazar; çağıran o noktada `review_id`'yi henüz bilmez.
   - Raporu okumak (`GET`) kayıt üretmez.
   - `<name>` API anahtarının sunucudaki kaydından gelir; istek gövdesinden okunmaz.
   - Reddedilen istekler (401 / 403 / 404 / 409 / 422) inceleme durumunu ve audit log'u değiştirmez;

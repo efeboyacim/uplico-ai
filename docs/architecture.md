@@ -47,7 +47,7 @@ flowchart LR
 | Config | Env okuma; başlangıçta sağlayıcı ve anahtar kontrolü (eksikse açık hatayla durur) | `src/config.py` |
 | LLM | Sohbet modeli (Groq ya da Ollama) kurulumu; yeniden deneme ayarı | `src/llm.py` |
 | Store | Tenant'a bağlı SQLite, üç tablo: `reviews` (asıl sözleşme metni, maskeli maddeler, işaretler, durum, doğrulanmış bulgular ve taslaklar, kararlar), `audit_log` (tetikleyiciyle yalnızca ekleme), `pii_map`. Maddeler, işaretler, bulgular ve karar `reviews` satırında JSON sütunlarıdır. Durum değiştiren yazımlar (`save_findings`, `complete_review`, `mark_failed`) beklenen durumu `WHERE status = ?` ile şart koşar ve geçişin olup olmadığını döner; aynı anda gelen iki karardan yalnızca biri yazılır | `src/store.py` |
-| Modeller | pydantic şemaları: `Clause`, `Rule`, `Finding`, `Proposal`, `InjectionFlag`, `LawyerDecision`, `Report`. `Finding` tektir: agent'ın ham önerisi ve doğrulanmış hali aynı modeldir (`needs_review`, `review_reasons` ve taslağın `code_check`'i doğrulamada dolar); `compliant` / `non_compliant` için `clause_id` ve `quote` zorunluluğu modelin kendisindedir. Bilinmeyen alan reddedilir | `src/models.py` |
+| Modeller | pydantic şemaları: `RawClause`, `Clause`, `Rule`, `Finding`, `Proposal`, `InjectionFlag`, `LawyerDecision`, `Report`. Ham ve maskeli madde tip düzeyinde ayrıdır: `RawClause` (`text: str`, asıl metnin `start`–`end` aralığı, birebir) yalnızca bölme ve enjeksiyon taramasında kullanılır; `Clause` (`text: MaskedText`) yalnızca maskelemeden sonra kurulur ve indeks, `save_prepared`, graph ve tool'lar yalnızca onu alır. `Clause`'ta `start` / `end` asıl metne göredir, `text` maskelidir ve uzunluğu `end - start`'a eşit olmayabilir. `MaskedText` bir `NewType`'tır; yalnızca `mypy`'de zorlanır, çalışma anında düz `str`'dir (sınır). `Finding` tektir: agent'ın ham önerisi ve doğrulanmış hali aynı modeldir (`needs_review`, `review_reasons` ve taslağın `code_check`'i doğrulamada dolar); `compliant` / `non_compliant` için `clause_id` ve `quote` zorunluluğu modelin kendisindedir. Bilinmeyen alan reddedilir | `src/models.py` |
 | Arayüz | Bulguları ve enjeksiyon işaretlerini sözleşme metni üzerinde gösteren tek sayfa (karar API ucundan verilir) | `src/static/index.html` |
 
 ## 3. Veri akışı (ana senaryo)
@@ -68,8 +68,12 @@ flowchart LR
    - **İşareti maskele:** İşaretteki ifade (eşleşmenin geçtiği cümle) aynı eşlemeyle maskelenir;
      maskesiz hali saklanmaz.
    - **İndeksle:** Maskeli maddeler BM25 ile indekslenir. İndeks state'e konmaz; süreç içinde
-     `review_id` anahtarlı bir sözlükte durur ve graph `interrupt`'a ulaşınca silinir.
+     `(tenant_id, review_id)` anahtarlı bir sözlükte durur ve graph `interrupt`'a ulaşınca silinir.
    - Her adım audit log'a yazılır; audit olayları yükleri maskelendikten sonra yazılır.
+   - **Hazırlık yarıda kalırsa:** asıl metin kaydedildikten sonra bir hata çıkarsa
+     `prepare_contract` incelemeyi `failed` yapar, `review_failed` (`reason: prepare_error`; hata
+     metni PII taşıyabileceği için yazılmaz) kaydını ekler, indeksi siler ve hatayı yeniden fırlatır.
+     Satır `running` kalmaz.
 3. Graph **yalnızca maskeli maddeler, kurallar, enjeksiyon işareti ve kimliklerle** başlar
    (`thread_id = review_id`).
 4. **review_rule × N:** Her kural için bir agent çalışır ve tam olarak bir bulgu döner. Arar, maddeyi
