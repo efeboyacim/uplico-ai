@@ -212,8 +212,14 @@ def prepare_contract(store: Store, text: str, *, provider: str, model: str) -> P
         if not store.save_prepared(review_id, clauses, flags):
             raise PrepareError("Hazırlanan maddeler kaydedilemedi: inceleme çalışır durumda değil.")
 
-        for flag in flags:
-            audit("injection_flagged", flag.model_dump(mode="json"))
+        # One transaction for all flags: the contract's author decides how many there are, and a
+        # commit per flag made the time grow with that number.
+        store.append_audit_many(
+            review_id,
+            _ACTOR,
+            "injection_flagged",
+            [flag.model_dump(mode="json") for flag in flags],
+        )
         audit("pii_masked", {"counts": _counts_by_kind(mapping)})
 
         index = ClauseIndex(clauses)

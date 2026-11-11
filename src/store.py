@@ -2,7 +2,7 @@
 
 All database access goes through `Store(data_dir, tenant_id)`. One connection and one lock are
 shared per `(data_dir, tenant_id)` inside the process; every read and write runs under that lock and
-every write is its own transaction. No column or table name ever comes from an argument.
+every write method call is its own transaction. No column or table name ever comes from an argument.
 """
 
 import json
@@ -327,6 +327,30 @@ class Store:
                 "VALUES (?, ?, ?, ?, ?)",
                 (_now(), review_id, actor, event, payload_json),
             )
+
+    def append_audit_many(
+        self,
+        review_id: str,
+        actor: str,
+        event: AuditEvent,
+        payloads: Sequence[Mapping[str, object]],
+    ) -> None:
+        """Append one row per payload in a single transaction: all of them or none.
+
+        One commit instead of one per row, so the time does not grow with the commit count.
+        """
+        if event not in _AUDIT_EVENTS:
+            raise ValueError("Bilinmeyen audit olayı.")
+        payloads_json = [_dumps(dict(payload)) for payload in payloads]
+        if not payloads_json:
+            return
+        with self._write() as conn:
+            for payload_json in payloads_json:
+                conn.execute(
+                    "INSERT INTO audit_log (ts, review_id, actor, event, payload) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (_now(), review_id, actor, event, payload_json),
+                )
 
     def list_audit(self, review_id: str) -> list[AuditRecord]:
         with self._lock:

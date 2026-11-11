@@ -452,18 +452,10 @@ def test_prepare_phrase_cut_through_name_widens_to_placeholder(
     ],
 )
 def test_prepare_many_flags_in_one_clause_stays_linear(
-    data_dir: Path, monkeypatch: pytest.MonkeyPatch, sentences: list[str], phrases: list[str]
+    data_dir: Path, sentences: list[str], phrases: list[str]
 ) -> None:
-    # Per-clause work is done once, not once per flag: redoing it made this ~30 s and more. Each
-    # audit event is its own committed transaction, whose disk cost is not what is measured here,
-    # so the audit writes are recorded in memory.
+    # Per-clause work is done once, not once per flag: redoing it made this ~30 s and more.
     store = Store(data_dir, "acme")
-    events: list[AuditEvent] = []
-    monkeypatch.setattr(
-        store,
-        "append_audit",
-        lambda review_id, actor, event, payload: events.append(event),
-    )
     text = "Madde 1 - X\n" + "".join(f"{sentence} " for sentence in sentences)
     started = time.perf_counter()
     prepared = _prepare(store, text)
@@ -471,7 +463,8 @@ def test_prepare_many_flags_in_one_clause_stays_linear(
     assert elapsed < 10, f"prepare_contract took {elapsed:.1f} s"
     assert len(prepared.clauses) == 1
     assert [f.phrase for f in prepared.injection_flags] == phrases
-    assert events.count("injection_flagged") == len(phrases)
+    flagged = [r for r in store.list_audit(prepared.review_id) if r.event == "injection_flagged"]
+    assert [r.payload["phrase"] for r in flagged] == phrases
     _assert_phrases_in_masked_clauses(prepared, store.get_pii_map(prepared.review_id))
 
 
@@ -530,6 +523,35 @@ def test_prepare_failure_after_index_built_drops_index(
         _prepare(store, _sample())
     [review_id] = created
     _assert_failed_cleanly(store, review_id)
+
+
+def test_prepare_injection_audit_rows_are_all_or_nothing(
+    data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = Store(data_dir, "acme")
+    created = _capture_review_id(monkeypatch, store)
+    text = "Madde 1 - X\n" + "".join(f"Yapay zeka der {i}. " for i in range(5))
+    assert len(scan_injection(text, split_clauses(text))) == 5
+    # The database itself rejects the third injection_flagged row. RAISE(ABORT) undoes only the
+    # failing statement, so the first two rows go away only if the whole transaction is rolled
+    # back. TEMP: the trigger lives on the store's shared connection, not in the database file.
+    store._conn.execute(
+        "CREATE TEMP TRIGGER fail_third_injection_flag BEFORE INSERT ON main.audit_log "
+        "WHEN NEW.event = 'injection_flagged' AND (SELECT COUNT(*) FROM main.audit_log "
+        "WHERE review_id = NEW.review_id AND event = 'injection_flagged') = 2 "
+        "BEGIN SELECT RAISE(ABORT, 'ucuncu isaret yazilamadi'); END"
+    )
+    with pytest.raises(sqlite3.IntegrityError, match="ucuncu isaret yazilamadi"):
+        _prepare(store, text)
+    [review_id] = created
+    _assert_failed_cleanly(store, review_id)
+    # No injection_flagged row is left, and the connection is usable (review_failed was written).
+    assert [r.event for r in store.list_audit(review_id)] == [
+        "review_started",
+        "clauses_split",
+        "review_failed",
+    ]
+    assert not store._conn.in_transaction
 
 
 def test_prepare_cleanup_failure_does_not_hide_original_error(

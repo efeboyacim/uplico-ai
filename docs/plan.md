@@ -58,10 +58,17 @@
   `clauses_split {count}`, `pii_masked {counts: tür → adet}`, `index_built {count}`,
   `injection_flagged` = maskeli işaretin alanları. Adım 9 için not: tool'lar indeksi
   `get_index(tenant_id, review_id)` ile alır; `<sozlesme_maddesi>` etiketini indeks değil tool
-  ekler; `ClauseIndex.get` maskeli maddeyi verir. Adım 12 için not: her `injection_flagged` ayrı
-  bir transaction'dır (~6 ms); binlerce tetik cümlesi içeren bir sözleşme hazırlığı onlarca
-  saniyeye çıkarır (4000 işaret ≈ 25 sn), bu yüzden `POST /reviews` gövdesine boyut sınırı konur.
-  Hazırlık hata verirse `prepare_contract` satırı zaten `failed` yapmıştır; API yalnızca hatayı
+  ekler; `ClauseIndex.get` maskeli maddeyi verir. Adım 8 sonrası düzeltme: `injection_flagged`
+  satırları artık `Store.append_audit_many` ile tek transaction'da yazılır (ya hepsi ya hiçbiri;
+  karar `code_standards.md`'de). Önce her işaret ayrı commit'ti ve süre işaret sayısıyla
+  büyüyordu; dosya boyutu değil, sözleşmeyi yazanın belirlediği işaret sayısı belirleyiciydi.
+  Tek maddede N tetik cümlesi, gerçek audit yazımıyla, geliştirme makinesinde, üç çalıştırmanın
+  en iyisi (test değil, elle ölçüm): 500 işaret (10 KB) 3,03 sn → 0,12 sn; 4000 işaret (81 KB)
+  25,9 sn → 0,58 sn. Süre testle doğrulanmaz (yavaş makinede sebepsiz kırılır); test edilen
+  atomikliktir. Adım 12 için notlar: (1) `POST /reviews` gövdesine boyut sınırı genel önlem
+  olarak konur (bellek, model maliyeti); bu sorunun çözümü o değildir. (2) İşaret sayısının
+  kendisi hâlâ sınırsızdır: her işaret bir audit satırıdır ve avukatın gördüğü listeye girer;
+  bir üst sınır ya da özet satırı orada değerlendirilecek. (3) Hazırlık hata verirse `prepare_contract` satırı zaten `failed` yapmıştır; API yalnızca hatayı
   yanıta çevirir.
 - **Sıradaki:** Adım 9 — Tool'lar ve kural agent'ı.
 - Bu bölüm her adımın commit'inde güncellenir; sıradaki adım, aşağıdaki ilk işaretsiz kutudur.

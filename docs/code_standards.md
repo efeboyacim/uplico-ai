@@ -85,6 +85,10 @@
 - `Store` her okuma ve yazımı bu kilidin içinde yapar; her yazım kendi transaction'ında hemen commit
   edilir (`BEGIN IMMEDIATE` … `COMMIT`; hata olursa, `COMMIT` hatası dahil, geri alınır ki paylaşılan
   bağlantı açık transaction'da kalmasın).
+- Aynı olayın çok sayıda audit satırı (`injection_flagged`) tek tek değil, `append_audit_many` ile
+  **tek transaction'da** yazılır: her işaret yine kendi satırını alır, ama ya hepsi yazılır ya hiçbiri.
+  Satır başına ayrı commit, işaret sayısıyla doğrusal büyüyen bir süre demektir (4000 işaret ≈ 26 sn);
+  sözleşmeyi yazan kişi bu sayıyı belirlediği için bu bir meşgul etme yoludur.
 - Testler paylaşılan bağlantıları `close_all()` ile kapatır (`tests/conftest.py`, her testten sonra);
   Windows'ta açık bağlantı `tmp_path` dosyalarını kilitler. Uygulama kodu `close_all()` çağırmaz.
 - `app.db`'de WAL açılmaz (`./data` host'tan bağlanır). `checkpoints.db`'yi `SqliteSaver` kendisi

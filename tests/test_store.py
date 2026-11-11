@@ -168,6 +168,54 @@ def test_audit_append_unknown_event_raises(data_dir: Path) -> None:
     assert store.list_audit("r1") == []
 
 
+def test_audit_append_many_writes_one_row_per_payload_in_order(data_dir: Path) -> None:
+    store = Store(data_dir, "acme")
+    store.append_audit("r1", "system", "review_started", {})
+    store.append_audit_many(
+        "r1", "system", "injection_flagged", [{"n": 1, "ç": "ğüşıöİ"}, {"n": 2}, {"n": 3}]
+    )
+    records = store.list_audit("r1")
+    assert [r.event for r in records] == ["review_started", *["injection_flagged"] * 3]
+    assert [r.payload for r in records[1:]] == [{"n": 1, "ç": "ğüşıöİ"}, {"n": 2}, {"n": 3}]
+    assert [r.id for r in records] == sorted({r.id for r in records})
+    assert {r.actor for r in records} == {"system"}
+    assert store.list_audit("r2") == []
+
+
+def test_audit_append_many_empty_writes_nothing(data_dir: Path) -> None:
+    store = Store(data_dir, "acme")
+    store.append_audit_many("r1", "system", "injection_flagged", [])
+    assert store.list_audit("r1") == []
+    assert store._conn.in_transaction is False
+
+
+def test_audit_append_many_unknown_event_raises(data_dir: Path) -> None:
+    store = Store(data_dir, "acme")
+    with pytest.raises(ValueError):
+        store.append_audit_many("r1", "system", "made_up", [{}])  # type: ignore[arg-type]
+    assert store.list_audit("r1") == []
+
+
+def test_audit_append_many_failure_on_a_later_row_leaves_no_row(data_dir: Path) -> None:
+    store = Store(data_dir, "acme")
+    store.append_audit("r1", "system", "review_started", {})
+    # RAISE(ABORT) undoes only the failing INSERT; the earlier rows of the batch go away only
+    # because the transaction is rolled back.
+    store._conn.execute(
+        "CREATE TEMP TRIGGER fail_third_row BEFORE INSERT ON main.audit_log "
+        "WHEN NEW.event = 'injection_flagged' AND (SELECT COUNT(*) FROM main.audit_log "
+        "WHERE review_id = NEW.review_id AND event = 'injection_flagged') = 2 "
+        "BEGIN SELECT RAISE(ABORT, 'ucuncu satir yazilamadi'); END"
+    )
+    with pytest.raises(sqlite3.IntegrityError, match="ucuncu satir yazilamadi"):
+        store.append_audit_many("r1", "system", "injection_flagged", [{"n": i} for i in range(5)])
+    assert [r.event for r in store.list_audit("r1")] == ["review_started"]
+    assert store._conn.in_transaction is False
+    # The connection is still usable, and a batch that stays under the limit is written whole.
+    store.append_audit_many("r2", "system", "injection_flagged", [{"n": 1}, {"n": 2}])
+    assert len(store.list_audit("r2")) == 2
+
+
 def test_audit_parallel_writes_from_eight_threads_keep_all_rows_in_thread_order(
     data_dir: Path,
 ) -> None:
