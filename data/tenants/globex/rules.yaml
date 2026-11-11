@@ -1,0 +1,20 @@
+- id: termination_notice
+  text: "Fesih bildirim süresi en az 60 gün olmalıdır."
+  check: {op: ">=", value: 60, unit: gün}
+
+- id: warranty_period
+  text: "Garanti süresi en az 2 yıl olmalıdır."
+  severity: critical
+  check: {op: ">=", value: 2, unit: yıl}
+
+- id: payment_term
+  text: "Ödeme vadesi fatura tarihinden itibaren en fazla 45 gün olmalıdır."
+  check: {op: "<=", value: 45, unit: gün}
+
+- id: price_increase_cap
+  text: "Yıllık fiyat artışı %15'i aşamaz."
+  check: {op: "<=", value: 15, unit: "%"}
+
+- id: confidentiality
+  text: "Sözleşme, tarafların gizli bilgilerini koruyan bir gizlilik yükümlülüğü içermelidir."
+  severity: critical

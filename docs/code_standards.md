@@ -82,7 +82,10 @@
   bağlantıyı ve kilidi kullanır. Paylaşılan bağlantı, kilit ve derlenmiş graph `(data_dir, tenant_id)`
   ile anahtarlanır (testler ve eval ayrı `data_dir` kullanır).
 - `Store` her okuma ve yazımı bu kilidin içinde yapar; her yazım kendi transaction'ında hemen commit
-  edilir.
+  edilir (`BEGIN IMMEDIATE` … `COMMIT`; hata olursa, `COMMIT` hatası dahil, geri alınır ki paylaşılan
+  bağlantı açık transaction'da kalmasın).
+- Testler paylaşılan bağlantıları `close_all()` ile kapatır (`tests/conftest.py`, her testten sonra);
+  Windows'ta açık bağlantı `tmp_path` dosyalarını kilitler. Uygulama kodu `close_all()` çağırmaz.
 - `app.db`'de WAL açılmaz (`./data` host'tan bağlanır). `checkpoints.db`'yi `SqliteSaver` kendisi
   WAL'a alır; `-wal` / `-shm` dosyaları da `.gitignore`'dadır.
 
@@ -119,7 +122,12 @@
 - `audit_log` uygulama üzerinden değiştirilemez: tablo `UPDATE` ve `DELETE`'i reddeden SQLite
   tetikleyicileriyle oluşturulur ve kodda bu tabloya yalnızca `INSERT` yazılır. Tetikleyiciyi
   düşüren ya da atlayan kod yazılmaz. Dokümanda "değiştirilemez kayıt" denmez; "uygulama üzerinden
-  değiştirilemez" denir.
+  değiştirilemez" denir. Üçüncü bir tetikleyici var olan bir `id`'ye yapılan `INSERT`'i reddeder
+  (`INSERT OR REPLACE` eski satırı `DELETE` tetikleyicisini çalıştırmadan siler).
+- `Store`'da sütun ya da tablo adını argümandan alan genel bir güncelleme yöntemi yazılmaz; her
+  yazım sabit SQL'li, amaca özel bir yöntemdir.
+- Bilinen tenant listesi `data_dir/tenants/` altında `rules.yaml`'ı olan klasör adlarıdır;
+  `tenant_id` bu kümede birebir aranır ve eşleşmeden yol kurulmaz.
 - `GET` uçları audit log'a yazmaz.
 
 ## Git

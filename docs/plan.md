@@ -4,8 +4,11 @@
 - **Biten:** Adım 0 (`49a13c8`), Adım 1 (`fd4cf9b`). Dokümanlar planla uyumlu; iki karar değişikliği
   ve on üç netleştirme `docs/` altına yazıldı. Adım 2: proje iskeleti ve `src/config.py` yazıldı;
   bu sırada alınan kararlar (ayarları yalnızca giriş noktaları yükler, `Store(data_dir, tenant_id)`,
-  `create_app(settings)`) `docs/` altına ve Adım 3 / 10 / 11 / 12'ye işlendi.
-- **Sıradaki:** Adım 3 — Modeller, kural setleri, Store.
+  `create_app(settings)`) `docs/` altına ve Adım 3 / 10 / 11 / 12'ye işlendi. Adım 3: modeller, iki
+  tenant'ın kural seti ve `Store` yazıldı; bu sırada alınan kararlar (tek `Finding` modeli, JSON
+  sütunları, koşullu durum geçişi, `INSERT OR REPLACE`'i reddeden üçüncü tetikleyici, `close_all()`)
+  `architecture.md` §2 ve `code_standards.md`'ye işlendi.
+- **Sıradaki:** Adım 4 — Hazırlık: madde bölme ve enjeksiyon tarama.
 - Bu bölüm her adımın commit'inde güncellenir; sıradaki adım, aşağıdaki ilk işaretsiz kutudur.
 
 ## Bağlam
@@ -194,7 +197,7 @@ gereksiz yönlendirme satırları bunu gösterir.
   boş `TENANT_API_KEYS`, boş `LLM_MODEL` → sağlayıcı varsayılanı.
 - **Commit:** `chore: scaffold project and add env config with startup checks`
 
-### [ ] Adım 3 — Modeller, kural setleri, Store
+### [x] Adım 3 — Modeller, kural setleri, Store
 - **Ne:** pydantic şemaları (`Rule`, `Clause`, `Finding`, `Proposal`, enjeksiyon işareti). İki
   tenant'ın `rules.yaml` dosyası (her biri ~5 kural: `check`'li gün / yıl / % / TL kuralları,
   `check`'siz sayısal bir kural, sayısal olmayan kurallar, `critical` / `normal` karışık).

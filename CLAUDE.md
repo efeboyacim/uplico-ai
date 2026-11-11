@@ -29,6 +29,9 @@ Uygulama `docs/plan.md`'deki adımlarla, sırayla yazılır. Hangi adımda olund
 bölümünde ve adım kutularında yazar; bir oturuma başlarken önce oraya bak. Bir adım doğrulanıp
 commit edilince dur ve sıradaki adıma geçmeden önce kullanıcıdan onay al.
 
+**Şu an:** Adım 0–3 bitti (Adım 3: `src/models.py`, `src/store.py`, iki tenant'ın `rules.yaml`'ı).
+Sıradaki: Adım 4 — Hazırlık: madde bölme ve enjeksiyon tarama.
+
 ## Komutlar
 ```bash
 docker compose up                                        # çalıştır

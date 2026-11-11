@@ -1,0 +1,19 @@
+- id: termination_notice
+  text: "Fesih bildirim süresi en az 30 gün olmalıdır."
+  severity: critical
+  check: {op: ">=", value: 30, unit: gün}
+
+- id: late_penalty_cap
+  text: "Gecikme cezasının toplamı sözleşme bedelinin %10'unu aşamaz."
+  check: {op: "<=", value: 10, unit: "%"}
+
+- id: insurance_minimum
+  text: "Tedarikçi en az 1.000.000 TL teminatlı mesleki sorumluluk sigortası yaptırmalıdır."
+  check: {op: ">=", value: 1000000, unit: TL}
+
+- id: liability_cap
+  text: "Tedarikçinin sorumluluk sınırı sözleşme bedelinden az olamaz."
+  severity: critical
+
+- id: governing_law
+  text: "Sözleşmeye Türk hukuku uygulanmalı ve İstanbul mahkemeleri yetkili olmalıdır."
