@@ -11,8 +11,15 @@
   enjeksiyon taraması yazıldı; bu sırada alınan kararlar (görünmez küme = Unicode `Cf`, baştaki BOM
   istisnası, imza bloğu sınırı, sıralı `c<n>` kimliği, işaretin alanları, kalıp listesinin sınırı)
   `agent_design.md` §4 ve §5'e işlendi. `scan_injection(text, clauses)` ve `split_clauses(text)`
-  saf fonksiyonlardır; Adım 8 bunları çağırır.
-- **Sıradaki:** Adım 5 — Hazırlık: PII maskeleme.
+  saf fonksiyonlardır; Adım 8 bunları çağırır. Adım 5: `src/prepare/pii.py` yazıldı
+  (`mask(text, mapping) -> (maskeli metin, yeni eşleme)` ve `unmask(text, mapping)`, ikisi de saf);
+  bu sırada alınan kararlar (ad dizisinin durma kuralları, unvan ayırma, temiz ayrılmayan dizi,
+  yer tutucu türleri, birebir yazım eşitliği, tekrar çağrılabilirlik, fazla maskeleme sınırları)
+  `agent_design.md` §5'e işlendi. Adım 8 için not: adlar imza bloğunda bulunup tüm metinde
+  değiştirildiğinden `prepare_contract` eşlemeyi önce tüm metinle kurar, sonra her maddeyi o
+  eşlemeyle maskeler; maskeleme görünmez karakterleri çıkarılmış kopyada çalışır (araya gizli
+  karakter konmuş TCKN kaçmasın).
+- **Sıradaki:** Adım 6 — Doğrulama katmanı.
 - Bu bölüm her adımın commit'inde güncellenir; sıradaki adım, aşağıdaki ilk işaretsiz kutudur.
 
 ## Bağlam
@@ -246,7 +253,7 @@ gereksiz yönlendirme satırları bunu gösterir.
   (uzunluğu değiştiren karakterler dahil: birleşik harf, art arda boşluk, gizli karakter).
 - **Commit:** `feat: split contracts into clauses and scan for prompt injection`
 
-### [ ] Adım 5 — Hazırlık: PII maskeleme
+### [x] Adım 5 — Hazırlık: PII maskeleme
 - **Ne:** Tek maskeleyici (`mask(text, mapping)`: TCKN + checksum, IBAN + mod-97, e-posta, önekli
   telefon, taraf / imza bloğundan kişi adı; aynı değer aynı yer tutucu; var olan eşlemeyle
   çağrılabilir) ve tek maske açma fonksiyonu (`unmask`).

@@ -249,8 +249,39 @@ yoktur.**
     Gruplar arasında en fazla tek bir boşluk, nokta ya da tire olabilir; grup içinde ayraç olmaz.
     Öneksiz rakam grupları eşleşmez; böylece tutar ("1.250.000 TL"), süre ("90 gün"), tarih
     ("01.01.2026") ve yan yana yazılmış tarih + tutar ("01.01.2026 1.250 TL") yakalanmaz. Bunu bir test sınar.
-  - Kişi adı: taraf ve imza bloklarından ("Ad Soyad:", "Yetkili:", "temsilen") çıkarılır, tüm metinde değiştirilir.
-  - Aynı değer aynı yer tutucuyu alır. Eşleme yalnızca tenant'ın `app.db`'sinde durur.
+  - Kişi adı: taraf ve imza bloklarından ("Ad Soyad:", "Yetkili:", "temsilen") çıkarılır, tüm metinde
+    (sözcük sınırıyla) değiştirilir. Ayırma kuralı:
+    - **Dizi:** etiketten sonra, aynı satırda, yalnızca boşlukla ayrılmış ve büyük harfle başlayan
+      ardışık sözcükler. Dizi şuralarda durur: satır sonu; ardından `:` gelen sözcük (sıradaki
+      etikettir, diziye girmez: "Ad Soyad: Ahmet Yılmaz TCKN: …"); herhangi bir noktalama işareti
+      (`Av.` / `Dr.` gibi listedeki kısaltmaların noktası hariç); küçük harfle ya da rakamla başlayan
+      sözcük; form sözcükleri (İmza, Tarih, Kaşe, Mühür, Unvan, Görev, Adres, Telefon, TCKN gibi;
+      "Ad Soyad: Ahmet Yılmaz İmza Tarih"); aynı satırdaki ikinci bir etiket. Etiketler, form
+      sözcükleri ve unvanlar Türkçe karaktersiz yazımla da tanınır ("YETKILI", "Imza"). Dizide, "ve"
+      ile süren devamında ("X Sanayi ve Ticaret A.Ş.") ya da hemen ardında şirket eki (A.Ş., Ltd.,
+      Şti., Anonim, Limited, Şirketi) varsa ad çıkarılmaz. Yalnızca niteleyicilerden oluşan dizi
+      ("Yetkili: Yönetim Kurulu") ad sayılmaz.
+    - **Unvan ayırma:** unvan başları (Müdür, Başkanı, Üyesi, Direktörü, Vekili, Avukat, `Av.`, `Dr.`
+      gibi) ve niteleyicileri (Genel, Yönetim, Kurulu, İcra, Mali, Satın, Alma gibi) kodda kapalı
+      listelerdir. Dizide unvan başından sonra sözcük varsa ad, son unvan başından sonraki kısımdır
+      ("temsilen Yönetim Kurulu Başkanı Ahmet Yılmaz" → "Ahmet Yılmaz"). Unvan sondaysa sondan unvan
+      başı ve bilinen niteleyiciler atılır ("Yetkili: Ahmet Yılmaz Genel Müdür" → "Ahmet Yılmaz").
+      Unvan maskelenmez.
+    - **Temiz ayrılmazsa:** unvan atıldıktan sonra kalan 2–4 sözcük değilse (tek sözcük ya da beş ve
+      üstü) en az iki sözcüklü dizinin tamamı tek `[KISI_N]` olur. Listede olmayan bir niteleyici
+      kalan 2–4 sözcüğün içindeyse değerin parçası olur ("Yetkili: Ahmet Yılmaz Tedarik Zinciri
+      Direktörü" → "Ahmet Yılmaz Tedarik Zinciri"). İki durumda da etiketli satır sızmaz ama
+      gövdedeki yalın ad yakalanmaz. Unvansız tek sözcüklü dizi ad sayılmaz.
+    - Sınır (fazla maskeleme): listede olmayan birim ya da taraf adı ("Yetkili: Hukuk Müdürlüğü")
+      kişi sayılıp tüm metinde maskelenebilir; bilinen bir ad, gövdede bir şirket adının içinde
+      geçiyorsa ("Ahmet Yılmaz İnşaat A.Ş.") orada da maskelenir.
+  - Yer tutucu türleri: `KISI`, `TCKN`, `IBAN`, `TELEFON`, `EPOSTA`.
+  - Aynı değer aynı yer tutucuyu alır; "aynı" birebir aynı yazımdır (maske açma metni aynen geri
+    vermek zorundadır), farklı yazılmış aynı ad ya da numara ayrı yer tutucu alır. Eşleme yalnızca
+    tenant'ın `app.db`'sinde durur.
+  - Maskeleme tekrar çağrılabilir: metinde zaten duran yer tutuculara dokunulmaz. Sınır: sözleşmenin
+    kendi metninde yer tutucu biçiminde bir dize (`[KISI_1]`) geçerse o da olduğu gibi kalır ve
+    `lawyer` görünümünde eşlemedeki değerle açılabilir.
   - Aynı maskeleyici, avukatın karar sırasında yazdığı düzenlenmiş taslak metnine de uygulanır
     (incelemenin mevcut eşlemesiyle). Orada eşlemede olmayan yeni bir kişi adı yakalanmaz.
   - Sınır: maskelenmesi garanti edilmeyenler kaçabilir: gövdede geçen ad, öneksiz telefon, boşluklu
