@@ -95,6 +95,10 @@ Tek etkileri agent state'ine bir öneri yazmaktır; dış sisteme dokunmazlar.
     Böylece `süre` / `süresi`, `gün` / `günlük` iki tarafta ortak anahtar bulur; `fesih` /
     `feshedebilir` ve `borç` / `borcu` yalnızca 3 harflik anahtarda (`fes`, `bor`) buluşur, yani daha
     zayıf eşleşir. Kodda eş biçim listesi yoktur.
+  - **Yer tutucular anahtar üretmez:** `[KISI_1]` gibi yer tutucular hem madde metninden hem
+    sorgudan tokenizer'dan önce çıkarılır; yoksa `kıs`, `tel` ve `1` gibi anahtarlar ilgisiz
+    sorguları (kısıtlama, telafi, "1 ay") kişi ya da telefon geçen her maddeyle eşleştirir. Özet
+    maskeli metinden olduğu gibi alınır.
   - **Bilinen sınır:** üçüncü harfi değişen ya da kökü 3 harften kısa sözcükler (`ret` / `reddi`,
     `ay` / `aylık`) ve dolaylı ifade eşleşmez.
   - **Sıralama ve eşleşme:** `rank-bm25`'in `BM25Plus` sınıfı kullanılır. `BM25Okapi` kısa
@@ -339,6 +343,11 @@ yoktur.**
     `detail` kalıbın adıdır. Gizli karakterlerde (`kind=hidden_characters`) art arda gelen
     karakterler tek işarettir: `start` / `end` dizinin konumu, `detail` kod noktaları ve adetleri,
     `phrase` boştur.
+  - **İfadenin maskelenmesi:** cümle parçası tek başına maskelenirse sınırda kesilmiş bir değer
+    kaçar (satır sonu cümle sınırıdır; iki satıra bölünmüş bilinen bir adın soyadı ifadenin başında
+    yalın kalır). Bu yüzden saklanan `phrase`, maskeli madde metninin bir parçasıdır: cümle sınırı
+    maskelenen bir değeri ortasından kesiyorsa ifade o değerin yer tutucusunu bütün alacak kadar
+    genişler. Maskeli `phrase` her zaman maskeli madde metninde aynen geçer.
   - Kalıplar büyük-küçük harfe bakmadan aranır; bunun için uzunluğu koruyan bir katlama kullanılır
     (`İ`, `I`, `ı` → `i`; şapkalı harfler şapkasız), `casefold()` kullanılmaz.
   - Tarama her ifadeyi yakalayamaz; yakalamadığında kalan savunma sınırlayıcı etiketler, kod

@@ -44,7 +44,26 @@
   `classify_provider_error` ile ayırır (`config` → yeniden fırlat, `rate_limit` → `rate_limited`,
   `other` → `llm_error`). Listede olmayan bir Groq modeli `reasoning_effort="low"`'u reddederse
   (400) her kural `llm_error` olur.
-- **Sıradaki:** Adım 8 — İndeks ve `prepare_contract`.
+  Adım 8: `src/prepare/index.py` (`tokenize`, `ClauseIndex.search` / `get`, `put_index` /
+  `get_index` / `drop_index` / `clear_indexes`) ve `src/prepare/__init__.py`
+  (`prepare_contract(store, text, *, provider, model) -> PreparedContract`) yazıldı; örnek sözleşme
+  `tests/fixtures/sample_contract.md`'de. Bu sırada alınan kararlar dokümanlara işlendi
+  (`c1fc71a` ve bu commit): `BM25Plus` + ortak anahtar şartı (`BM25Okapi` kısa sözleşmede 0 ve
+  negatif skor verir); indeks kaydının anahtarı `(tenant_id, review_id)`; ham ve maskeli madde
+  ayrı tipler (`RawClause` / `Clause` + `MaskedText`, ayrı commit `44fe5d8`); hazırlık yarıda
+  kalırsa `prepare_contract` incelemeyi `failed` yapar ve `review_failed`'ı (`prepare_error`)
+  kendisi yazar; yer tutucular indeks anahtarı üretmez; işaretin `phrase`'i tek başına
+  maskelenmez, maskeli madde metninden alınır ve kesilen değerin yer tutucusunu bütün alacak
+  kadar genişler (iki satıra bölünmüş adın soyadı ifadede yalın kalıyordu). Audit yükleri:
+  `clauses_split {count}`, `pii_masked {counts: tür → adet}`, `index_built {count}`,
+  `injection_flagged` = maskeli işaretin alanları. Adım 9 için not: tool'lar indeksi
+  `get_index(tenant_id, review_id)` ile alır; `<sozlesme_maddesi>` etiketini indeks değil tool
+  ekler; `ClauseIndex.get` maskeli maddeyi verir. Adım 12 için not: her `injection_flagged` ayrı
+  bir transaction'dır (~6 ms); binlerce tetik cümlesi içeren bir sözleşme hazırlığı onlarca
+  saniyeye çıkarır (4000 işaret ≈ 25 sn), bu yüzden `POST /reviews` gövdesine boyut sınırı konur.
+  Hazırlık hata verirse `prepare_contract` satırı zaten `failed` yapmıştır; API yalnızca hatayı
+  yanıta çevirir.
+- **Sıradaki:** Adım 9 — Tool'lar ve kural agent'ı.
 - Bu bölüm her adımın commit'inde güncellenir; sıradaki adım, aşağıdaki ilk işaretsiz kutudur.
 
 ## Bağlam
@@ -344,7 +363,7 @@ gereksiz yönlendirme satırları bunu gösterir.
   bağlantı reddi ve sağlayıcı dışı hata `other`.
 - **Commit:** `feat: add provider-switchable chat model`
 
-### [ ] Adım 8 — İndeks ve `prepare_contract`
+### [x] Adım 8 — İndeks ve `prepare_contract`
 - **Ne:** BM25 indeksi (rank-bm25; embedding yok) ve Adım 1'de tanımlanan tokenizer (küçük harf →
   her sözcüğün 3, 4 ve 5 harflik başlangıçları; kodda sözcük listesi yok). `(tenant_id, review_id)` anahtarlı süreç içi kayıt (koy / al / sil). `prepare_contract()`: Adım 1'de yazılan sırayla asıl metni kaydeder, böler,
   tarar, maskeler, indeksler; her adımı audit log'a yazar. Testlerde ve Adım 12'deki elle denemede

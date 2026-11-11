@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from src.prepare.index import clear_indexes
 from src.store import close_all
 
 REPO_TENANTS = Path(__file__).resolve().parent.parent / "data" / "tenants"
@@ -29,3 +30,9 @@ def _no_tracing(monkeypatch: pytest.MonkeyPatch) -> None:
 def _close_store_connections() -> Iterator[None]:
     yield
     close_all()
+
+
+@pytest.fixture(autouse=True)
+def _clear_index_registry() -> Iterator[None]:
+    yield
+    clear_indexes()

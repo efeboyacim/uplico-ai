@@ -29,8 +29,8 @@ Uygulama `docs/plan.md`'deki adımlarla, sırayla yazılır. Hangi adımda olund
 bölümünde ve adım kutularında yazar; bir oturuma başlarken önce oraya bak. Bir adım doğrulanıp
 commit edilince dur ve sıradaki adıma geçmeden önce kullanıcıdan onay al.
 
-**Şu an:** Adım 0–7 bitti (Adım 7: `src/llm.py`).
-Sıradaki: Adım 8 — İndeks ve `prepare_contract`.
+**Şu an:** Adım 0–8 bitti (Adım 8: `src/prepare/index.py` ve `prepare_contract`).
+Sıradaki: Adım 9 — Tool'lar ve kural agent'ı.
 
 ## Komutlar
 ```bash
