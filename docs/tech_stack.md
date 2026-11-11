@@ -18,12 +18,10 @@
 | Ana model (Groq) | `openai/gpt-oss-120b` | Production model, tool calling, 131K bağlam. Ucuz alternatif: `openai/gpt-oss-20b` |
 | **Çevrimdışı mod** | Ollama (`LLM_PROVIDER=ollama`) | LangSmith kapalıyken veri makineden çıkmaz. İnternetsiz (banka) kurulum budur. |
 | Ana model (Ollama) | `qwen3.5:9b` | ≤ 8 GB VRAM'e sığar, tool calling. Yedek: `qwen3.5:4b` |
-| Embedding (her iki mod) | `bge-m3` (Ollama, `OllamaEmbeddings`) | Her zaman yerel; embedding için metin dışarı gitmez. CPU'da çalışır. |
 | Agent framework | LangChain v1 `create_agent` + LangGraph `StateGraph` | Kural agent'ı `create_agent`; akış LangGraph. |
 | Tool protokolü | Native tool calling (`@tool`) | MCP yok. Tool'lar sırayla çağrılır; paralel tool çağrısına güvenilmez. |
 | Model kurulumu | `init_chat_model(model, model_provider=...)` | Sağlayıcı değişimi tek yerde: `src/llm.py`. Sağlayıcı ve model ayrı env'lerdir. |
-| BM25 | `rank-bm25` (doğrudan) | `langchain-community` arşivlendi; sarmalayıcı kullanılmaz. |
-| Vektör DB | `InMemoryVectorStore` (`langchain-core`) | İnceleme başına bellekte kurulur; paylaşılan indeks yok. |
+| Arama | Yalnızca BM25: `rank-bm25` (doğrudan) | `langchain-community` arşivlendi; sarmalayıcı kullanılmaz. İndeks inceleme başına bellekte kurulur; paylaşılan indeks yok. |
 
 ### Groq: doğrulanan bilgiler (2026-11-10)
 | Konu | Bulgu | Kaynak |
@@ -54,7 +52,8 @@ Doğrulanamayan `spec.md` §10'da açık sorudur: `gpt-oss-120b`'nin Türkçe ka
   250K TPM ile eval birkaç dakikada biter; tahmini maliyet koşu başına $0.10'un altı.
 - **Başka bir hesapta düşük limitler geçerliyse** (8K TPM / 200K TPD; değerlendiricinin anahtarı
   böyle olabilir): tek bir sözleşme denenebilir, ama tam eval günlük sınıra sığmaz.
-  `MAX_CONCURRENCY=1` yapılmalı ya da eval çevrimdışı modda koşulmalı. README bunu yazar.
+  `MAX_CONCURRENCY=1` ve `--limit N` ile kısmi koşulmalı ya da eval çevrimdışı modda koşulmalı.
+  README bunu yazar.
 
 ## Uygulama katmanı
 - API: FastAPI + uvicorn (senkron endpoint'ler)
@@ -81,7 +80,8 @@ Doğrulanamayan `spec.md` §10'da açık sorudur: `gpt-oss-120b`'nin Türkçe ka
     yaklaşık 4 × 60 sn sürebilir.
 - **Geçersiz anahtar (401):** Yeniden denenmez ve `no_finding`'e çevrilmez. `review_rule` bu hatayı
   yeniden fırlatır; inceleme `failed` olur, API 502 döner. "Bir kuralın hatası incelemeyi çökertmez"
-  kuralının tek istisnasıdır: anahtar geçersizse hiçbir kural çalışamaz.
+  kuralının iki istisnasından biridir (diğeri audit log'a yazılamaması): anahtar geçersizse hiçbir
+  kural çalışamaz.
 
 ## Gözlemlenebilirlik & kalite
 - Kayıt (asıl kaynak): sistemin kendi audit log'u (SQLite)
@@ -94,10 +94,13 @@ Doğrulanamayan `spec.md` §10'da açık sorudur: `gpt-oss-120b`'nin Türkçe ka
 ## Deploy
 - Ortamlar: yalnızca yerel (dev)
 - Hedef: `docker compose up` — servisler:
-  - `ollama` — her iki modda çalışır (embedding; çevrimdışı modda sohbet modeli de).
-  - `ollama-pull` — her zaman `EMBED_MODEL`'i indirir (~1.2 GB); `LLM_PROVIDER=ollama` ise
-    `LLM_MODEL`'i de indirir (~7 GB).
-  - `app`
+  - `app` — her iki modda çalışır.
+  - `ollama` — yalnızca çevrimdışı modda çalışır (`offline` compose profili); sohbet modelini sunar.
+  - `ollama-pull` — yalnızca çevrimdışı modda çalışır (`offline` compose profili); sohbet modelini
+    indirir (~7 GB).
+- Varsayılan modda yalnızca `app` başlar; Ollama kapsayıcısı çalışmaz, imajı ve modeli inmez.
+- Çevrimdışı moda geçiş `.env`'de iki değişkendir: `LLM_PROVIDER=ollama` ve
+  `COMPOSE_PROFILES=offline`; komut yine `docker compose up`.
 - Varsayılan modda GPU gerekmez. Çevrimdışı modda Windows'ta GPU için host'taki Ollama
   kullanılabilir (`OLLAMA_BASE_URL=http://host.docker.internal:11434`).
 - `app` servisinde `restart` tanımlanmaz. Anahtar eksikse `app` hatayı compose çıktısına yazıp
@@ -109,8 +112,9 @@ Doğrulanamayan `spec.md` §10'da açık sorudur: `gpt-oss-120b`'nin Türkçe ka
   Sağlayıcı varsayılanları tek yerde, `src/config.py`'dedir; `.env.example`'da boş bırakılır ki
   yalnızca `LLM_PROVIDER` değiştirilince yanlış model adı kalmasın.
 - `GROQ_API_KEY` — `LLM_PROVIDER=groq` iken zorunlu
-- `EMBED_MODEL` — varsayılan `bge-m3`
-- `OLLAMA_BASE_URL`
+- `COMPOSE_PROFILES` — çevrimdışı modda `offline` (`ollama` ve `ollama-pull` servislerini açar);
+  varsayılan modda boş
+- `OLLAMA_BASE_URL` — yalnızca Ollama
 - `LLM_NUM_CTX` — yalnızca Ollama: bağlam uzunluğu (varsayılan 4096 çok küçük; 16384 kullanılır)
 - `MAX_CONCURRENCY` — aynı anda çalışan kural agent'ı sayısı. Varsayılan: Groq 4, Ollama 1.
   Groq hesabında düşük limitler (8K TPM) geçerliyse 1 yapılmalı.
@@ -125,8 +129,9 @@ Doğrulanamayan `spec.md` §10'da açık sorudur: `gpt-oss-120b`'nin Türkçe ka
 - `HumanInTheLoopMiddleware` — insan onayı agent döngüsünde değil, graph'ta tek `interrupt()`.
 - `PIIMiddleware` — maskeleme hazırlık katmanında yapılıyor; geri döndürülebilir eşleme tutmuyor.
 - Presidio / spaCy — Türkçe için ağır; regex + checksum yeterli.
-- Harici vektör DB (Chroma, pgvector, Qdrant) ve Postgres/Redis — gerek yok.
-- Bulut embedding servisi — embedding her zaman yereldir.
+- Embedding / vektör araması (`OllamaEmbeddings`, `InMemoryVectorStore`, bulut embedding servisi,
+  Chroma, pgvector, Qdrant) — arama yalnızca BM25'tir.
+- Postgres/Redis — gerek yok.
 - LLM-as-judge — tüm metrikler etiketlerden kodla hesaplanır.
 - ORM (SQLAlchemy) — üç tablo için `sqlite3` yeterli.
 - Elle yazılmış yeniden deneme / bekleme döngüleri — yalnızca modelin `max_retries`'ı.

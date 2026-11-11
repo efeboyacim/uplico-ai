@@ -44,7 +44,7 @@ gereksiz yönlendirme satırları bunu gösterir.
 - **Doğrulama:** Dosya repoda; adım kutuları işaretlenebilir halde.
 - **Commit:** `docs: add implementation plan`
 
-### [ ] Adım 1 — Doküman netleştirmeleri ve arama kararı
+### [x] Adım 1 — Doküman netleştirmeleri ve arama kararı
 - **Ne (A — netleştirmeler):** Kod yazılmadan önce aşağıdaki noktalar ilgili dokümana yazılır (karar
   değişmez; yazıldığı haliyle belirsiz ya da bir zorunlu testle çelişen yerler netleşir):
   1. `agent_design.md` §5 — Alıntı ve sayı sinyalleri yalnızca `compliant` / `non_compliant`

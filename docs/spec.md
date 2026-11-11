@@ -24,11 +24,12 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
 - **Güvensiz hata oranı ≤ %5:** yanlış olup avukat kuyruğuna da düşmeyen bulgu. En önemli metrik.
 - **Avukat kuyruğuna düşmeyen bulgularda alıntının gösterilen maddede geçme oranı = %100** (kod
   garanti eder). Doğru maddeden alıntı oranı ayrıca raporlanır.
-- **Kritik kural yakalama = %100 (hedef):** bulunmayan `critical` bir kural avukat kuyruğuna düşer.
+- **Her `not_found` avukat kuyruğuna düşer** (kod garanti eder).
 - **Öneri uygunluğu** raporlanır: sabit eşikli kurallarda kod kontrolünden geçen taslakların oranı.
 - **Kaçırılan uygunsuzluk ≤ %20** (uygun değil → uygun/bulunamadı denmesi). **Yanlış bulgu ≤ %20.**
-- **Model sağlayıcıya giden PII sayısı = 0** — TCKN, IBAN, telefon, e-posta ve taraf/imza bloğundaki
-  adlar için. Yalnızca serbest metinde geçen adların sızıntısı ayrıca raporlanır (eşik yok).
+- **Model sağlayıcıya giden PII sayısı = 0** — standart biçimde yazılmış TCKN, IBAN, önekli telefon,
+  e-posta ve taraf/imza bloğundaki adlar için. Maskelenmesi garanti edilmeyen kimlik bilgilerinin
+  sızıntısı (`pii_best_effort`) ayrıca raporlanır (eşik yok).
 - **Enjeksiyonlu sözleşmelerde avukata gitmeyen yanlış "uygun" = 0.** Modelin talimata uyup uymadığı
   ayrıca raporlanır.
 - **Tenant izolasyonu:** A şirketi B'nin verisine erişemez; bunu gösteren test geçer.
@@ -46,15 +47,18 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
      önerir, gerekiyorsa değişiklik taslağı yazar.
   5. Kod her öneriyi kontrol eder: alıntı sözleşmede birebir geçiyor mu, sayısal değer (kodun
      alıntıdan kendisinin çıkardığı) kurala uyuyor mu, taslak kurala uyuyor mu.
-  6. Belirsiz durumları kod avukat kuyruğuna alır. Bütün kurallar işlenince sistem durur ve avukatı bekler.
+  6. Belirsiz ve kanıtsız durumları kod avukat kuyruğuna alır. Bütün kurallar işlenince sistem durur
+     ve avukatı bekler.
 - **Başarılı sonuç:** Her kural için `uygun / uygun değil / bulunamadı` + madde + birebir alıntı;
-  uygun olmayanlar için değişiklik taslağı; belirsizler avukat kuyruğunda, sebepleriyle işaretli.
+  uygun olmayanlar için değişiklik taslağı; belirsizler ve bulunamayanlar avukat kuyruğunda,
+  sebepleriyle işaretli.
 - **Avukat kuyruğuna düşen durumlar:** alıntı doğrulanamadı · kod alıntıdan değer çıkaramadı ya da
   model ile kod çelişti · alıntıda aynı
-  birimle birden çok farklı değer var · `critical` bir kural bulunamadı · "bulunamadı" dendi ama
-  anahtar kelime geçiyor · taslak eksik ya da kurala uymuyor · agent devretti ya da sonuç üretemedi ·
-  sözleşmede enjeksiyon şüphesi var.
-- **Kenar durumlar:** sayı/birim farklı yazılmış ("bir ay", "otuz (30) gün" tek değer sayılır).
+  türden birden çok farklı değer var · süre çevirmesi kesin sonuç vermiyor ("1 ay" ile "en az 30
+  gün") · her bulunamadı · taslak eksik ya da kurala uymuyor ·
+  agent devretti ya da sonuç üretemedi · sözleşmede enjeksiyon şüphesi var.
+- **Kenar durumlar:** sayı/birim farklı yazılmış ("otuz (30) gün" tek değerdir; "bir ay" gün eşikli
+  kuralda 28–31 gün aralığıdır ve sonuç kesin değilse kuyruğa düşer).
 
 ### Senaryo 2: Avukat kararı, son karar ve rapor
 - **Tetikleyici:** İnceleme "avukat bekleniyor" durumunda durur.
@@ -101,9 +105,10 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   çapraz kontroldür.
 - FR-4: `non_compliant` bulgular için değişiklik önerisi taslağı üretilir. Sabit eşikli kurallarda
   kod taslaktaki sayıyı kuralla karşılaştırır; diğer kurallarda taslak "kod doğrulayamadı" etiketi alır.
-- FR-5: Belirsiz bulgular avukat kuyruğuna gider; bu kararı deterministik sinyallerle **kod** verir.
-  Kuyruk tek bir işaret ve sebep listesidir; öncelik sıralaması yoktur. `critical` bir kuralın
-  bulunamaması kuyruk sebebidir.
+- FR-5: Belirsiz ve kanıtsız bulgular avukat kuyruğuna gider; bu kararı deterministik sinyallerle
+  **kod** verir. Kuyruk tek bir işaret ve sebep listesidir; öncelik sıralaması yoktur. Her
+  `not_found` sonucu kuyruğa gider (kanıtsız sonuç avukatsız geçmez); kuralın `critical` olması
+  yalnızca ek bir sebep etiketidir, kuyruğa ayrıca etkisi yoktur.
 - FR-6: Sözleşme için son karar (onay / değişiklik talebi) yalnızca insan eylemidir; agent'ın böyle
   bir tool'u yoktur. `GET` dışındaki her uç (sözleşme yükleme ve karar dahil) `lawyer` rolü ister;
   `viewer` 403 alır. Kuyrukta kararsız bulgu ya da taslak varken son karar kabul edilmez.
@@ -139,15 +144,16 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   - **Varsayılan modda maskeli sözleşme metni makineden çıkar ve Groq'a gider.** (Groq sakladığı
     veriyi ABD'de tutar; çıkarımın hangi ülkede yapıldığı belgelerinde yazmıyor.) Buna
     maskelenmeyen her şey dahildir: tutarlar, fiyatlar, ticari şartlar, şirket adları ve maskelemenin
-    kaçırdığı serbest metin adları.
+    kaçırdığı kimlik bilgileri (gövdede geçen ad, öneksiz telefon, boşluklu TCKN / IBAN).
   - **"Veri makineden çıkmaz" yalnızca çevrimdışı mod (`LLM_PROVIDER=ollama`, LangSmith kapalı) için
     doğrudur.**
-  - Embedding her iki modda yereldir. PII eşlemesi ve ham sözleşme hiçbir modda dışarı gitmez.
+  - Arama her iki modda yereldir (yalnızca BM25, süreç içinde). PII eşlemesi ve ham sözleşme hiçbir
+    modda dışarı gitmez.
   - Secret'lar yalnızca env'den okunur.
 - **Dil / kanal:** Sözleşmeler ve kurallar Türkçe. Kanal: HTTP API + tek sayfalık arayüz.
 - **Güvenilirlik:** Bir kuralın agent'ı hata verirse inceleme çökmez; o kural avukat kuyruğuna düşer.
-  Tek istisna: sağlayıcı anahtarı geçersizse (401) hiçbir kural çalışamaz; inceleme `failed` olur ve
-  API 502 döner.
+  İki istisna: sağlayıcı anahtarı geçersizse (401) hiçbir kural çalışamaz; inceleme `failed` olur ve
+  API 502 döner. Audit log'a yazılamıyorsa da inceleme `failed` olur (eksik kayıtla tamamlanmaz).
 
 ## 7. İnsan dahil olma (human-in-the-loop)
 - Agent yalnızca **önerir**: bulgu, değişiklik taslağı, "avukata bırak" işareti.
@@ -188,17 +194,20 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
 
 ## 9. Varsayımlar ve bağımlılıklar
 - İki kurgusal şirket: `acme` ve `globex`; her birinin ~5 kurallık seti var. Her kural `critical` ya
-  da `normal`'dır (işaretlenmezse `normal`); işareti şirket verir.
+  da `normal`'dır (işaretlenmezse `normal`); işareti şirket verir. İşaret yalnızca avukata ve
+  raporda gösterilen bir etikettir; bulunamayan her kural, işaretinden bağımsız olarak avukat
+  kuyruğuna düşer.
 - Her tenant'ın en az bir `lawyer` ve bir `viewer` anahtarı vardır. `lawyer` anahtarını taşıyan kişi
   o şirketin avukatıdır; kayda anahtarın sunucudaki adı yazılır. Anahtarı ele geçiren o rolü kazanır.
 - Sözleşmeler "Madde N" başlıklarıyla yazılmış, 5–30 sayfa arası.
-- Kişi adı maskeleme en iyi çabadır (taraf/imza blokları); serbest metindeki adlar kaçabilir.
+- Kişi adı maskeleme en iyi çabadır (taraf/imza blokları); gövdede geçen adlar, öneksiz telefon ve
+  boşluklu yazılmış TCKN / IBAN kaçabilir.
 - Varsayılan mod bir Groq hesabı ve `GROQ_API_KEY` gerektirir. Geliştirme hesabında 250K TPM
   geçerlidir (teyit edildi); tam eval buna göre tasarlandı. Düşük limitli bir hesapta (8K TPM /
   200K TPD) tam eval bir güne sığmaz (`tech_stack.md` "Hangi plan?").
-- Değerlendiricinin makinesinde GPU olmayabilir; varsayılan mod GPU gerektirmez (embedding CPU'da çalışır).
-- İlk çalıştırmada embedding modeli indirilir (internet gerekir, ~1.2 GB). Çevrimdışı modda sohbet
-  modeli de indirilir (~7 GB); indirme bittikten sonra internet gerekmez.
+- Değerlendiricinin makinesinde GPU olmayabilir; varsayılan mod GPU gerektirmez.
+- Varsayılan modda model indirilmez; Ollama çalışmaz. Çevrimdışı modda ilk çalıştırmada sohbet
+  modeli indirilir (internet gerekir, ~7 GB); indirme bittikten sonra internet gerekmez.
 - Groq'un veri politikası (saklamama, 30 güne kadar kötüye kullanım logu, eğitimde kullanmama)
   2026-11-10 tarihinde okunduğu haliyle varsayılır; hesapta Zero Data Retention açılması önerilir.
 - README ve karar dokümanı (en fazla 2 sayfa) ayrıca yazılacak; bu dosyalar onların kaynağıdır.
@@ -211,13 +220,11 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
 - [x] **Hesapta hangi Groq limiti geçerli?** Geliştirme hesabının Limits sayfasında `gpt-oss-120b`
       için 250K TPM görünüyor (2026-11-10'da teyit edildi); tam eval sığar. Groq belgeleri bu konuda
       çelişkili olduğu için değerlendiricinin kendi anahtarında düşük limit (8K TPM / 200K TPD)
-      çıkabilir; README bunu ve çözümünü (`MAX_CONCURRENCY=1`, ya da çevrimdışı mod) yazmalı.
+      çıkabilir; README bunu ve çözümünü (`MAX_CONCURRENCY=1` ve `--limit N` ile kısmi koşu, ya da çevrimdışı mod) yazmalı.
 - [x] Groq SDK'sı 429'da `retry-after`'a uyuyor mu? Evet, 60 sn'ye kadar; daha uzunsa en fazla 8 sn'lik
       üstel beklemeye düşer (SDK kaynak kodundan doğrulandı, `tech_stack.md`). Ek sarmalayıcı yazılmaz.
 - [ ] `max_concurrency` `Send` dallarını gerçekten sınırlıyor mu? İlk koşuda kontrol edilir;
       sınırlamıyorsa `review_rule` içinde bir semafor kullanılır.
-- [ ] (Çevrimdışı mod) 8 GB VRAM'de sohbet ve embedding modeli aynı anda sığmazsa: daha küçük
-      embedding (`qwen3-embedding:0.6b`) ya da daha küçük sohbet modeli (`qwen3.5:4b`).
 - [ ] (Çevrimdışı mod) `qwen3.5:9b` Türkçe sözleşmede tool çağrılarını güvenilir yapıyor mu?
 - [ ] LangSmith anahtarı yokken `evaluate(upload_results=False)` tamamen çevrimdışı çalışıyor mu?
       Çalışmazsa aynı evaluator'ları çağıran düz Python döngüsü kullanılır.

@@ -23,7 +23,6 @@ flowchart LR
         H -->|Command resume| F[finalize]
     end
     A <-->|maskeli metin| LLM[(Groq<br/>çevrimdışı modda Ollama)]
-    P <--> EMB[(Ollama embedding<br/>her zaman yerel)]
     A -. model + tool çağrıları .-> AUD[(Audit log)]
     API -. awaiting_lawyer · review_failed .-> AUD
     P -. hazırlık adımları .-> AUD
@@ -38,33 +37,39 @@ flowchart LR
 | Bileşen | Sorumluluk | Konum |
 |---|---|---|
 | API | Anahtardan tenant ve rol çözme, rol kontrolü, hazırlığı çağırma, inceleme başlatma, avukat kararını doğrulama ve maskeleme, role göre gösterim, audit ve rapor okuma, arayüz | `src/api.py` |
-| Hazırlık | Madde bölme, enjeksiyon tarama, PII maskeleme, hibrit indeks (graph dışında) | `src/prepare/` |
+| Hazırlık | Madde bölme, enjeksiyon tarama, PII maskeleme, BM25 indeksi (graph dışında) | `src/prepare/` |
+| Metin yardımcısı | Metni normalleştirir ve her karakterin asıl metindeki konumunu verir; enjeksiyon taraması ve alıntı doğrulaması aynı yardımcıyı kullanır, ikinci bir kopyası yazılmaz | `src/text.py` |
 | Rapor | Saklanan sonuçtan JSON rapor üreten saf fonksiyon | `src/report.py` |
 | Graph | 4 düğüm, `Send` ile kural başına dağıtım, tek `interrupt()` | `src/graph.py` |
 | Kural agent'ı | `create_agent`, system prompt, audit middleware'leri, adım limiti | `src/agent.py` |
 | Tool'lar | 5 tool; onay tool'u yok | `src/tools.py` |
 | Doğrulama | Alıntı, sayı/birim, taslak kontrolü, avukat kuyruğu sinyalleri (saf fonksiyon) | `src/verify.py` |
 | Config | Env okuma; başlangıçta sağlayıcı ve anahtar kontrolü (eksikse açık hatayla durur) | `src/config.py` |
-| LLM | Sohbet modeli (Groq ya da Ollama) ve yerel embedding kurulumu; yeniden deneme ayarı | `src/llm.py` |
+| LLM | Sohbet modeli (Groq ya da Ollama) kurulumu; yeniden deneme ayarı | `src/llm.py` |
 | Store | Tenant'a bağlı SQLite, üç tablo: `reviews` (asıl sözleşme metni, maskeli maddeler, işaretler, durum, doğrulanmış bulgular ve taslaklar, kararlar), `audit_log` (tetikleyiciyle yalnızca ekleme), `pii_map` | `src/store.py` |
 | Modeller | pydantic şemaları: `Clause`, `Rule`, `Finding`, `Proposal`, `LawyerDecision`, `Report` | `src/models.py` |
 | Arayüz | Bulguları ve enjeksiyon işaretlerini sözleşme metni üzerinde gösteren tek sayfa (karar API ucundan verilir) | `src/static/index.html` |
 
 ## 3. Veri akışı (ana senaryo)
-1. `POST /reviews` gelir. API anahtarından `tenant_id` ve rol çözülür (aşağıda "Kimlik ve rol");
-   tenant'ın kuralları yüklenir.
-2. **Hazırlık (graph dışı, `prepare_contract()`):**
-   - Asıl sözleşme metni değiştirilmeden tenant'ın `app.db`'sine kaydedilir.
-   - Sözleşme maddelere bölünür; enjeksiyon kalıpları ve gizli karakterler taranır. Şüpheli ifade
+1. `POST /reviews` gelir; gövdesi `{"text": "…"}`'tir. API anahtarından `tenant_id` ve rol çözülür
+   (aşağıda "Kimlik ve rol"); tenant'ın kuralları yüklenir. İncelemeye bir `review_id` (UUID) verilir.
+2. **Hazırlık (graph dışı, `prepare_contract()`), şu sırayla:**
+   - **Sakla:** Asıl sözleşme metni değiştirilmeden tenant'ın `app.db`'sine kaydedilir.
+   - **Böl:** Sözleşme maddelere bölünür; her madde asıl metindeki ofsetini taşır. `Madde 1`
+     öncesindeki ve son maddeden sonraki metin de birer maddedir.
+   - **Tara:** Enjeksiyon kalıpları ve gizli karakterler, görünmez karakterleri çıkarılmış bir
+     kopyada taranır; eşleşme konumları asıl metne eşlenir (`src/text.py`). Şüpheli ifade
      **silinmez**, konumuyla işaretlenir. Modelin göreceği kopyadan yalnızca görünmez karakterler
-     çıkarılır; görünen şüpheli cümle kalır. İşaretteki eşleşen ifade, saklanmadan ve audit log'a
-     yazılmadan önce maskelenir.
-   - Kimlik bilgileri yer tutucularla değiştirilir (`[KISI_1]`, `[TCKN_1]`); eşleme yalnızca tenant'ın
-     `app.db`'sine yazılır. Tutar, süre ve tarihler maskelenmez.
-   - Maskeli maddeler BM25 + embedding ile indekslenir. İndeks state'e konmaz; süreç içinde
+     çıkarılır; görünen şüpheli cümle kalır. Görünmez karakter kümesi tek yerde tanımlanır.
+   - **Maskele:** Kimlik bilgileri yer tutucularla değiştirilir (`[KISI_1]`, `[TCKN_1]`); eşleme
+     yalnızca tenant'ın `app.db`'sine yazılır. Tutar, süre ve tarihler maskelenmez.
+   - **İşareti maskele:** İşaretteki ifade (eşleşmenin geçtiği cümle) aynı eşlemeyle maskelenir;
+     maskesiz hali saklanmaz.
+   - **İndeksle:** Maskeli maddeler BM25 ile indekslenir. İndeks state'e konmaz; süreç içinde
      `review_id` anahtarlı bir sözlükte durur ve graph `interrupt`'a ulaşınca silinir.
-   - Her adım audit log'a yazılır.
-3. Graph **yalnızca maskeli maddeler, kurallar ve kimliklerle** başlar (`thread_id = review_id`).
+   - Her adım audit log'a yazılır; audit olayları yükleri maskelendikten sonra yazılır.
+3. Graph **yalnızca maskeli maddeler, kurallar, enjeksiyon işareti ve kimliklerle** başlar
+   (`thread_id = review_id`).
 4. **review_rule × N:** Her kural için bir agent çalışır ve tam olarak bir bulgu döner. Arar, maddeyi
    okur, `submit_finding` ile bildirir; gerekiyorsa `propose_change` ya da `escalate_to_lawyer` çağırır.
    Her model ve tool çağrısı audit log'a yazılır.
@@ -88,7 +93,7 @@ flowchart LR
 ### API uçları
 | Uç | İş | Gerekli rol |
 |---|---|---|
-| `POST /reviews` | Sözleşme metnini alır, hazırlar, graph'ı `interrupt`'a kadar çalıştırır, bulguları döner | `lawyer` |
+| `POST /reviews` | Sözleşme metnini alır (`{"text": "…"}`), hazırlar, graph'ı `interrupt`'a kadar çalıştırır, bulguları döner | `lawyer` |
 | `POST /reviews/{id}/decision` | Bulgu kararları + taslak kararları + son karar (onay / değişiklik talebi), tek istekte | `lawyer` |
 | `GET /reviews/{id}` | Durum, maddeler, enjeksiyon işaretleri, bulgular, taslaklar; `lawyer` için ayrıca asıl sözleşme metni | `lawyer` ya da `viewer` |
 | `GET /reviews/{id}/report` | Son karardan sonra rapor (yalnızca JSON) | `lawyer` ya da `viewer` |
@@ -110,6 +115,8 @@ kurulur. Kural uç adına değil yönteme bağlıdır: **`GET` dışındaki her 
 - Kural tüm okuma uçlarında ve arayüzde aynıdır. Maske açma tek bir fonksiyondadır ve yalnızca
   yanıt üretilirken, `lawyer` için çalışır; saklanan veri her zaman maskelidir (asıl sözleşme metni
   ve `pii_map` dışında).
+- `viewer` için "konum yok" kuralı inceleme ve rapor yanıtlarına uygulanır; audit kayıtları iki rol
+  için de saklandığı gibi döner.
 - `viewer` asıl sözleşme metnini ve `pii_map`'i hiçbir uçtan alamaz.
 - Arayüz veriyi API'den çektiği için aynı kurala kendiliğinden uyar.
 
@@ -212,7 +219,8 @@ Yeniden yüklenen sözleşme yeni bir incelemedir; önceki incelemeyle bağlanma
 ```
 src/
   api.py  config.py  llm.py  graph.py  agent.py  tools.py  verify.py  report.py  store.py  models.py
-  prepare/        clauses.py  injection.py  pii.py  index.py
+  text.py         # normalleştirme + asıl metindeki konuma eşleme (tek yardımcı)
+  prepare/        clauses.py  injection.py  pii.py  index.py   # index.py: BM25
   prompts/        rule_agent.md
   static/         index.html
 data/tenants/<tenant_id>/
@@ -238,7 +246,7 @@ docs/             # karar dokümanı
 | Sistem | Erişim | Auth | Not |
 |---|---|---|---|
 | Groq | Sohbet modeli (varsayılan mod) | `GROQ_API_KEY` | Maskeli metin gider. 429'da `max_retries=3`; limitler organizasyon başına. Eşzamanlılık `MAX_CONCURRENCY` ile sınırlı |
-| Ollama | Embedding (her iki mod) + sohbet modeli (çevrimdışı mod) | Yok (yerel ağ) | Çevrimdışı modda `OLLAMA_NUM_PARALLEL=1`, `MAX_CONCURRENCY=1` |
+| Ollama | Sohbet modeli (yalnızca çevrimdışı mod) | Yok (yerel ağ) | Varsayılan modda çalışmaz. Çevrimdışı modda `OLLAMA_NUM_PARALLEL=1`, `MAX_CONCURRENCY=1` |
 | LangSmith | Eval + tracing (isteğe bağlı) | `LANGSMITH_API_KEY` | Trace'lere yalnızca maskeli veri gider. Eval dataset'i sentetik sözleşmeleri (sahte PII dahil) ham yükler. Anahtar yoksa hiçbir şey gitmez |
 
 ### Veri nereye gidiyor
@@ -246,12 +254,11 @@ docs/             # karar dokümanı
 |---|---|---|
 | Asıl sözleşme metni | Makinede kalır (tenant `app.db`) | Makinede kalır |
 | PII eşlemesi (yer tutucu → gerçek değer) | Makinede kalır (tenant `app.db`) | Makinede kalır |
-| TCKN, IBAN, telefon, e-posta, taraf/imza bloğundaki adlar | Gitmez (maskeli) | Gitmez |
+| Standart biçimde TCKN, IBAN, önekli telefon, e-posta, taraf/imza bloğundaki adlar | Gitmez (maskeli) | Gitmez |
 | Maskeli madde metni, kural metni, agent mesajları | **Groq'a gider** | Makinede kalır |
 | Tutarlar, fiyatlar, süreler, tarihler, ticari şartlar, şirket adları | **Groq'a gider** (maskelenmez; kurallar bunlara ihtiyaç duyar) | Makinede kalır |
 | Avukatın düzenlediği taslak metni | Modele gitmez (karar agent çalıştıktan sonra verilir); maskeli saklanır | Makinede kalır |
-| Maskelemenin kaçırdığı serbest metin adları | **Groq'a gidebilir** | Makinede kalır |
-| Embedding için metin | Makinede kalır (yerel Ollama) | Makinede kalır |
+| Maskelemenin kaçırdığı kimlik bilgileri (gövdede geçen ad, öneksiz telefon, boşluklu TCKN / IBAN) | **Groq'a gidebilir** | Makinede kalır |
 | Trace (yalnızca `LANGSMITH_API_KEY` varsa) | LangSmith'e gider, maskeli | Kapalı tutulur |
 
 Groq tarafı (2026-11-10'da okunan belgeler, `tech_stack.md`): varsayılan olarak saklamaz; güvenilirlik
@@ -263,10 +270,15 @@ Groq'un beyanıdır, sistemin garantisi değildir.
 ### ADR-001: Parçala ve ara (tam sözleşmeyi modele verme)
 - **Bağlam:** Kanıt madde düzeyinde isteniyor. Tüm sözleşmeyi her kural için göndermek token'ı
   (Groq'ta dakikalık limit ve ücret, yerelde bağlam) kural sayısıyla çarpar ve dışarı giden metni artırır.
-- **Karar:** Sözleşme maddelere bölünür; agent hibrit aramayla (BM25 + embedding) ilgili maddeyi bulur.
-- **Alternatifler:** Tüm sözleşmeyi tek prompt'ta vermek.
-- **Sonuç:** Kısa prompt, madde kimliğiyle kanıt. Risk: arama maddeyi kaçırabilir → "bulunamadı ama
-  anahtar kelime geçiyor" sinyali bulguyu avukata yollar.
+- **Karar:** Sözleşme maddelere bölünür; agent ilgili maddeyi aramayla bulur. Arama yalnızca
+  BM25'tir; vektör deposu ve sıralama birleştirme yoktur.
+- **Alternatifler:** Tüm sözleşmeyi tek prompt'ta vermek. BM25'in yanına vektör araması eklemek
+  (kapsamdaki sözleşmeler 15–40 madde; bunun için Groq modunda ~4,6 GB'lık Ollama imajı ve ayrı bir
+  model indirtmek orantısız).
+- **Sonuç:** Kısa prompt, madde kimliğiyle kanıt; Groq modunda Ollama gerekmez. Risk: BM25 kuralın
+  sözcüklerini kullanmayan dolaylı ifadeyi kaçırabilir. Arama maddeyi kaçırırsa "bulunamadı" her
+  durumda avukata gider (her `not_found` kuyruğa düşer); risk "arama isabeti" metriğiyle ölçülür
+  (`evals.md` §4). İleride ilk eklenecek şey embedding'dir (hibrit arama).
 
 ### ADR-002: Kural başına ayrı agent görevi
 - **Karar:** Graph `Send` ile her kural için aynı agent'ı ayrı çalıştırır.
@@ -339,6 +351,8 @@ Groq'un beyanıdır, sistemin garantisi değildir.
 - **Karar:**
   - Karar yalnızca avukat kuyruğundaki bulgular için zorunludur (CASE.md: "emin olmadığı bulguyu
     avukata bırakır"); kuyruk dışındaki bulgular kodun doğruladığı haliyle kalır, avukat isterse düzeltir.
+  - Kuyruğa iki tür bulgu düşer: belirsiz olanlar (bir doğrulama sinyali tutan) ve kanıtsız olanlar
+    (her `not_found`; alıntı olmadığı için kodun doğrulayacağı bir şey yoktur).
   - Kuyruk tek bir işaret (`needs_review`) ve sebep listesidir; öncelik sıralaması yoktur.
   - Tek karar ucu: bulgu kararları, taslak kararları ve son karar aynı istekte gelir.
   - Son karar `approve` ya da `request_changes`'tir; "ret" yoktur.
@@ -352,8 +366,9 @@ Groq'un beyanıdır, sistemin garantisi değildir.
 - **Bağlam:** CASE.md dış sağlayıcıyı varsayıyor ("model sağlayıcıya ne gidiyor?"). Eval iki günde
   defalarca koşulmalı ve değerlendiricinin makinesinde GPU olmayabilir.
 - **Karar:** Varsayılan `LLM_PROVIDER=groq`, model `openai/gpt-oss-120b`. `LLM_PROVIDER=ollama`
-  çevrimdışı moddur. Embedding her iki modda yerel Ollama'dır (`bge-m3`). PII maskeleme, doğrulama,
-  graph ve tool'lar iki modda aynıdır; fark yalnızca `src/llm.py`'dedir.
+  çevrimdışı moddur. Ollama yalnızca çevrimdışı modda çalışır; varsayılan modda başlamaz ve imajı
+  inmez. PII maskeleme, arama, doğrulama, graph ve tool'lar iki modda aynıdır; fark yalnızca
+  `src/llm.py`'dedir.
 - **Alternatifler:** Yalnızca yerel model (yavaş, GPU ister); Groq'ta Llama modelleri (artık Enterprise).
 - **Sonuçlar / ödünleşimler:**
   - Varsayılan modda maskeli metin, tutarlar ve ticari şartlar Groq'a gider ("Veri nereye gidiyor").
@@ -364,5 +379,5 @@ Groq'un beyanıdır, sistemin garantisi değildir.
     (8K TPM / 200K TPD) sığmaz; Groq belgeleri hangi planın hangi limiti aldığında çelişkili olduğu
     için README düşük limit durumunu da anlatır.
   - İnternetsiz kurulumda değişen: `LLM_PROVIDER=ollama`, LangSmith kapalı. Docker imajları ve Ollama
-    modelleri (`bge-m3`, `qwen3.5:9b`) internet olan bir makinede hazırlanıp içeri taşınır
-    (`ollama-pull` çalıştırılmaz); sohbet modeli için ~8 GB VRAM'li GPU gerekir. Kod değişmez.
+    sohbet modeli (`qwen3.5:9b`) internet olan bir makinede hazırlanıp içeri taşınır
+    (`ollama-pull` çalıştırılmaz; yalnızca `app` ve `ollama` başlatılır); sohbet modeli için ~8 GB VRAM'li GPU gerekir. Kod değişmez.

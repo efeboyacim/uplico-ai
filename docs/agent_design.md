@@ -53,7 +53,8 @@ Tek etkileri agent state'ine bir öneri yazmaktır; dış sisteme dokunmazlar.
 
 ### Tool tasarım kuralları
 - Açıklama ne zaman kullanılacağını ve kullanılmayacağını söyler.
-- Hata mesajı modelin düzeltebileceği kadar açıktır (ör. "c99 diye bir madde yok; `search_contract` kullan").
+- Tool'lar beklenen hataları (ör. olmayan madde) fırlatmaz; hata metni olarak döner. Hata mesajı
+  modelin düzeltebileceği kadar açıktır (ör. "c99 diye bir madde yok; `search_contract` kullan").
 - Tool'lar yalnızca şemayı ve `clause_id`'nin varlığını kontrol eder. Alıntı, sayı ve taslak
   doğrulaması tool'da değil `verify.py`'dedir.
 - Kayıt tool'ları `Command(update=...)` ile state'e yazar ve `ToolMessage` döner.
@@ -77,24 +78,31 @@ Tek etkileri agent state'ine bir öneri yazmaktır; dış sisteme dokunmazlar.
 - **Kısa süreli:** Her kural görevinin kendi mesaj geçmişi vardır; görevler arasında paylaşılmaz.
 - **Uzun süreli:** Yok.
 - **RAG:** Kaynak tek sözleşme. Parça = madde (`Madde N` başlıklarına göre regex; bulunamazsa paragraf).
-  Arama = BM25 (Türkçe küçük harfe duyarlı tokenizer) + embedding, Reciprocal Rank Fusion ile birleştirilir.
+  Arama yalnızca BM25'tir.
+  - **Tokenizer:** Türkçe'ye uygun küçük harf → her sözcük için 3, 4 ve 5 harflik başlangıçları
+    birlikte üretilir (`süresi` → `sür`, `süre`, `süres`; 3 harften kısa sözcük olduğu gibi kalır).
+    Böylece `süre` / `süresi`, `gün` / `günlük` iki tarafta ortak anahtar bulur; `fesih` /
+    `feshedebilir` ve `borç` / `borcu` yalnızca 3 harflik anahtarda (`fes`, `bor`) buluşur, yani daha
+    zayıf eşleşir. Kodda eş biçim listesi yoktur.
+  - **Bilinen sınır:** üçüncü harfi değişen ya da kökü 3 harften kısa sözcükler (`ret` / `reddi`,
+    `ay` / `aylık`) ve dolaylı ifade eşleşmez.
 - **İndeks nerede durur:** State'e ya da `Send` yüküne konmaz (checkpoint'e serileştirilemez).
   Hazırlık onu süreç içinde `review_id` anahtarlı bir sözlükte tutar; `review_rule` oradan alıp
   `ReviewContext` ile tool'lara verir. Graph `interrupt`'a ulaşınca silinir; resume indekse ihtiyaç duymaz.
 - **State saklama:** Graph state'i tenant'ın `checkpoints.db` dosyasında. State yalnızca
   **maskeli** metin ve kimlik tutar; ham metin ve PII eşlemesi state'e girmez.
-- **Agent state'i:** `AgentState` + `finding`, `proposal`, `escalation`.
+- **Agent state'i:** `AgentState` + `finding`, `proposal`, `escalation`. Bu üç alan "son yazan
+  geçerli" birleştiricisi taşır; model aynı mesajda iki çağrı yaparsa agent çökmez.
 
 ### Kural tanımı (`data/tenants/<tenant>/rules.yaml`)
 ```yaml
 - id: termination_notice
   text: "Fesih bildirim süresi en az 30 gün olmalıdır."
   severity: critical                     # critical | normal (varsayılan normal)
-  keywords: [fesih, bildirim]            # "bulunamadı" kontrolü için
   check: {op: ">=", value: 30, unit: gün}  # isteğe bağlı; yalnızca sabit eşikli kurallarda
 ```
-- `severity`: şirket kendi kural setinde işaretler. `critical` bir kural "bulunamadı" çıkarsa her
-  zaman avukat kuyruğuna girer.
+- `severity`: şirket kendi kural setinde işaretler. Yalnızca avukata ve raporda gösterilen bir
+  etikettir; avukat kuyruğuna etkisi yoktur.
 - `check`: yalnızca sabit eşikli kurallarda vardır. Sabit eşiği olmayan kurallarda (ör. "sorumluluk
   sınırı sözleşme bedelini aşamaz") ve sayısal olmayan kurallarda `check` yoktur; bu kurallarda
   yalnızca alıntı doğrulanır. Bu bilinen bir sınırdır.
@@ -116,38 +124,63 @@ yoktur.**
 
 | Sinyal | Koşul |
 |---|---|
-| `quote_not_found` | Alıntı, gösterilen maddenin maskeli metninde geçmiyor |
-| `numeric_mismatch` | Kuralda `check` var ve: kod alıntıdan kuralın biriminde bir değer çıkaramıyor, ya da kodun hesabı modelin `status`'üyle çelişiyor, ya da modelin verdiği `value` kodun çıkardığından farklı |
-| `ambiguous_value` | Kuralda `check` var ve alıntıda aynı birimle birden çok farklı değer geçiyor |
-| `not_found_but_keyword_hit` | `not_found` denmiş ama kuralın anahtar kelimeleri sözleşmede geçiyor |
-| `critical_not_found` | `severity: critical` bir kural `not_found` çıktı (anahtar kelime geçmese de) |
+| `quote_not_found` | Alıntı, gösterilen maddenin maskeli metninde geçmiyor. Bu durumda sayı çıkarılmaz ve `numeric_mismatch` eklenmez |
+| `numeric_mismatch` | Kuralda `check` var ve: kod alıntıdan kuralın birim türünde bir değer çıkaramıyor, ya da kodun hesabı modelin `status`'üyle çelişiyor, ya da modelin verdiği `value` kodun çıkardığından farklı. `ambiguous_value` varsa eklenmez |
+| `ambiguous_value` | Kuralda `check` var ve alıntıda aynı türden birden çok farklı değer geçiyor |
+| `unit_conversion_uncertain` | Kuralda `check` var ve süre çevirmesinin uçları `check`'te aynı sonucu vermiyor ("1 ay" ile "en az 30 gün": 28–31) |
+| `unverified_not_found` | `status` `not_found` ise her zaman (kanıtsız sonuç avukatsız geçmez) |
+| `critical_not_found` | `severity: critical` bir kural `not_found` çıktı. Yalnızca sebep etiketidir; kuyruğa ayrıca etkisi yoktur |
 | `missing_proposal` | `non_compliant` ama değişiklik taslağı yok |
 | `proposal_noncompliant` | Kuralda `check` var ve taslak kod kontrolünden geçmiyor (aşağıda) |
 | `agent_escalated` | Agent `escalate_to_lawyer` çağırdı |
 | `no_finding` | Agent `submit_finding` çağırmadı, adım limitine takıldı ya da hata verdi. Sebep kaydedilir: `no_submit` / `step_limit` / `rate_limited` / `llm_error` |
 | `injection_suspected` | Sözleşmede enjeksiyon şüphesi var (o sözleşmenin tüm bulguları) |
 
+- Alıntı ve sayı sinyalleri (`quote_not_found`, `numeric_mismatch`, `ambiguous_value`,
+  `unit_conversion_uncertain`) yalnızca `compliant` / `non_compliant` bulgularda çalışır.
 - **Alıntı eşleştirme:** İki tarafta aynı normalleştirme: NFKC, sıfır genişlikli karakterleri sil,
   boşlukları tekilleştir, tırnak/tire türlerini eşitle. `casefold()` kullanılmaz (Türkçe İ/ı bozulur).
+  - Normalleştirmenin yok saydıkları: Unicode yazım biçimleri, sıfır genişlikli karakterler, boşluk,
+    tırnak ve tire türleri. Büyük-küçük harf, noktalama ve Türkçe harfler yok sayılmaz.
+  - Doğrulama geçince bulgunun `quote` alanı **sözleşmedeki eşleşen parçayla** değiştirilir; saklanan,
+    avukata gösterilen ve arayüzde işaretlenen metin budur. Sayı ve birim de bu parçadan çıkarılır.
+  - Modelin yazdığı ham metin audit log'daki `tool_call` kaydında kalır.
+  - Doğrulanamayan alıntı olduğu gibi kalır ve `quote_not_found` ile işaretlenir.
 - **Sayı/birim — kod kendisi çıkarır:**
-  - Kod sayıyı ve birimi **alıntıdan kendisi** çıkarır: rakam ya da küçük bir sözlükteki Türkçe sayı
-    sözcüğü (bir…on, on beş, yirmi, otuz, altmış, doksan), ardından birim.
-  - `gün/hafta/ay/yıl` güne çevrilir (ay = 30, yıl = 365); `%` ve `TL` ayrı birimdir. Yalnızca
-    kuralın `check.unit`'iyle aynı türdeki değerlere bakılır. `TL`'de nokta binlik, virgül ondalık ayracıdır.
-  - Değerler çevrildikten sonra karşılaştırılır; eşit olanlar **tek değer** sayılır: "otuz (30) gün"
-    tek değerdir, "30 gün … bir ay" da tek değerdir.
+  - Kod sayıyı ve birimi yalnızca **doğrulanmış alıntıdan kendisi** çıkarır: rakam ya da küçük bir
+    sözlükteki Türkçe sayı sözcüğü (bir…on, on beş, yirmi, otuz, altmış, doksan), ardından birim.
+    Yüzde sayıdan önce yazılır (`%15`, `yüzde 15`).
+  - Birimler sözcük sınırında ve yaygın eklerle eşleşir (`günlük`, `aylık`). `%` ve `TL` ayrı
+    birimdir; ikisinde de nokta binlik, virgül ondalık ayracıdır. Yalnızca kuralın `check.unit`'iyle
+    aynı türdeki değerlere bakılır.
+  - `check.op`: `>=`, `<=`, `>`, `<`, `==`.
+  - **Süre çevirme:** `gün/hafta/ay/yıl` iki ailedir. Aile içi çevirme kesindir: gün ↔ hafta
+    (1 hafta = 7 gün), ay ↔ yıl (1 yıl = 12 ay). Aileler arası çevirme aralıktır: ay ya da yıl, gün
+    ya da haftayla karşılaştırılırken n ay = 28n–31n gün, n yıl = 365n–366n gündür.
+  - **Tek çevirme fonksiyonu:** `check` hesabı, belirsiz değer kontrolü, modelin `value`'suyla kıyas
+    ve taslak kontrolü aynı fonksiyonu kullanır; başka çevirme kodu yazılmaz.
+  - Değerler çevrildikten sonra karşılaştırılır; aynı olanlar **tek değer** sayılır. Aynı ailedeki
+    değerler kesin karşılaştırılır; farklı ailede gün değeri ayın / yılın aralığına düşüyorsa iki
+    değer aynı sayılır: "otuz (30) gün" tek değerdir, "30 gün … bir ay" tek değerdir, "on iki (12)
+    ay, yani bir yıl" tek değerdir.
   - Birimsiz bir sayı "ila / ile / – / veya" ile birimli bir sayıya bağlıysa aynı birimle sayılır:
     "30 ila 60 gün" iki farklı değerdir.
-  - Çıkarılan değer `check` ile karşılaştırılır; sonuç kodun hesabıdır.
+  - Çıkarılan değer `check` ile karşılaştırılır; sonuç kodun hesabıdır. Kod `check`'i tüm değerlerin
+    tüm uçlarında hesaplar. Uçların hepsi aynı sonucu veriyorsa kod karar verir ("6 ay" ile "en az
+    30 gün"); sonuçlar aynı değilse seçim yapmaz: `unit_conversion_uncertain` ("1 ay" ile "en az 30
+    gün": 28–31). Kurala istisna yoktur: alıntıda kesin bir gün değeri olsa da ayın aralığı hesaba
+    girer ("30 gün … bir ay", "en az 30 gün" kuralında kuyruğa düşer; "60 gün … iki ay" düşmez).
   - Modelin `submit_finding`'de verdiği `value` + `unit` yalnızca **çapraz kontroldür**; kodun
-    çıkardığından farklıysa `numeric_mismatch`.
-  - Alıntıda aynı birimle birden çok farklı değer varsa kod seçim yapmaz: `ambiguous_value`.
+    çıkardığı değerle aynı çevirme fonksiyonundan geçirilip karşılaştırılır, farklıysa
+    `numeric_mismatch`.
+  - Alıntıda aynı türden birden çok farklı değer varsa kod seçim yapmaz: `ambiguous_value`. Bu
+    durumda `numeric_mismatch` eklenmez.
 - **Taslak kontrolü (`proposal.code_check`):**
 
   | Durum | `code_check` | Kuyruğa etkisi |
   |---|---|---|
   | Kuralda `check` var; kod taslak metninden tek bir değer çıkarıyor ve değer kurala uyuyor | `passed` | Yok |
-  | Kuralda `check` var; değer kurala uymuyor, çıkarılamıyor ya da birden çok farklı değer var | `failed` | `proposal_noncompliant` → avukat kuyruğu |
+  | Kuralda `check` var; değer kurala uymuyor, çıkarılamıyor, birden çok farklı değer var ya da süre çevirmesinin sonucu belirsiz | `failed` | `proposal_noncompliant` → avukat kuyruğu |
   | Kuralda `check` yok (sayısal olmayan ya da sabit eşiği olmayan kural) | `unverifiable` ("kod doğrulayamadı") | **Yok**; etiket avukata ve raporda gösterilir |
 
   Taslak için ikinci bir LLM çağrılmaz. Sayısal olmayan kurallarda taslağın kurala uyduğunu kod
@@ -167,6 +200,9 @@ yoktur.**
 - **Prompt injection:** Sözleşme metni talimat değil veridir.
   - Tarama (regex): TR/EN kalıplar ("yapay zekâ", "bu metni inceleyen", "önceki talimatları yok say",
     "tüm maddeleri uygun", "ignore previous instructions") ve gizli/sıfır genişlikli karakterler.
+  - Sınırlayıcı etiketin kendisi de tarama kalıbıdır: madde metninde `sozlesme_maddesi` etiketinin
+    açılışı ya da kapanışı geçiyorsa (büyük-küçük harf, araya boşluk ya da gizli karakter konmuş
+    halleri dahil) sözleşme `injection_suspected` olur. Metin kaçışlanmaz ve silinmez.
   - **Şüpheli ifade silinmez.** Madde işaretlenir; işaret eşleşen ifadeyi ve konumunu (madde, başlangıç
     ve bitiş) taşır, audit log'a yazılır ve avukata gösterilir. Sözleşmenin tüm bulguları avukata gider.
   - Konumlar **asıl (saklanan) metne göre** karakter ofsetidir. Eşleşen ifade saklanmadan ve audit
@@ -190,7 +226,8 @@ yoktur.**
   - Aynı değer aynı yer tutucuyu alır. Eşleme yalnızca tenant'ın `app.db`'sinde durur.
   - Aynı maskeleyici, avukatın karar sırasında yazdığı düzenlenmiş taslak metnine de uygulanır
     (incelemenin mevcut eşlemesiyle). Orada eşlemede olmayan yeni bir kişi adı yakalanmaz.
-  - Sınır: yalnızca serbest metinde geçen adlar kaçabilir.
+  - Sınır: maskelenmesi garanti edilmeyenler kaçabilir: gövdede geçen ad, öneksiz telefon, boşluklu
+    TCKN / IBAN, etiketsiz imza satırındaki ad.
     Varsayılan modda maskelenmeyen her şey Groq'a gider (`architecture.md` §6 "Veri nereye gidiyor");
     maskeleme bu yüzden sağlayıcıdan bağımsız, graph'tan önce yapılır ve kapatılamaz.
 - **Kim neyi görür:** model her zaman maskeli metni görür. `lawyer` maskesiz, `viewer` maskeli görür
@@ -208,7 +245,8 @@ yoktur.**
 
 ## 6. Hata, retry ve devretme
 `review_rule` her kural için tam olarak bir bulgu döner: agent'ın son `submit_finding` çağrısı; hiç
-çağrı yoksa kod `not_found` + `no_finding` bulgusu üretir.
+çağrı yoksa kod `not_found` + `no_finding` bulgusu üretir. Bu bulguya `unverified_not_found` ve
+`critical_not_found` eklenmez; sebebi yalnızca `no_finding`'dir (varsa `injection_suspected` ile).
 
 | Durum | Davranış |
 |---|---|
@@ -222,12 +260,15 @@ yoktur.**
 | Max adım aşıldı | Görev biter; `submit_finding` yoksa `no_finding` → avukat kuyruğu |
 | Alıntı / sayı doğrulanamadı | Bulgu silinmez; `needs_review` ile avukata gider |
 | Alıntıda birden çok farklı değer | Kod seçim yapmaz; `ambiguous_value` → avukat kuyruğu |
+| Süre çevirmesinin uçları farklı sonuç veriyor | Kod seçim yapmaz; `unit_conversion_uncertain` → avukat kuyruğu |
 | Taslak kurala uymuyor (`check` var) | Taslak silinmez; `proposal_noncompliant` → avukat kuyruğu |
 | Taslak kodla doğrulanamıyor (`check` yok) | "Kod doğrulayamadı" etiketi; kuyruğa sokmaz |
-| Kritik kural bulunamadı | `critical_not_found` → avukat kuyruğu |
+| Kural bulunamadı (`not_found`) | Her zaman `unverified_not_found` → avukat kuyruğu; kural `critical` ise ek sebep `critical_not_found` |
 | Enjeksiyon şüphesi | İnceleme devam eder; ifade silinmez, tüm bulgular avukat kuyruğuna gider |
 
-Bir kuralın hatası incelemeyi çökertmez. Tek istisna sağlayıcı kimlik doğrulama hatasıdır (401):
+Bir kuralın hatası incelemeyi çökertmez. İki istisna vardır. Audit log'a yazılamıyorsa
+(`sqlite3.Error`) hata yeniden fırlatılır ve inceleme `failed` olur; eksik kayıtla tamamlanmış
+inceleme olmaz. Diğeri sağlayıcı kimlik doğrulama hatasıdır (401):
 anahtar geçersizse hiçbir kural çalışamayacağı için tüm kuralları `no_finding` yapmak yerine inceleme
 `failed` olur.
 

@@ -10,8 +10,8 @@
 ## Hata yönetimi
 - Çıplak `except:` yok; yakalanan hata ya ele alınır ya da loglanıp yeniden fırlatılır.
 - Bir kural agent'ının hatası `review_rule` düğümünde yakalanır ve `no_finding` bulgusuna çevrilir.
-  Tek istisna: sağlayıcı kimlik doğrulama hatası (401) yakalanmaz, yeniden fırlatılır; inceleme
-  `failed` olur.
+  İki istisna yakalanmaz, yeniden fırlatılır ve inceleme `failed` olur: sağlayıcı kimlik doğrulama
+  hatası (401) ve audit yazımından gelen `sqlite3.Error` (eksik kayıtla tamamlanmış inceleme olmaz).
 - API hataları FastAPI `HTTPException` ile döner: tanınmayan anahtar **401**, yetersiz rol **403**,
   başka tenant'ın kaynağı **404** (403 değil), yanlış durum **409**, geçersiz gövde **422**,
   sağlayıcı kimlik hatası **502**.
@@ -19,7 +19,7 @@
 - Son karardan önce rapor istenirse **409** döner.
 
 ## LLM / agent kodu
-- Model ve embedding yalnızca `src/llm.py`'de kurulur; başka yerde `ChatGroq(...)` ya da
+- Model yalnızca `src/llm.py`'de kurulur; başka yerde `ChatGroq(...)` ya da
   `ChatOllama(...)` yazılmaz. Sağlayıcıya özel parametreler yalnızca o sağlayıcı seçiliyken verilir.
 - Model adı ve sağlayıcı env'den okunur. Model adı yalnızca `src/config.py`'deki sağlayıcı
   varsayılanlarında sabit yazılır; başka yerde yazılmaz.
@@ -29,7 +29,6 @@
 - Yeniden deneme yalnızca Groq modelinin `max_retries=3` ayarıyla yapılır (SDK yapar); `while` /
   `sleep` ile elle yeniden deneme, LangGraph `RetryPolicy` ya da yeniden deneme middleware'i eklenmez
   (üst üste binmesin). Denemeler tükenince hata `review_rule`'da `no_finding`'e çevrilir.
-- Embedding her zaman yerel Ollama'dır; bulut embedding çağrısı eklenmez.
 - Dokümanda ve kod yorumunda "veri makineden çıkmaz" yalnızca çevrimdışı mod için yazılır.
 - Prompt koda gömülmez; `src/prompts/` altında dosyadır.
 - Sözleşme metni asla system prompt'a konmaz; yalnızca tool sonucu olarak, sınırlayıcı etiketlerle verilir.
@@ -66,6 +65,12 @@
 - Kod senkrondur: senkron FastAPI endpoint'leri + `SqliteSaver`. `async` ile karıştırılmaz.
 - Paralellik yalnızca LangGraph `Send` + `max_concurrency` ile yapılır.
 - SQLite bağlantıları `check_same_thread=False` ile açılır (endpoint'ler ve dallar thread'de çalışır).
+- `app.db`'ye eşzamanlı yazım: tenant başına tek bağlantı (`check_same_thread=False`, `timeout=30`)
+  ve tek `threading.Lock` süreç içinde paylaşılır; `Store(tenant_id)` örnekleri aynı bağlantıyı ve
+  kilidi kullanır.
+- `Store` her okuma ve yazımı bu kilidin içinde yapar; her yazım kendi transaction'ında hemen commit
+  edilir.
+- WAL açılmaz (`./data` host'tan bağlanır).
 
 ## Test
 - Deterministik modüllerin (`prepare`, `verify`, `report`, `store`) ve API'nin (tenant izolasyonu,
