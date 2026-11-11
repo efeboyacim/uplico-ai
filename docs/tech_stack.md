@@ -6,7 +6,8 @@
 
 ## Dil ve çalışma ortamı
 - Dil / sürüm: Python 3.12
-- Paket yöneticisi: uv (`pyproject.toml` + `uv.lock`)
+- Paket yöneticisi: uv (`pyproject.toml` + `uv.lock`); proje paket olarak build edilmez
+  (`[tool.uv] package = false`)
 - OS / container: Docker, `python:3.12-slim`; `docker compose up` ile tek komut
 
 ## LLM & agent katmanı
@@ -107,19 +108,24 @@ Doğrulanamayan `spec.md` §10'da açık sorudur: `gpt-oss-120b`'nin Türkçe ka
   çıkar; döngüye girmez. `python -m evals.run` aynı `config.py` kontrolünden geçer.
 
 ## Ortam değişkenleri (sadece isimler, değer YAZMA)
-- `LLM_PROVIDER` — `groq` (varsayılan) ya da `ollama`
+Tanımsız, boş ve yalnızca boşluk içeren değer aynıdır ("boş").
+- `LLM_PROVIDER` — `groq` (varsayılan; boşsa `groq`) ya da `ollama`; başka değer başlangıç hatasıdır
 - `LLM_MODEL` — boşsa sağlayıcıya göre: `groq` → `openai/gpt-oss-120b`, `ollama` → `qwen3.5:9b`.
   Sağlayıcı varsayılanları tek yerde, `src/config.py`'dedir; `.env.example`'da boş bırakılır ki
   yalnızca `LLM_PROVIDER` değiştirilince yanlış model adı kalmasın.
 - `GROQ_API_KEY` — `LLM_PROVIDER=groq` iken zorunlu
 - `COMPOSE_PROFILES` — çevrimdışı modda `offline` (`ollama` ve `ollama-pull` servislerini açar);
   varsayılan modda boş
-- `OLLAMA_BASE_URL` — yalnızca Ollama
+- `OLLAMA_BASE_URL` — yalnızca Ollama; boşsa `http://localhost:11434`
 - `LLM_NUM_CTX` — yalnızca Ollama: bağlam uzunluğu (varsayılan 4096 çok küçük; 16384 kullanılır)
 - `MAX_CONCURRENCY` — aynı anda çalışan kural agent'ı sayısı. Varsayılan: Groq 4, Ollama 1.
-  Groq hesabında düşük limitler (8K TPM) geçerliyse 1 yapılmalı.
-- `TENANT_API_KEYS` — API anahtarı → `tenant_id` + `role` (`lawyer` / `viewer`) + `name` eşlemesi (JSON)
-- `DATA_DIR`
+  Groq hesabında düşük limitler (8K TPM) geçerliyse 1 yapılmalı. Verilmişse 1 ya da daha büyük
+  tam sayı olmalıdır (`LLM_NUM_CTX` de öyle); değilse başlangıç hatasıdır.
+- `TENANT_API_KEYS` — API anahtarı → `tenant_id` + `role` (`lawyer` / `viewer`) + `name` eşlemesi.
+  Tek satır JSON nesnesi: `{"<api-anahtarı>": {"tenant_id": "…", "role": "…", "name": "…"}}`.
+  `tenant_id` yalnızca küçük harf, rakam ve `_` içerir; kayıtta başka alan olamaz; aynı anahtar iki kez yazılamaz. Hatalı kayıt
+  başlangıç hatasıdır; mesaj kaydı sırasıyla söyler, anahtarı yazmaz.
+- `DATA_DIR` — boşsa `data`
 - `LANGSMITH_API_KEY`, `LANGSMITH_TRACING`, `LANGSMITH_PROJECT`
 
 ## KULLANMA

@@ -1,0 +1,50 @@
+[project]
+name = "contract-review-agent"
+version = "0.1.0"
+description = "Agent system that reviews supplier contracts against a company rule set."
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "langchain>=1.4,<2",
+    "langgraph>=1.2,<2",
+    "langgraph-checkpoint-sqlite>=3.1",
+    "langchain-groq>=1.1",
+    "langchain-ollama>=1.1",
+    "langsmith>=0.14",
+    "rank-bm25>=0.2.2",
+    "pydantic>=2,<3",
+    "fastapi",
+    "uvicorn",
+    "pyyaml",
+    "httpx",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+    "mypy",
+    "types-PyYAML",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+allowed-confusables = ["ı"]
+
+[tool.mypy]
+strict = true
+files = ["src"]
+
+[[tool.mypy.overrides]]
+module = ["rank_bm25.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

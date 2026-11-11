@@ -6,6 +6,8 @@
 - Tüm fonksiyonlarda type hint zorunlu (`mypy src` temiz).
 - Kod ve tanımlayıcılar İngilizce; kullanıcıya dönük metinler ve prompt Türkçe.
 - `tech_stack.md`'deki "KULLANMA" listesindeki kütüphaneler eklenmez.
+- ruff'ta `RUF` kuralları açıktır; Türkçe metinler için yalnızca `ı` harfi serbest bırakılır
+  (`allowed-confusables`). Başka benzer karakter serbest bırakılmaz.
 
 ## Hata yönetimi
 - Çıplak `except:` yok; yakalanan hata ya ele alınır ya da loglanıp yeniden fırlatılır.
@@ -26,6 +28,16 @@
 - Env yalnızca `src/config.py`'de okunur ve başlangıçta doğrulanır: `LLM_PROVIDER=groq` iken
   `GROQ_API_KEY` boşsa, sağlayıcı bilinmiyorsa ya da `TENANT_API_KEYS` boşsa uygulama eksik değişkenin
   adını söyleyen hatayla durur. Varsayılan değere ya da başka sağlayıcıya sessizce düşülmez.
+- Ayarlar `load_settings(env=None)` saf fonksiyonuyla yüklenir; import anında env okunmaz ve süreç
+  genelinde ayar önbelleği yoktur. Hata `ConfigError`'dır: tek satır, Türkçe, değişkenin adını
+  içerir, hiçbir anahtar değerini içermez. Giriş noktaları `load_settings_or_exit()` çağırır (mesaj
+  stderr'e, çıkış kodu 1, traceback yok).
+- Ayarları yalnızca giriş noktaları yükler (`python -m src.api`, `python -m evals.run`,
+  `python -m src.config`; liste `architecture.md` §4'tedir). Kütüphane
+  modülleri (`store`, `llm`, `graph`, `prepare`) `Settings`'i ya da ihtiyaç duydukları değeri
+  parametre olarak alır; kendileri env okumaz, ayar yüklemez. Testler `load_settings(env={...})`
+  ile kurar, süreç env'ine dokunmaz.
+- API modül düzeyinde `app` tanımlamaz; `create_app(settings)` fabrikasıyla kurulur.
 - Yeniden deneme yalnızca Groq modelinin `max_retries=3` ayarıyla yapılır (SDK yapar); `while` /
   `sleep` ile elle yeniden deneme, LangGraph `RetryPolicy` ya da yeniden deneme middleware'i eklenmez
   (üst üste binmesin). Denemeler tükenince hata `review_rule`'da `no_finding`'e çevrilir.
@@ -66,11 +78,13 @@
 - Paralellik yalnızca LangGraph `Send` + `max_concurrency` ile yapılır.
 - SQLite bağlantıları `check_same_thread=False` ile açılır (endpoint'ler ve dallar thread'de çalışır).
 - `app.db`'ye eşzamanlı yazım: tenant başına tek bağlantı (`check_same_thread=False`, `timeout=30`)
-  ve tek `threading.Lock` süreç içinde paylaşılır; `Store(tenant_id)` örnekleri aynı bağlantıyı ve
-  kilidi kullanır.
+  ve tek `threading.Lock` süreç içinde paylaşılır; `Store(data_dir, tenant_id)` örnekleri aynı
+  bağlantıyı ve kilidi kullanır. Paylaşılan bağlantı, kilit ve derlenmiş graph `(data_dir, tenant_id)`
+  ile anahtarlanır (testler ve eval ayrı `data_dir` kullanır).
 - `Store` her okuma ve yazımı bu kilidin içinde yapar; her yazım kendi transaction'ında hemen commit
   edilir.
-- WAL açılmaz (`./data` host'tan bağlanır).
+- `app.db`'de WAL açılmaz (`./data` host'tan bağlanır). `checkpoints.db`'yi `SqliteSaver` kendisi
+  WAL'a alır; `-wal` / `-shm` dosyaları da `.gitignore`'dadır.
 
 ## Test
 - Deterministik modüllerin (`prepare`, `verify`, `report`, `store`) ve API'nin (tenant izolasyonu,
@@ -94,7 +108,7 @@
 - Maske açma tek bir fonksiyondadır ve yalnızca yanıt üretilirken, `lawyer` rolü için çağrılır.
   `viewer` yanıtlarında ve audit yanıtlarında çağrılmaz. Endpoint içinde elle maske açılmaz.
 - `GROQ_API_KEY` loglanmaz, hata mesajına ve audit log'a yazılmaz.
-- Tüm DB erişimi `Store(tenant_id)` üzerinden yapılır.
+- Tüm DB erişimi `Store(data_dir, tenant_id)` üzerinden yapılır.
 - `tenant_id` ve rol yalnızca API anahtarından çözülür (`get_principal` bağımlılığı). Hiçbir endpoint
   gövdeden, sorgudan ya da yoldan `tenant`, `role` ya da karar veren adı okumaz; pydantic istek
   modellerinde bu alanlar yoktur.
@@ -111,7 +125,7 @@
 ## Git
 - Conventional commits: `feat:`, `fix:`, `docs:`, `test:`, `chore:`.
 - Commit mesajları İngilizce yazılır.
-- `data/tenants/*/*.db` commit edilmez (`.gitignore`; PII eşlemesi içerir).
+- `data/tenants/*/*.db*` commit edilmez (`.gitignore`; PII eşlemesi içerir).
 - Çalışma zamanı çıktılarından yalnızca `evals/results/` commit edilir.
 
 ## Komutlar

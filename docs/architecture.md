@@ -233,6 +233,9 @@ evals/
 tests/
 docs/             # karar dokümanı
 ```
+Build edilen paket yoktur: kod repo kökünden `src.*` / `evals.*` olarak import edilir ve komutlar
+kökten çalışır. Giriş noktaları `python -m src.api` ve `python -m evals.run`'dır; Adım 12'de `ollama-pull` için
+model adını basan `python -m src.config` eklenir.
 
 ## 5. Adlandırma kuralları
 - Kod, tool adları ve durum değerleri İngilizce (`non_compliant`); dokümanlar ve prompt Türkçe.
@@ -333,7 +336,7 @@ Groq'un beyanıdır, sistemin garantisi değildir.
   İndeks inceleme başına bellekte kurulur; paylaşılan indeks yoktur.
 - **Alternatifler:** Tek DB + `tenant_id` sütunu.
 - **Sonuç:** Unutulan bir `WHERE` veri sızdıramaz. Bedel: tenant başına bir derlenmiş graph
-  (`dict[tenant_id]` içinde önbelleğe alınır).
+  (`(data_dir, tenant_id)` anahtarlı bir sözlükte önbelleğe alınır).
 
 ### ADR-008: Asıl kayıt kendi audit log'umuz
 - **Karar:** Hazırlık adımları, model çağrıları, tool çağrıları, bulgular, doğrulama sonuçları, bulgu

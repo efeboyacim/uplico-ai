@@ -2,8 +2,10 @@
 
 ## Durum
 - **Biten:** Adım 0 (`49a13c8`), Adım 1 (`fd4cf9b`). Dokümanlar planla uyumlu; iki karar değişikliği
-  ve on üç netleştirme `docs/` altına yazıldı. Henüz kod yok.
-- **Sıradaki:** Adım 2 — Proje iskeleti ve config.
+  ve on üç netleştirme `docs/` altına yazıldı. Adım 2: proje iskeleti ve `src/config.py` yazıldı;
+  bu sırada alınan kararlar (ayarları yalnızca giriş noktaları yükler, `Store(data_dir, tenant_id)`,
+  `create_app(settings)`) `docs/` altına ve Adım 3 / 10 / 11 / 12'ye işlendi.
+- **Sıradaki:** Adım 3 — Modeller, kural setleri, Store.
 - Bu bölüm her adımın commit'inde güncellenir; sıradaki adım, aşağıdaki ilk işaretsiz kutudur.
 
 ## Bağlam
@@ -177,7 +179,7 @@ gereksiz yönlendirme satırları bunu gösterir.
   değişmemiş.
 - **Commit:** `docs: clarify rules, switch search to BM25 and queue every not_found`
 
-### [ ] Adım 2 — Proje iskeleti ve config
+### [x] Adım 2 — Proje iskeleti ve config
 - **Ne:** uv projesi (Python 3.12, `tech_stack.md`'deki sürüm sınırlarıyla tüm bağımlılıklar), ruff /
   mypy / pytest ayarı, `.gitignore`, `.env.example`. `src/config.py`: env yalnızca burada okunur;
   sağlayıcı varsayılan modelleri, `TENANT_API_KEYS` (JSON → tenant + rol + ad), `MAX_CONCURRENCY`
@@ -197,13 +199,16 @@ gereksiz yönlendirme satırları bunu gösterir.
   tenant'ın `rules.yaml` dosyası (her biri ~5 kural: `check`'li gün / yıl / % / TL kuralları,
   `check`'siz sayısal bir kural, sayısal olmayan kurallar, `critical` / `normal` karışık).
   `keywords` alanı yoktur; `severity` yalnızca etikettir.
-  `Store(tenant_id)`: tenant bilinen listeye karşı doğrulanır; tenant'ın `app.db`'sinde üç tablo
+  `Store(data_dir, tenant_id)` (`data_dir` giriş noktasının yüklediği `Settings`'ten gelir; Store
+  env okumaz): tenant bilinen listeye karşı doğrulanır (liste: `data_dir/tenants/` altında
+  `rules.yaml`'ı olan klasörler); tenant'ın `app.db`'sinde üç tablo
   (`reviews`, `audit_log`, `pii_map`); `audit_log`'da `UPDATE` / `DELETE`'i reddeden tetikleyiciler;
   yalnızca parametreli SQL; `review_id` UUID. Sonraki adımların ihtiyacı olan tüm yöntemler burada
   yazılır: inceleme oluştur / oku / güncelle, audit ekle / oku, PII eşlemesi oku / yaz, kuralları yükle.
 - **Eşzamanlı yazım:** tenant başına tek `app.db` bağlantısı
   (`sqlite3.connect(path, check_same_thread=False, timeout=30)`) ve tek `threading.Lock` süreç
-  içinde paylaşılır; `Store(tenant_id)` örnekleri aynı bağlantıyı ve kilidi kullanır. Her okuma ve
+  içinde paylaşılır (`(data_dir, tenant_id)` ile anahtarlanır; testler `tmp_path` kullanır);
+  `Store(data_dir, tenant_id)` örnekleri aynı bağlantıyı ve kilidi kullanır. Her okuma ve
   yazım kilidin içinde yapılır, her yazım hemen commit edilir. WAL açılmaz.
 - **Dosyalar:** `src/models.py`, `src/store.py`, `data/tenants/acme/rules.yaml`,
   `data/tenants/globex/rules.yaml`, `tests/conftest.py`, `tests/test_store.py`
@@ -325,7 +330,8 @@ gereksiz yönlendirme satırları bunu gösterir.
 
 ### [ ] Adım 10 — Graph: dağıtım, doğrulama, durma noktası
 - **Ne:** `START → review_rule × N (Send) → verify → human_review (interrupt)`; tenant başına
-  derlenmiş graph + `SqliteSaver`; `max_concurrency` config anahtarı; `review_rule` hata eşlemesi
+  derlenmiş graph + `SqliteSaver` (önbellek `(data_dir, tenant_id)` ile anahtarlanır; graph kurucusu
+  `Settings`'i parametre alır); `max_concurrency` config anahtarı; `review_rule` hata eşlemesi
   (`rate_limited`, `llm_error`, `no_submit`, `step_limit`; 401 ve audit yazımından gelen
   `sqlite3.Error` yeniden fırlatılır, inceleme `failed` olur). `review_rule`
   `finding`, `verify` düğümü `verification` olayını audit log'a yazar. (`finalize` Adım 13'te eklenir.)
@@ -355,6 +361,9 @@ gereksiz yönlendirme satırları bunu gösterir.
   yalnızca yanıt üretilirken, `lawyer` için); graph döndükten sonra `awaiting_lawyer` yazımı ve
   indeksin silinmesi; 401'de `failed` + `review_failed` + HTTP 502. FastAPI'nin otomatik `/docs`
   uçları kapatılır (anahtarsız uç kalmasın).
+- **Giriş noktası:** modül düzeyinde `app` yoktur. `create_app(settings: Settings) -> FastAPI`
+  uygulamayı kurar; `python -m src.api` önce `load_settings_or_exit()` çağırır, sonra
+  `uvicorn.run(create_app(settings))`. Testler `create_app(load_settings(env={...}))` ile kurar.
 - **Dosyalar:** `src/api.py`, `tests/test_api.py`
 - **Doğrulama:** Testler: *Tenant izolasyonu* (404), *Tenant parametresi yok sayılır*, *Tüm yazma
   uçları `lawyer` ister* ve *Anahtar yok / tanınmıyor* (ikisi de rota listesini dolaşır; sonradan
@@ -373,7 +382,8 @@ gereksiz yönlendirme satırları bunu gösterir.
   `COMPOSE_PROFILES=offline`; komut yine `docker compose up`. `ollama-pull` sohbet modelinin adını
   `src/config.py`'den alır (model adı compose dosyasına yazılmaz). İlk kez gerçek modelle bir
   sözleşme denenir.
-- **Dosyalar:** `Dockerfile`, `docker-compose.yml`, `.dockerignore`, `.env.example`, `docs/spec.md`
+- **Dosyalar:** `Dockerfile`, `docker-compose.yml`, `.dockerignore`, `.env.example`, `docs/spec.md`,
+  `src/config.py` (`ollama-pull` için çözülmüş model adını basan küçük giriş), `tests/test_config.py`
 - **Doğrulama:** `docker compose up` → yalnızca `app` başlar (Ollama kapsayıcısı ve imajı yok);
   `tests/fixtures/sample_contract.md` ile `POST /reviews` bulguları döner. `GROQ_API_KEY` boşken `app`
   açık hatayla, sıfır olmayan kodla çıkar ve döngüye girmez. `LLM_PROVIDER=ollama` +
