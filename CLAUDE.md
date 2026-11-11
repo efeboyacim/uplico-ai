@@ -20,6 +20,7 @@ sağlayıcısı Groq, çevrimdışı mod Ollama'dır. İki kurgusal şirketin (t
 | `docs/tech_stack.md` | Kütüphaneler ve sürümler, modeller, Groq bilgileri, env değişkenleri, KULLANMA listesi |
 | `docs/evals.md` | "Bitti" tanımı, zorunlu unit testler, eval dataset'i, metrikler ve eşikler |
 | `docs/code_standards.md` | Kod kuralları: hata yönetimi, LLM/agent kodu, avukat aşaması, test, güvenlik, git |
+| `docs/plan.md` | Uygulama planı: sıralı adımlar, her adımın dosyaları, doğrulaması ve commit'i; ilerleme burada işaretlenir |
 
 Bir işe başlamadan önce ilgili dokümanı oku; buradaki özet onun yerini tutmaz.
 
