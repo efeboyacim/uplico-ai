@@ -56,11 +56,13 @@ flowchart LR
 2. **Hazırlık (graph dışı, `prepare_contract()`), şu sırayla:**
    - **Sakla:** Asıl sözleşme metni değiştirilmeden tenant'ın `app.db`'sine kaydedilir.
    - **Böl:** Sözleşme maddelere bölünür; her madde asıl metindeki ofsetini taşır. `Madde 1`
-     öncesindeki ve son maddeden sonraki metin de birer maddedir.
+     öncesindeki ve son maddeden sonraki metin de birer maddedir (sınır ve kimlik kuralları:
+     `agent_design.md` §4 "RAG").
    - **Tara:** Enjeksiyon kalıpları ve gizli karakterler, görünmez karakterleri çıkarılmış bir
      kopyada taranır; eşleşme konumları asıl metne eşlenir (`src/text.py`). Şüpheli ifade
      **silinmez**, konumuyla işaretlenir. Modelin göreceği kopyadan yalnızca görünmez karakterler
-     çıkarılır; görünen şüpheli cümle kalır. Görünmez karakter kümesi tek yerde tanımlanır.
+     çıkarılır; görünen şüpheli cümle kalır. Görünmez karakter kümesi tek yerde tanımlanır
+     (küme, BOM istisnası ve işaretin alanları: `agent_design.md` §5 "Girdi güvenliği").
    - **Maskele:** Kimlik bilgileri yer tutucularla değiştirilir (`[KISI_1]`, `[TCKN_1]`); eşleme
      yalnızca tenant'ın `app.db`'sine yazılır. Tutar, süre ve tarihler maskelenmez.
    - **İşareti maskele:** İşaretteki ifade (eşleşmenin geçtiği cümle) aynı eşlemeyle maskelenir;

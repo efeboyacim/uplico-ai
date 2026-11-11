@@ -79,6 +79,17 @@ Tek etkileri agent state'ine bir öneri yazmaktır; dış sisteme dokunmazlar.
 - **Uzun süreli:** Yok.
 - **RAG:** Kaynak tek sözleşme. Parça = madde (`Madde N` başlıklarına göre regex; bulunamazsa paragraf).
   Arama yalnızca BM25'tir.
+  - **Başlık kalıbı:** satır başında (isteğe bağlı `#` ya da `**` ile) `Madde` / `MADDE`, sayı ve
+    ardından `.`, `:`, `-`, `–`, `—` ya da satır sonu. Satır başına denk gelen "Madde 5'e göre" gibi
+    bir atıf başlık sayılmaz.
+  - **Giriş ve imza:** ilk başlıktan önceki metin ayrı bir maddedir. Son başlıktan sonra satır
+    başında `İmza` / `İmzalar` / `Taraflar adına` başlığı varsa orada yeni bir madde başlar; yoksa
+    son madde metnin sonuna kadar sürer. Başlık hiç yoksa metin boş satırlardan paragraflara bölünür.
+    Yalnızca boşluktan oluşan parça madde olmaz.
+  - **Kimlik:** `clause_id` belge sırasına göre `c1`, `c2`, … verilir (giriş ve imza dahil);
+    başlıktaki numara `clause_no`'dadır, giriş / imza / paragraf parçalarında boştur. Tekrarlanan
+    madde numarası kimlik çakışması yaratmaz. Maddenin metni asıl metnin `start`–`end` aralığıdır,
+    birebir.
   - **Tokenizer:** Türkçe'ye uygun küçük harf → her sözcük için 3, 4 ve 5 harflik başlangıçları
     birlikte üretilir (`süresi` → `sür`, `süre`, `süres`; 3 harften kısa sözcük olduğu gibi kalır).
     Böylece `süre` / `süresi`, `gün` / `günlük` iki tarafta ortak anahtar bulur; `fesih` /
@@ -200,6 +211,10 @@ yoktur.**
 - **Prompt injection:** Sözleşme metni talimat değil veridir.
   - Tarama (regex): TR/EN kalıplar ("yapay zekâ", "bu metni inceleyen", "önceki talimatları yok say",
     "tüm maddeleri uygun", "ignore previous instructions") ve gizli/sıfır genişlikli karakterler.
+    Kalıpların yakın türevleri de aranır ("önceki tüm talimatları görmezden gel / unut", "ignore all
+    prior / above instructions", "disregard … instructions"). "Sistem talimatı" ve "system prompt"
+    gibi sıradan BT sözleşmesi ifadeleri kalıp değildir; tek bir yanlış işaret sözleşmenin tüm
+    bulgularını kuyruğa düşürür.
   - Sınırlayıcı etiketin kendisi de tarama kalıbıdır: madde metninde `sozlesme_maddesi` etiketinin
     açılışı ya da kapanışı geçiyorsa (büyük-küçük harf, araya boşluk ya da gizli karakter konmuş
     halleri dahil) sözleşme `injection_suspected` olur. Metin kaçışlanmaz ve silinmez.
@@ -211,6 +226,18 @@ yoktur.**
   - **Gizli karakterler:** asıl metin değiştirilmeden saklanır. Gizli karakterlerin türü ve konumu
     işarete yazılır ve avukata gösterilir. Modelin göreceği kopyadan **yalnızca görünmez karakterler**
     çıkarılır; görünen şüpheli cümle modelin kopyasında da kalır (veri olarak, sınırlayıcı etiketler içinde).
+  - **Görünmez karakter kümesi:** Unicode `Cf` kategorisinin tamamıdır (sıfır genişlikli
+    karakterler, yön kontrolleri, yumuşak tire, `U+FEFF`, `U+E0000` bloğundaki etiket karakterleri);
+    `src/text.py`'de tek yerde tanımlanır. Tek istisna: metnin en başındaki tek `U+FEFF` (BOM)
+    işaretlenmez, çünkü editörlerden gelir ve işaretlenirse BOM'lu her sözleşmenin tüm bulguları
+    kuyruğa düşer; modelin kopyasından yine çıkarılır.
+  - **İşaretin alanları:** kalıp eşleşmesinde (`kind=pattern`) `start` / `end` eşleşmenin asıl
+    metindeki konumu, `phrase` eşleşmenin geçtiği cümle (görünmez karakterleri çıkarılmış),
+    `detail` kalıbın adıdır. Gizli karakterlerde (`kind=hidden_characters`) art arda gelen
+    karakterler tek işarettir: `start` / `end` dizinin konumu, `detail` kod noktaları ve adetleri,
+    `phrase` boştur.
+  - Kalıplar büyük-küçük harfe bakmadan aranır; bunun için uzunluğu koruyan bir katlama kullanılır
+    (`İ`, `I`, `ı` → `i`; şapkalı harfler şapkasız), `casefold()` kullanılmaz.
   - Tarama her ifadeyi yakalayamaz; yakalamadığında kalan savunma sınırlayıcı etiketler, kod
     doğrulaması ve onay tool'unun olmamasıdır.
 - **PII maskeleme (graph'tan ve modelden önce):**

@@ -7,8 +7,12 @@
   `create_app(settings)`) `docs/` altına ve Adım 3 / 10 / 11 / 12'ye işlendi. Adım 3: modeller, iki
   tenant'ın kural seti ve `Store` yazıldı; bu sırada alınan kararlar (tek `Finding` modeli, JSON
   sütunları, koşullu durum geçişi, `INSERT OR REPLACE`'i reddeden üçüncü tetikleyici, `close_all()`)
-  `architecture.md` §2 ve `code_standards.md`'ye işlendi.
-- **Sıradaki:** Adım 4 — Hazırlık: madde bölme ve enjeksiyon tarama.
+  `architecture.md` §2 ve `code_standards.md`'ye işlendi. Adım 4: `src/text.py`, madde bölme ve
+  enjeksiyon taraması yazıldı; bu sırada alınan kararlar (görünmez küme = Unicode `Cf`, baştaki BOM
+  istisnası, imza bloğu sınırı, sıralı `c<n>` kimliği, işaretin alanları, kalıp listesinin sınırı)
+  `agent_design.md` §4 ve §5'e işlendi. `scan_injection(text, clauses)` ve `split_clauses(text)`
+  saf fonksiyonlardır; Adım 8 bunları çağırır.
+- **Sıradaki:** Adım 5 — Hazırlık: PII maskeleme.
 - Bu bölüm her adımın commit'inde güncellenir; sıradaki adım, aşağıdaki ilk işaretsiz kutudur.
 
 ## Bağlam
@@ -223,7 +227,7 @@ gereksiz yönlendirme satırları bunu gösterir.
   hata almaz, her thread'in kayıtları kendi sırasındadır.
 - **Commit:** `feat: add models, tenant rule sets and tenant-scoped store`
 
-### [ ] Adım 4 — Hazırlık: madde bölme ve enjeksiyon tarama
+### [x] Adım 4 — Hazırlık: madde bölme ve enjeksiyon tarama
 - **Ne:** `Madde N` başlıklarına göre bölme (yoksa paragraf), madde kimliği `c<n>` ve asıl metindeki
   ofset. Enjeksiyon taraması: TR/EN kalıplar + görünmez karakterler; işaret maddeyi, ifadeyi ve asıl
   metne göre konumu taşır. Modelin kopyası için yalnızca görünmez karakterleri çıkaran fonksiyon.
@@ -425,6 +429,9 @@ gereksiz yönlendirme satırları bunu gösterir.
 ### [ ] Adım 15 — Arayüz
 - **Ne:** Tek statik sayfa: anahtar girilir, inceleme API'den çekilir; alıntılar ve enjeksiyon
   işaretleri sözleşme metni üzerinde gösterilir. Karar arayüzden verilmez.
+  Konumlar Python karakter (kod noktası) ofsetidir; BMP dışı karakterler (ör. `U+E0000` etiket
+  karakterleri) JavaScript'te iki birim sayıldığı için sayfa metni kod noktalarına göre dilimler
+  (`Array.from(text)`).
 - **Dosyalar:** `src/static/index.html`, `src/api.py` (`GET /`), `tests/test_api.py`
 - **Doğrulama:** Test: `GET /` anahtarsız 200 döner ve veri içermez. Elle: tarayıcıda `lawyer`
   anahtarıyla maskesiz, `viewer` anahtarıyla maskeli görünüm.
