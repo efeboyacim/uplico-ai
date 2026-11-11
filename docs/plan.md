@@ -148,8 +148,8 @@
   alanı `_unmask_lawyer_view`'e de yazılır (unutulursa `lawyer` yer tutucu görür, sızıntı olmaz).
   Adım 15 için not: rota dolaşan iki test yalnızca `APIRoute`'ları sayar; arayüz `StaticFiles`
   ile `Mount` edilirse testlerin kapsamı dışında kalır, sayfa `GET /` rotası olarak eklenmelidir.
-  Açık gözlemler (değiştirilmedi): FastAPI'nin 422 gövdesi çağıranın kendi girdisini yansıtır;
-  anahtar araması düz sözlük aramasıdır (sabit zamanlı karşılaştırma yok).
+  Açık gözlemler: FastAPI'nin 422 gövdesi çağıranın kendi girdisini yansıtıyordu (Adım 12'de
+  kapandı: 422 yanıtı yalnızca `type`, `loc`, `msg` taşır); değiştirilmeyen: anahtar araması düz sözlük aramasıdır (sabit zamanlı karşılaştırma yok).
 - **Sıradaki:** Adım 12 — Docker Compose ve ilk gerçek model denemesi.
 - Bu bölüm her adımın commit'inde güncellenir; sıradaki adım, aşağıdaki ilk işaretsiz kutudur.
 

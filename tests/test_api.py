@@ -338,6 +338,70 @@ def test_post_review_empty_text_unprocessable_no_review(
     assert _review_ids(Store(data_dir, "acme")) == []
 
 
+# --- Contract size cap ----------------------------------------------------------------------------
+
+
+def test_max_contract_chars_is_two_million() -> None:
+    assert api_module.MAX_CONTRACT_CHARS == 2_000_000
+
+
+def test_post_review_oversized_text_payload_too_large_nothing_written(
+    client: TestClient, settings: Settings
+) -> None:
+    model = _install_model(settings, "acme")
+    text = "a" * (api_module.MAX_CONTRACT_CHARS + 1)
+    response = client.post("/reviews", json={"text": text}, headers=ACME_LAWYER)
+    assert response.status_code == 413
+    assert len(response.content) < 1000
+    assert "aaaa" not in response.text
+    store = Store(settings.data_dir, "acme")
+    assert _review_ids(store) == []
+    assert _audit_count(store) == 0
+    assert model.received() == []
+
+
+def test_post_review_oversized_text_without_key_unauthorized(
+    client: TestClient, data_dir: Path
+) -> None:
+    text = "a" * (api_module.MAX_CONTRACT_CHARS + 1)
+    assert client.post("/reviews", json={"text": text}).status_code == 401
+    assert _review_ids(Store(data_dir, "acme")) == []
+
+
+@pytest.mark.parametrize(
+    "text",
+    [" " * (api_module.MAX_CONTRACT_CHARS + 1), ["a" * (api_module.MAX_CONTRACT_CHARS + 1)]],
+    ids=["blank", "wrong-type"],
+)
+def test_post_review_oversized_invalid_body_unprocessable_input_not_echoed(
+    client: TestClient, data_dir: Path, text: object
+) -> None:
+    # These never reach the 413 check; the 422 body must not carry the input back either.
+    response = client.post("/reviews", json={"text": text}, headers=ACME_LAWYER)
+    assert response.status_code == 422
+    assert len(response.content) < 1000
+    detail = response.json()["detail"]
+    assert detail[0]["loc"] == ["body", "text"]
+    assert all(set(error) == {"type", "loc", "msg"} for error in detail)
+    assert _review_ids(Store(data_dir, "acme")) == []
+
+
+def test_post_review_text_limit_boundary_exact_accepted_one_over_rejected(
+    client: TestClient, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sample = _sample()
+    monkeypatch.setattr("src.api.MAX_CONTRACT_CHARS", len(sample))
+    _install_model(settings, "acme")
+    ok = client.post("/reviews", json={"text": sample}, headers=ACME_LAWYER)
+    assert ok.status_code == 200, ok.text
+    store = Store(settings.data_dir, "acme")
+    assert len(_review_ids(store)) == 1
+
+    over = client.post("/reviews", json={"text": sample + " "}, headers=ACME_LAWYER)
+    assert over.status_code == 413
+    assert len(_review_ids(store)) == 1
+
+
 # --- Starting a review ----------------------------------------------------------------------------
 
 

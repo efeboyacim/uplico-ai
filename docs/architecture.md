@@ -170,6 +170,20 @@ bunun için ayrı bir kimlik katmanı (middleware) yazılmaz. Bir test bu davran
 `POST /reviews` gövdesi `{"text": "…"}`'tir (`text` boş olamaz); gövdedeki başka alanlar reddedilmez,
 yok sayılır. Otomatik `/docs`, `/redoc` ve `/openapi.json` uçları kapalıdır.
 
+**Metin uzunluğu sınırı — 413:** `POST /reviews` gövdesindeki `text` en fazla **2.000.000 karakter**
+(Python `len()`, bayt değil; `src/api.py` içinde `MAX_CONTRACT_CHARS`) olabilir. Sınır aşılırsa
+**413** döner. Kontrol uç fonksiyonunun içinde, anahtar ve rol çözüldükten sonra ve store, kural,
+graph ya da hazırlık çağrılarından önce yapılır; bu yüzden anahtarsız istek (büyük gövdeyle bile)
+401, boş ya da geçersiz gövde 422 almaya devam eder ve geçerli anahtarla aşan istek hiçbir kayıt
+bırakmaz. 413 yanıtı sabit bir Türkçe cümledir: metni ya da bir parçasını asla geri yansıtmaz.
+Sınıra gelmeden 422 alan büyük gövde (yalnızca boşluktan oluşan ya da tipi yanlış `text`) de geri
+yansıtılmaz: FastAPI'nin varsayılan 422 gövdesi hatalı girdiyi `input` alanında geri yazar; bu
+uygulamada 422 yanıtı her uçta yalnızca `type`, `loc` ve `msg` taşır (`create_app` içindeki
+`RequestValidationError` işleyicisi).
+Sınırın dürüst kapsamı: işlenen ve saklanan metni sınırlar, sunucunun okuduğu baytı **sınırlamaz**.
+FastAPI tüm JSON gövdesini kontrolden önce ayrıştırır; bayt düzeyinde bir sınır ya da bunu yapacak
+bir middleware yoktur.
+
 ### Avukat kararı (`LawyerDecision`)
 ```json
 {

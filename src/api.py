@@ -19,6 +19,7 @@ from typing import Annotated, Any
 
 import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -49,11 +50,16 @@ logger = logging.getLogger(__name__)
 
 SYSTEM_ACTOR = "system"
 
+# Characters of the contract text, not bytes. Checked in the endpoint so that it comes after
+# authentication and answers 413 rather than 422.
+MAX_CONTRACT_CHARS = 2_000_000
+
 _MSG_UNAUTHORIZED = "API anahtarı eksik ya da tanınmıyor."
 _MSG_FORBIDDEN = "Bu işlem için lawyer rolü gerekir."
 _MSG_NOT_FOUND = "İnceleme bulunamadı."
 _MSG_PROVIDER_CONFIG = "Model sağlayıcısının kimlik ya da yapılandırma ayarı hatalı."
 _MSG_INTERNAL = "İnceleme tamamlanamadı: beklenmeyen bir hata oluştu."
+_MSG_TOO_LARGE = "Sözleşme metni çok uzun: en fazla 2.000.000 karakter kabul edilir."
 
 
 # --- Request model --------------------------------------------------------------------------------
@@ -425,11 +431,24 @@ def create_app(settings: Settings) -> FastAPI:
     )
     app.state.settings = settings
 
+    @app.exception_handler(RequestValidationError)
+    def validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+        # FastAPI's default 422 body copies the rejected input back; a blank or mistyped
+        # contract of any size would be returned whole. Only type, location and message go out.
+        detail = [
+            {"type": error["type"], "loc": list(error["loc"]), "msg": error["msg"]}
+            for error in exc.errors()
+        ]
+        return JSONResponse({"detail": detail}, status_code=422)
+
     @app.post("/reviews")
     def create_review(
         body: ReviewRequest,
+        request: Request,
         principal: Annotated[Principal, Depends(require_lawyer)],
     ) -> JSONResponse:
+        if len(body.text) > MAX_CONTRACT_CHARS:
+            raise _reject(request, 413, _MSG_TOO_LARGE, "metin sınırı aşıldı")
         store = Store(settings.data_dir, principal.tenant_id)
         review_id = _start_review(settings, store, body.text)
         record = store.get_review(review_id)

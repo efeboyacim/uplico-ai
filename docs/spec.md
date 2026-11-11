@@ -194,6 +194,10 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   dosyasına doğrudan erişen biri onu değiştirebilir (imza ya da hash zinciri yok).
 - **Sözleşme versiyon takibi:** değişiklik talebinden sonra yeniden yüklenen sözleşme yeni bir
   incelemedir; öncekiyle bağlanmaz.
+- **İstek gövdesinin bayt boyutu:** yalnızca metin uzunluğu sınırlıdır (2.000.000 karakter, yaklaşık
+  650–1.100 sayfa; 300 sayfalık bir sözleşme geçer). Sunucunun okuduğu bayt miktarı sınırlanmaz.
+- **Sözleşme başına enjeksiyon işareti sayısı:** sınırlanmaz. Her işaret bir audit satırı ve avukatın
+  listesinde bir girdidir; üst sınır ya da özet satırı Adım 12'de düşünüldü ve bilerek eklenmedi.
 
 ## 9. Varsayımlar ve bağımlılıklar
 - İki kurgusal şirket: `acme` ve `globex`; her birinin ~5 kurallık seti var. Her kural `critical` ya
