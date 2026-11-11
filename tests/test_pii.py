@@ -483,3 +483,51 @@ def test_mask_name_followed_by_ve_and_second_person_still_masked() -> None:
     masked, mapping = mask("temsilen Ahmet Yılmaz ve Ayşe Kaya imzalamıştır.", {})
     assert "Ahmet Yılmaz" not in masked
     assert mapping["[KISI_1]"] == "Ahmet Yılmaz"
+
+
+_BODY = "Madde 5. Tedarikçi adına Ahmet Yılmaz bildirimleri yapar.\n\nİMZALAR\n"
+
+
+@pytest.mark.parametrize("signature", ["AHMET YILMAZ", "Ahmet YILMAZ"])
+def test_mask_name_labelled_in_other_case_body_spelling_masked(signature: str) -> None:
+    masked, mapping = mask(_BODY + f"Ad Soyad: {signature}\nİmza:", {})
+    assert "Ahmet Yılmaz" not in masked
+    assert signature not in masked
+    assert sorted(mapping.values()) == sorted(["Ahmet Yılmaz", signature])
+    assert unmask(masked, mapping) == _BODY + f"Ad Soyad: {signature}\nİmza:"
+
+
+def test_mask_name_labelled_once_unlabelled_upper_case_signature_masked() -> None:
+    text = "Yetkili: Ahmet Yılmaz\n" + _BODY + "AHMET YILMAZ\nİmza:"
+    masked, mapping = mask(text, {})
+    assert "Ahmet Yılmaz" not in masked
+    assert "AHMET YILMAZ" not in masked
+    assert mapping == {"[KISI_1]": "Ahmet Yılmaz", "[KISI_2]": "AHMET YILMAZ"}
+    assert unmask(masked, mapping) == text
+    assert mask(masked, mapping) == (masked, mapping)
+
+
+@pytest.mark.parametrize("gap", ["  ", "\n", "\r\n", " ", " \t "])
+def test_mask_known_name_with_other_whitespace_between_words_masked(gap: str) -> None:
+    text = f"Yetkili: Ahmet Yılmaz\nGövdede Ahmet{gap}Yılmaz'ın imzası aranır."
+    masked, mapping = mask(text, {})
+    assert "Yılmaz" not in masked
+    assert mapping == {"[KISI_1]": "Ahmet Yılmaz", "[KISI_2]": f"Ahmet{gap}Yılmaz"}
+    assert unmask(masked, mapping) == text
+
+
+def test_mask_name_from_existing_mapping_other_case_gets_new_placeholder() -> None:
+    masked, mapping = mask("İmza: AHMET YILMAZ", {"[KISI_1]": "Ahmet Yılmaz"})
+    assert masked == "İmza: [KISI_2]"
+    assert mapping == {"[KISI_1]": "Ahmet Yılmaz", "[KISI_2]": "AHMET YILMAZ"}
+
+
+def test_mask_name_other_case_inside_longer_word_not_masked() -> None:
+    text = "Yetkili: Ahmet Yılmaz\nAHMET YILMAZER ayrı bir kişidir."
+    masked, _ = mask(text, {})
+    assert "AHMET YILMAZER" in masked
+
+
+def test_mask_unlabelled_name_everywhere_nothing_masked_documented_limit() -> None:
+    text = _BODY + "AHMET YILMAZ\nİmza:"
+    assert mask(text, {}) == (text, {})

@@ -10,6 +10,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 
 from src.prepare.clauses import _any_case
+from src.text import normalize
 
 PiiMapping = dict[str, str]  # placeholder -> raw value, e.g. {"[KISI_1]": "Ahmet Yılmaz"}
 
@@ -466,6 +467,22 @@ def _occurrences(text: str, values: Iterable[str]) -> Iterator[tuple[int, int, s
             node = out[node]
 
 
+def _fold_case(text: str) -> str:
+    """Length-preserving case fold: `İ`, `I`, `ı` and `i` are one letter; diacritics are kept."""
+    out: list[str] = []
+    for ch in text:
+        if ch in "İIı":
+            out.append("i")
+        else:
+            lowered = ch.lower()
+            out.append(lowered if len(lowered) == 1 else ch)
+    return "".join(out)
+
+
+def _name_key(value: str) -> str:
+    return _fold_case(" ".join(value.split()))
+
+
 def mask(text: str, mapping: Mapping[str, str]) -> tuple[str, dict[str, str]]:
     """Replace PII in `text` with placeholders.
 
@@ -488,10 +505,25 @@ def mask(text: str, mapping: Mapping[str, str]) -> tuple[str, dict[str, str]]:
         kind_of.setdefault(value, kind)
 
     spans: list[tuple[int, int, str]] = []
-    for start, end, value in _occurrences(scan, kind_of):
+    exact = [value for value, kind in kind_of.items() if kind != "KISI"]
+    for start, end, value in _occurrences(scan, exact):
         before, after = _BOUNDARY_PATTERNS[kind_of[value]]
         if before.match(scan, start) and after.match(scan, end):
             spans.append((start, end, value))
+
+    # Known names are searched whatever their letter case and the whitespace between their words;
+    # every distinct spelling found is its own value, so unmasking restores the text exactly.
+    name_keys = {_name_key(value) for value, kind in kind_of.items() if kind == "KISI"}
+    name_keys.discard("")
+    if name_keys:
+        collapsed = normalize(scan, ("collapse_whitespace",))
+        before, after = _BOUNDARY_PATTERNS["KISI"]
+        for key_start, key_end, _ in _occurrences(_fold_case(collapsed.text), name_keys):
+            start, end = collapsed.span(key_start, key_end)
+            if before.match(scan, start) and after.match(scan, end):
+                spelling = text[start:end]
+                kind_of.setdefault(spelling, "KISI")
+                spans.append((start, end, spelling))
 
     parts: list[str] = []
     position = 0

@@ -279,13 +279,20 @@ yoktur.**
   - Aynı değer aynı yer tutucuyu alır; "aynı" birebir aynı yazımdır (maske açma metni aynen geri
     vermek zorundadır), farklı yazılmış aynı ad ya da numara ayrı yer tutucu alır. Eşleme yalnızca
     tenant'ın `app.db`'sinde durur.
+  - Bilinen bir kişi adı metinde büyük-küçük harfe, `İ` / `I` / `ı` / `i` ayrımına ve sözcükler
+    arasındaki boşluğun biçimine (çift boşluk, satır sonu, bölünemez boşluk) bakılmadan aranır:
+    imza bloğunda "AHMET YILMAZ" ya da "Ahmet YILMAZ" yazıyorsa gövdedeki "Ahmet Yılmaz" da
+    maskelenir, tersi de. Her farklı yazım kendi yer tutucusunu alır (`[KISI_1]`, `[KISI_2]`); model
+    aynı kişiyi iki yer tutucu olarak görebilir. Numaralar ve e-posta birebir aranır.
   - Maskeleme tekrar çağrılabilir: metinde zaten duran yer tutuculara dokunulmaz. Sınır: sözleşmenin
     kendi metninde yer tutucu biçiminde bir dize (`[KISI_1]`) geçerse o da olduğu gibi kalır ve
     `lawyer` görünümünde eşlemedeki değerle açılabilir.
   - Aynı maskeleyici, avukatın karar sırasında yazdığı düzenlenmiş taslak metnine de uygulanır
     (incelemenin mevcut eşlemesiyle). Orada eşlemede olmayan yeni bir kişi adı yakalanmaz.
   - Sınır: maskelenmesi garanti edilmeyenler kaçabilir: gövdede geçen ad, öneksiz telefon, boşluklu
-    TCKN / IBAN, etiketsiz imza satırındaki ad.
+    TCKN / IBAN, etiketsiz imza satırındaki ad. Ad sözleşmenin hiçbir yerinde bir etiketin
+    ("Ad Soyad:", "Yetkili:", "temsilen") yanında geçmiyorsa hiçbir yazımı yakalanmaz: imza
+    bloğunda yalnızca "AHMET YILMAZ" satırı, gövdede "Ahmet Yılmaz" varsa ikisi de modele gider.
     Varsayılan modda maskelenmeyen her şey Groq'a gider (`architecture.md` §6 "Veri nereye gidiyor");
     maskeleme bu yüzden sağlayıcıdan bağımsız, graph'tan önce yapılır ve kapatılamaz.
 - **Kim neyi görür:** model her zaman maskeli metni görür. `lawyer` maskesiz, `viewer` maskeli görür
