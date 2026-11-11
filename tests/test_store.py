@@ -424,7 +424,7 @@ def test_review_original_text_stored_byte_for_byte(data_dir: Path) -> None:
     record = Store(data_dir, "acme").get_review(review_id)
     assert record is not None
     assert record.original_text.encode("utf-8") == SAMPLE_TEXT.encode("utf-8")
-    assert "​" in record.original_text and "\r\n" in record.original_text
+    assert "\u200b" in record.original_text and "\r\n" in record.original_text
 
 
 def test_review_complete_twice_returns_false_and_changes_nothing(data_dir: Path) -> None:
