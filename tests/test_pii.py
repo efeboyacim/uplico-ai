@@ -507,7 +507,7 @@ def test_mask_name_labelled_once_unlabelled_upper_case_signature_masked() -> Non
     assert mask(masked, mapping) == (masked, mapping)
 
 
-@pytest.mark.parametrize("gap", ["  ", "\n", "\r\n", " ", " \t "])
+@pytest.mark.parametrize("gap", ["  ", "\n", "\r\n", "\u00a0", " \t "])
 def test_mask_known_name_with_other_whitespace_between_words_masked(gap: str) -> None:
     text = f"Yetkili: Ahmet Yılmaz\nGövdede Ahmet{gap}Yılmaz'ın imzası aranır."
     masked, mapping = mask(text, {})
