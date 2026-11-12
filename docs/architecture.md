@@ -444,7 +444,7 @@ model adını basan `python -m src.config` eklenir.
 |---|---|---|---|
 | Groq | Sohbet modeli (varsayılan mod) | `GROQ_API_KEY` | Maskeli metin gider. 429'da `max_retries=3`; limitler organizasyon başına. Eşzamanlılık `MAX_CONCURRENCY` ile sınırlı |
 | Ollama | Sohbet modeli (yalnızca çevrimdışı mod) | Yok (yerel ağ) | Varsayılan modda çalışmaz. Çevrimdışı modda `OLLAMA_NUM_PARALLEL=1`, `MAX_CONCURRENCY=1` |
-| LangSmith | Eval + tracing (isteğe bağlı) | `LANGSMITH_API_KEY` | Trace'lere yalnızca maskeli veri gider. Eval dataset'i sentetik sözleşmeleri (sahte PII dahil) ham yükler. Anahtar yoksa hiçbir şey gitmez |
+| LangSmith | Eval + tracing (isteğe bağlı) | `LANGSMITH_API_KEY` | Trace'lere yalnızca maskeli veri gider. Eval yüklemesinde sözleşme metni, alıntı ve PII listesi gitmez; giden yalnızca kimlikler, beklenen bulgular, etiketler, kural satırları ve sayımlardır (`evals.md` §7). Anahtar yoksa hiçbir şey gitmez |
 
 ### Veri nereye gidiyor
 | Veri | Varsayılan mod (Groq) | Çevrimdışı mod (Ollama) |
@@ -457,6 +457,7 @@ model adını basan `python -m src.config` eklenir.
 | Avukatın düzenlediği taslak metni | Modele gitmez (karar agent çalıştıktan sonra verilir); maskeli saklanır | Makinede kalır |
 | Maskelemenin kaçırdığı kimlik bilgileri (gövdede geçen ad, etiketsiz imza satırındaki ad, satıra bölünmüş, tireli ya da çift boşluklu IBAN, ayraçsız ya da bölünemez boşlukla gruplanmış öneksiz cep numarası, öneksiz sabit hat, binlik gibi gruplanmış TCKN) | **Groq'a gidebilir** | Makinede kalır |
 | Trace (yalnızca `LANGSMITH_API_KEY` varsa) | LangSmith'e gider, maskeli | Kapalı tutulur |
+| Eval (yalnızca `LANGSMITH_API_KEY` varsa ve koşu kısmi değilse): `contract_id`, `tenant_id`, beklenen bulgular, etiketler, kural satırları (kimlik, durum kodu, madde numarası, bayrak, sayı), sayımlar, sağlayıcı ve model adı; ayrıca SDK'nın kendi eklediği ortam bilgisi (`evals.md` §7) | LangSmith'e gider. Sözleşme metni, alıntı, taslak, gerekçe ve PII listeleri gitmez | Kapalı tutulur |
 
 Groq tarafı (2026-11-10'da okunan belgeler, `tech_stack.md`): varsayılan olarak saklamaz; güvenilirlik
 ve kötüye kullanım incelemesi için girdi/çıktıyı 30 güne kadar loglayabilir; Zero Data Retention

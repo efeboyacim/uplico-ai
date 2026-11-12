@@ -503,6 +503,19 @@ Sonuç `evals/results/` altına ve README'ye yazılır.
   `contract-review-eval-<labels.json'ın sha256'sının ilk 8 hanesi>`; `experiment_prefix` `before`
   ve `after`. `--limit` ile kısmi koşuda yükleme yapılmaz (yerel yol kullanılır), kısmi koşu tam
   koşuyla karışmaz.
+- **Experiment'lerde giden veri.** Her sözleşme için `target` koşusu (`inputs`: `contract_id`,
+  `tenant_id`; `outputs`: o moddaki kural satırları), evaluator koşusu (aynı satırlar girdi,
+  sayımlar çıktı) ve sayım başına bir feedback; experiment metadata'sı `provider` ve `model`.
+  Kural satırında (`RuleRow`) metin alanı yoktur: kimlikler (`contract_id`, `rule_id`, etiketler),
+  kapalı kümeden durum ve neden kodları, başlıktan okunan madde numarası (yalnızca rakam),
+  bayraklar ve sayılar. Alıntı, taslak ve gerekçe satıra girmez (`has_quote`, `quote_valid`,
+  `has_proposal`, `code_check` olarak özetlenir); PII listeleri de girmez.
+- **SDK'nın kendi ekledikleri** (langsmith 0.14.17, yakalanan isteklerden): dataset'e ve her koşuya
+  platform ile Python / kütüphane sürümleri, adı gizli anahtar gibi görünmeyen `LANGSMITH_*`
+  değişkenleri (ör. `LANGSMITH_PROJECT`), experiment'e git bilgisi (uzak depo adresi, dal,
+  commit, son commit'in yazar adı ve e-postası). Docker'da (`docker compose run`) imajda ve
+  bağlanan klasörlerde `.git` olmadığı için git alanları boş gider; host'ta `uv run` ile
+  koşulursa dolu gider.
 - **Yoksa:** `evaluate(..., upload_results=False)` ile yerel örnekler üzerinde çalışır; hiçbir şey
   gönderilmez. Örnekler bellekteki `Example` nesneleridir (`data=[Example(...)]`) ve
   `client=Client(auto_batch_tracing=False)` verilir: varsayılan client veri taşımayan bir
