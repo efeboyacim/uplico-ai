@@ -91,7 +91,36 @@
   kuralı, alıntı "30 gün içinde, gecikme halinde 90 güne kadar" → iki farklı değer,
   `ambiguous_value`. Yalnızca "5 iş günü" → `numeric_mismatch`. "30 takvim günü" 30 gün okunur.
   Listede olmayan ek ("5 ayrı") okunamayandır. Değişmez: "sayı + birim kökü + herhangi bir ek"
-  ya değer ya da okunamayan ifade verir; hiçbir zaman boş dönmez.
+  ya değer ya da okunamayan ifade verir; hiçbir zaman boş dönmez (sayı ile birim arasında
+  cümle sınırı yokken; aşağıda "Cümle sınırını aşan birim").
+- **Cümle sınırını aşan birim:** cümle sınırı = `.` `!` `?` + boşluk + büyük harfle başlayıp küçük
+  harfle süren sözcük. Sahte aralıklar kalkar: madde "Fiyat 5. Ayrıca X.", alıntı "Fiyat 5."
+  eşleşir; madde "Fiyat %5 olur. Güncel.", alıntı "%5" de "Fiyat %5 olur." de eşleşir; "beş.
+  Güncel" bir şey üretmez; `!` ve `?` ile kurulan eşleri de aynıdır; sözleşme 4 madde 5'in
+  (dosyadan okunan) metninde birinci cümlenin tamamı alıntı olarak eşleşir. Uçtan uca: "en fazla
+  %15" kuralı, sözleşme 4 madde 5, `compliant` + birinci cümlenin birebir alıntısı →
+  `quote_not_found` yok, `ambiguous_value` var (çekimli "on beşini"). Sınırı aşan birim hiçbir
+  şey üretmez ("Süre 30. Gün hesabı …", "45. İş gününde", "30 (bkz. Madde 5) gün", "Bedel 500.
+  Liralık" dahil). Değişmeyenler (önceki sürümle birebir aynı sonuç): "50.000,- TL",
+  "500.000.-TL", "1.500,00.- TL", "45. iş gününde", "90. takvim gününde", "90. gününü", "60.
+  günlerde", "3. yılını", "12. ayını", "48. saatte", "2. senenin", "30. gün", "30.gün", "30,
+  gün", "30; günü", "30: gün", "30 ; gün", "30 (otuz), gün", "30 gün.", "otuz (30) gün", "5
+  ayrı", tek harfli "Süre 30. A gün" ve tamamı büyük harfli "FİYAT 5. AYRICA X." (sahte aralık
+  kalır, "FİYAT 5." alıntısı `quote_not_found`). `verify()` düzeyinde: alıntı dışındaki
+  "500.000,- TL" / "500.000.-TL" ve "90. iş gününde" / "90. gününü" / "90. takvim gününde"
+  `compliant` bulguyu eskisi gibi `ambiguous_value` ile, "90: gün" `numeric_mismatch` ile kuyruğa
+  gönderir; "Kısa fesihte süre 10. Aynı hüküm …" artık göndermez (birimsiz sayı). Birimi sınırın
+  ötesindeki sayı bağlaçla birim almaz: "30 gün veya 15. Ayrıca" yalnızca 30 gündür ("30 gün
+  veya 15. Bu" eskisi gibi 30 ve 15 gün). Değişmez, tohumlu rastgele üretimle (sabit tohum, 4.000
+  girdi × 3 tür; sayı, birim, listede olmayan çekim, sıra sayısı, `,-` / `.-`, köprü sözcük,
+  tuzak sözcük, tamamı büyük ve tek harfli sözcük, parantez, satır sonu ve noktalama karışımı)
+  sınanır; karşılaştırma, sınır denetimi kapatılmış okuyucuyladır: (i) kapalı okuyucuda
+  olmayan her ifade aralığı, kapalı okuyucunun sınır aşan bir aralığının içindedir ve sınırdan
+  sonra başlar (yeni cümle kendi başına okunur: "Madde 4. Doksanıncı günde" → `Doksanıncı
+  günde` okunamayan, "Süre 30. Beşer gün" → `Beşer gün` okunamayan, "Süre 30. Beş gün" → 5 gün;
+  önceki cümlenin sayısı sonraki cümlenin ifadesini yutmaz); (ii) cümle
+  sınırı kalıbı içermeyen girdide iki okuyucu aralıklar dahil aynı sonucu verir; (iii) hiçbir
+  ifade aralığı cümle sınırı kalıbı içermez.
 - **Alıntının dışındaki değer:** madde "Ödeme 30 gün içinde, gecikme halinde 90 güne kadar
   yapılır.", alıntı "30 gün içinde", kural "en fazla 60 gün", model `compliant` →
   `numeric_mismatch`, kuyruk. Madde "Satıcı 30 gün içinde teslim eder. Alıcı 30 gün içinde öder,

@@ -308,6 +308,35 @@ yoktur.**
     değer sayılır, farklıysa `ambiguous_value`. Önekli biçimde de böyledir ("₺1.000 (5.000)").
     Parantezin içi tek bir sayı değilse ifade okunamayandır. Bir sayı sözcüğünün parçaları arasında
     en çok bir boşluk olur; araya noktalama girerse iki ayrı sayıdır.
+  - **Birim cümle sınırını aşamaz.** Noktalamanın kendisi değil, yalnızca cümle sınırı keser.
+    Cümle sınırı bilinçli olarak dar tanımlıdır: cümle sonu işareti (`.` `!` `?`), en az bir boşluk
+    karakteri (satır sonu dahil) ve büyük harfle başlayıp küçük harfle süren bir sözcük ("Ayrıca",
+    "Güncellenen", "Bu", "İş"; Türkçe `İ` / `I` dahil). Harf büyüklüğüne normalize edilmiş ama
+    küçültülmemiş metinde bakılır. Sayı ile aday birim sözcüğü arasında (hemen ardında, tek sözcük
+    sonra ya da parantezli grubun içinde ya da ardında, neresinde olursa olsun) böyle bir sınır
+    varsa o sözcük bu sayının birimi değildir: ne değer okunur ne okunamayan ifade kaydedilir, ifade
+    aralığı da oluşmaz. "Fiyat 5. Ayrıca …"da `5. Ayrıca`, "… yüzde on beşini (%15) geçemez.
+    Güncellenen fiyatlar …"da `on beşini (%15) geçemez. Güncellenen` süre ifadesi değildir; bu
+    yüzden alıntı cümle sonunda bitebilir ("Fiyat 5.", "… geçemez." eşleşir). Birimi sınırın
+    ötesinde kalan sayı bağlama kuralıyla da birim almaz ("30 gün veya 15. Ayrıca …"da 15 değer
+    değildir). Sınırdan sonraki cümle kendi başına okunur: önceki cümle sayıyla bittiği için
+    yutulmaz ("Madde 4. Doksanıncı günde …"da `Doksanıncı günde`, "Süre 30. Beşer gün"de
+    `Beşer gün` okunamayan ifadedir; "Süre 30. Beş gün içinde …"da 5 gün okunur). Sınırı olmayan
+    metinde hiçbir okuma değişmez; sınırı olan metinde yeni bir ifade yalnızca eskiden sınırı
+    aşan bir aralığın içinde, sınırdan sonra başlayabilir.
+    **Sınır olmayanlar** (davranış eskisi gibidir): virgül, noktalı virgül, iki nokta, tire, `,-` /
+    `.-` ("50.000,- TL", "500.000.-TL", "1.500,00.- TL" okunamayan kalır); ardından küçük harfle
+    süren nokta (sıra sayısı ya da kısaltma: "45. iş gününde", "90. gününü", "30. gün", "3. yılını"
+    okunamayan kalır); tek harfli büyük sözcük; tamamı büyük harfli sözcük ("AYRICA", "GÜN": tamamı
+    büyük yazılmış metinde cümle sınırına karar verilemez, eski davranış güvenli yönde kalır).
+    **Kabul edilen kayıp:** cümle sayıyla bitip sonraki cümle büyük harfli gerçek bir birim
+    sözcüğüyle başlıyorsa ("Süre 30. Gün hesabı …") ifade üretilmez; o sözcük zaten o sayının
+    birimi değildir. Sıra sayısından sonra büyük harfle yazılmış birim ("45. İş gününde") de bir
+    şey üretmez; nadir bir yazım hatası olarak kabul edilir. İşaret rakam dizisine bitişik
+    değilse eskiden sınırı aşan bir değer okunuyordu ("30! Gün", "90? Ay", "otuz. Gün", "(30)...
+    Günlük"); artık okunmaz. Birimi yazılmamış sayı ("Kısa fesihte süre 10. Aynı hüküm …"daki 10)
+    aşağıdaki "Bilinen sınır"a girer. **Kalan sınır:** tamamı büyük harfli
+    metinde ("FİYAT 5. AYRICA X.") sahte aralık sürer ve o cümleyi kesen alıntı eşleşmez.
   - **Süre birimleri kapalı bir ek listesiyle okunur:** kök (`gün`, `hafta`, `ay`, `yıl`) yalın
     halde ya da şu eklerle: `-lik` (`günlük`, `aylık`), iyelik (`günü`, `haftası`), yönelme
     (`güne`), bulunma (`günde`), ayrılma (`günden`), tamlayan (`günün`), çoğul (`günler`), iyelik
@@ -319,7 +348,8 @@ yoktur.**
     güvence yalnızca metinde rakam ya da sayı sözcüğü olarak duran sayılar içindir; maskelenmiş bir
     sayı artık yer tutucudur (bir sözcük) ve bu kuralın dışında kalır ("Yer tutucular sayı
     değildir"; telafisi `masked_value_in_clause`). Bir sayıdan sonra,
-    hemen ya da tek sözcük arayla, kuralın türündeki bir birim köküyle **başlayan** bir sözcük
+    hemen ya da tek sözcük arayla **ve araya cümle sınırı girmeden** (yukarıda "Birim cümle
+    sınırını aşamaz"), kuralın türündeki bir birim köküyle **başlayan** bir sözcük
     geliyorsa ve ifade yukarıdaki kurallarla okunamıyorsa, ifade "okunamayan" sayılır: listede
     olmayan ek ("5 ayrı"), araya giren sözcük ("5 iş günü", "bir buçuk ay", "1 milyon TL"), biçimi
     bozuk sayı ("1.5 yıl"). Yüzde türünde sayıdan sonra yazılmış işaret ("15%"), tutar türünde
@@ -332,7 +362,10 @@ yoktur.**
     veya 15" ikişer değerdir) ve yalnızca birimsiz sayıya uygulanır ("%2 ile 30 gün"de 2 gün yoktur).
     Sonucu: yanında okunan bir değer varsa `ambiguous_value`; tek başınaysa değer çıkarılamamış
     olur (`numeric_mismatch`); taslakta `code_check=failed`. Bedeli gereksiz yönlendirmedir
-    ("5 ayrı teslimat" süre kuralında kuyruğa düşürür); hata güvenli yöndedir.
+    ("5 ayrı teslimat" süre kuralında kuyruğa düşürür); hata güvenli yöndedir. Bilinen sınır: kök
+    eşleşmesi bilinçli olarak geniştir ve cümle sınırı olmayan yazımda sürer; ilk eval koşusunun
+    maddelerinde görülen örnekler: "5 ayrı", "bir aykırılık", "bir kez güncellenebilir", "bir
+    önceki yılın" okunamayan süre ifadesidir (güvenli yönde aşırı yakalama).
   - **Bilinen sınır:** birimi hiç yazılmamış sayı ("30, gecikme halinde 90 gün içinde" ifadesindeki
     30), araya iki ya da daha çok sözcük girmiş ifade ve sayı içermeyen yükümlülük ("derhal
     feshedebilir") kod tarafından görülmez; bunlar modelin `status`'üne ve avukata kalır.

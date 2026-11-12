@@ -8,10 +8,14 @@ Design (`docs/agent_design.md` §5 "Doğrulama katmanı"):
 
 - `extract` is the one reader of values. It returns the values it read, the value expressions
   it could not read and the span of every expression. A number written in the text (digits or
-  number words) followed (directly or one word later) by a word that starts with a unit stem of
-  the rule's kind is never silently dropped: it becomes a value or an unreadable expression. A
-  masking placeholder ("[TCKN_1]") is one word, never a number: a number the masker took for
-  personal data is neither a value nor an unreadable expression. `masked_value_in_clause` makes
+  number words) followed (directly or one word later, with no sentence boundary between) by a word
+  that starts with a unit stem of the rule's kind is never silently dropped: it becomes a value or
+  an unreadable expression. A unit never crosses a sentence boundary: ".", "!" or "?", whitespace,
+  then a word written upper case first and lower case next ("5. Ayrıca"). Nothing else is a
+  boundary: not a comma, not ",-", not "." before a lower-case word ("45. iş gününde"), not a
+  word written all in upper case. A masking placeholder ("[TCKN_1]") is one word, never a
+  number: a number the masker took for personal data is neither a value nor an unreadable
+  expression. `masked_value_in_clause` makes
   up for it: a `compliant` finding whose clause holds a TCKN or TELEFON placeholder is queued.
   A word that starts with a number word but is not one ("beşer", "üçüncü"), standing where the
   number would be, is an unreadable expression too.
@@ -138,6 +142,8 @@ _SLASH_GAP_RE = re.compile(r" ?[/\u2044] ?")
 _GROUP_RE = re.compile(r"\d{3}(?!\d)")
 # Normalized text has every whitespace run collapsed to one space: "at most a space between".
 _SPACE_GAPS = ("", " ")
+# Marks that end a sentence; whitespace and an upper-case word must follow (`_sentence_start`).
+_SENTENCE_ENDS = frozenset(".!?")
 
 # A masking placeholder is one word; a digit run is the longest sequence of digits, dots and
 # commas (agent_design.md §5).
@@ -194,6 +200,8 @@ class _Token:
     continued: bool = False
     # Nothing but at most a space separates this token from the one before it.
     joined_left: bool = False
+    # A sentence boundary stands right before this token: it starts a new sentence.
+    boundary_left: bool = False
 
 
 # --- Conversion and comparison --------------------------------------------------------------------
@@ -399,10 +407,38 @@ def _tokenize(text: str) -> tuple[str, list[_Token]]:
         tokens.append(_Token("number", text_, raw[i].start, raw[j - 1].end, value, spelled=True))
         i = j
     joined = _join_continuations(norm, lowered, tokens)
-    return norm, [
-        replace(tok, joined_left=k > 0 and _gap(norm, joined[k - 1], tok) in _SPACE_GAPS)
-        for k, tok in enumerate(joined)
-    ]
+    out: list[_Token] = []
+    for k, tok in enumerate(joined):
+        if k == 0:
+            out.append(tok)
+            continue
+        out.append(
+            replace(
+                tok,
+                joined_left=_gap(norm, joined[k - 1], tok) in _SPACE_GAPS,
+                boundary_left=_sentence_start(norm, tok),
+            )
+        )
+    return norm, out
+
+
+def _sentence_start(norm: str, tok: _Token) -> bool:
+    """A sentence boundary stands right before `tok` (agent_design.md §5).
+
+    ".", "!" or "?", then whitespace (one space once normalized, a line break included), then a
+    word of two or more letters written upper case first and lower case next ("Ayrıca", "İş"),
+    read from the normalized text, which keeps the case. A single capital letter, a word all in
+    upper case ("AYRICA") and a word in lower case ("45. iş") start no sentence: the old reading
+    stands, on the safe side.
+    """
+    return (
+        tok.start >= 2
+        and norm[tok.start - 2] in _SENTENCE_ENDS
+        and norm[tok.start - 1] == " "
+        and tok.end - tok.start >= 2
+        and norm[tok.start].isupper()
+        and norm[tok.start + 1].islower()
+    )
 
 
 def _join_continuations(norm: str, lowered: str, tokens: Sequence[_Token]) -> list[_Token]:
@@ -545,10 +581,18 @@ def _classify(
     return None
 
 
+def _crosses(tokens: Sequence[_Token], start: int, end: int) -> bool:
+    """A sentence boundary stands before one of the tokens `start`..`end`."""
+    return any(tokens[k].boundary_left for k in range(start, end + 1))
+
+
 def _unit_after(
     tokens: Sequence[_Token], j: int, kind: Kind
 ) -> tuple[Literal["read", "unreadable"], CheckUnit | None, int] | None:
-    """The unit that follows a number from index `j`: directly or one word later."""
+    """The unit that follows a number from index `j`: directly or one word later.
+
+    Sentence boundaries are not looked at here; the callers drop a unit across one (`_crosses`).
+    """
     while j < len(tokens) and tokens[j].kind == "symbol" and tokens[j].text == ")":
         j += 1
     if j >= len(tokens):
@@ -629,6 +673,17 @@ class _Reader:
         else:
             self.unreadable[first] = self.norm[toks[first].start : toks[last].end]
 
+    def _drop(self, members: Sequence[int], first: int, last: int) -> None:
+        """An expression whose unit word lies across a sentence boundary ("Fiyat 5. Ayrıca"): no
+        value, no unreadable expression, no span. The members read nothing of their own: a number
+        inside the group stays unread ("30 (bkz. Madde 5) gün") and a connector gives no member a
+        unit. Only the tokens before the boundary are taken: the new sentence is read on its own,
+        so an expression that starts it is not swallowed ("Madde 4. Doksanıncı günde",
+        "Süre 30. Beşer gün", "Süre 30. Beş gün içinde")."""
+        self.done.update(members)
+        stop = next(k for k in range(first + 1, last + 1) if self.tokens[k].boundary_left)
+        self.covered.update(range(first, stop))
+
     def _prefixed(self, i: int, unit: CheckUnit | None) -> None:
         """A prefixed number (`%15`, `₺1.000`) and its parenthetical restatement, if any.
 
@@ -651,8 +706,12 @@ class _Reader:
             self._prefixed(i, "%")
             return
         match = _unit_after(self.tokens, i + 1, "percent")
-        if match is not None:
-            self._record([i], None, i, match[2])
+        if match is None:
+            return
+        if _crosses(self.tokens, i + 1, match[2]):
+            self._drop([i], i, match[2])
+            return
+        self._record([i], None, i, match[2])
 
     def _suffixed(self, i: int) -> None:
         toks = self.tokens
@@ -678,13 +737,20 @@ class _Reader:
             if match is None:
                 continue
             status, unit, last = match
+            if _crosses(toks, i + 1, last):
+                self._drop(members, i, last)
+                return
             fits = clean and not any(toks[m].trailing for m in members)
             readable_unit = unit if status == "read" and fits else None
             self._record(members, readable_unit, i, last)
             return
 
     def _has_unit(self, i: int) -> bool:
-        """Number `i` carries a unit of any kind: a prefix before it or a unit word after it."""
+        """Number `i` carries a unit of any kind: a prefix before it or a unit word after it.
+
+        A unit word across a sentence boundary counts: such a number is not unit-less either, so
+        a connector gives it no unit ("30 gün veya 15. Ayrıca").
+        """
         toks = self.tokens
         if _prefix(toks, i) is not None:
             return True
@@ -736,7 +802,8 @@ class _Reader:
 
         That place is right after "yüzde" / "%", or right before a unit of the kind, or before the
         kind's bridge word and a unit ("beşer takvim günü"), with a parenthetical restatement
-        allowed in between ("otuzbeş (30) gün").
+        allowed in between ("otuzbeş (30) gün"). A unit across a sentence boundary is not in that
+        place ("beşer. Günlük").
         """
         toks = self.tokens
         if self.kind == "percent" and _prefix(toks, i) == "%":
@@ -744,12 +811,21 @@ class _Reader:
             return
         close = _group_close(toks, i + 1)
         k = close + 1 if close is not None else i + 1
+        last = None
         if k < len(toks) and _classify(toks, k, self.kind) is not None:
-            self._record([i], None, i, k)
+            last = k
+        elif (
+            k + 1 < len(toks)
+            and toks[k].text in _BRIDGES[self.kind]
+            and _classify(toks, k + 1, self.kind) is not None
+        ):
+            last = k + 1
+        if last is None:
             return
-        bridge = k < len(toks) and toks[k].text in _BRIDGES[self.kind]
-        if bridge and k + 1 < len(toks) and _classify(toks, k + 1, self.kind) is not None:
-            self._record([i], None, i, k + 1)
+        if _crosses(toks, i + 1, last):
+            self._drop([i], i, last)
+        else:
+            self._record([i], None, i, last)
 
     def run(self) -> Extraction:
         numbers = [i for i, t in enumerate(self.tokens) if t.kind == "number"]

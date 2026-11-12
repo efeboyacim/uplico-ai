@@ -1,6 +1,12 @@
+import random
+import re
+from collections import Counter
+from pathlib import Path
+
 import pytest
 from pydantic import ValidationError
 
+import src.verify as verify_module
 from src.models import (
     Check,
     CheckOp,
@@ -13,6 +19,7 @@ from src.models import (
     Severity,
 )
 from src.prepare.pii import mask
+from src.text import ALL_STEPS, normalize
 from src.verify import Extraction, Kind, Quantity, align, extract, verify
 
 # --- Helpers --------------------------------------------------------------------------------------
@@ -1637,3 +1644,308 @@ def test_verify_after_real_mask_false_positive_queued(
     assert list(mapping) == [placeholder]
     result = _run(_finding(masked), rule, masked)
     assert result.review_reasons == [MASKED]
+
+
+# --- A unit never crosses a sentence boundary -----------------------------------------------------
+
+_SENTENCE_MARKS = ".!?"
+PRICE_CAP = _rule("<=", 15, "%")
+AT_MOST_100K_TL = _rule("<=", 100000, "TL")
+AT_LEAST_20_DAYS = _rule(">=", 20, "gün")
+# Written from the definition (agent_design.md §5), not from the code: a mark, whitespace, then a
+# word upper case first and lower case next.
+_BOUNDARY_RE = re.compile(r"[.!?]\s+(?=[^\W\d_]{2})")
+
+
+def _has_boundary(text: str) -> bool:
+    return any(
+        text[m.end()].isupper() and text[m.end() + 1].islower() for m in _BOUNDARY_RE.finditer(text)
+    )
+
+
+def _without_boundaries(text: str, kind: Kind) -> Extraction:
+    """The reader with the sentence-boundary check switched off."""
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(verify_module, "_sentence_start", lambda norm, tok: False)
+        return extract(text, kind)
+
+
+def _contract_4_clause_5() -> str:
+    path = Path(__file__).resolve().parents[1] / "evals" / "dataset" / "contracts"
+    lines = (path / "04_zor_yazim.md").read_text(encoding="utf-8").splitlines()
+    start = lines.index("## Madde 5 - Fiyat Güncellemesi")
+    return next(line for line in lines[start + 1 :] if line.strip())
+
+
+def _span_texts(text: str, kind: Kind) -> list[str]:
+    norm = normalize(text, ALL_STEPS).text
+    return [norm[start:end] for start, end in extract(text, kind).spans]
+
+
+@pytest.mark.parametrize("mark", list(_SENTENCE_MARKS))
+@pytest.mark.parametrize(
+    ("template", "quote"),
+    [
+        ("Fiyat 5{m} Ayrıca X.", "Fiyat 5{m}"),
+        ("Fiyat 5{m} Güncel.", "Fiyat 5{m}"),
+        ("Fiyat beş{m} Güncel.", "Fiyat beş{m}"),
+        ("Fiyat %5 olur{m} Güncel.", "Fiyat %5 olur{m}"),
+        ("Fiyat %5 olur{m} Güncel.", "%5"),
+        ("Fiyat yüzde beşi (%5) geçemez{m} Ayrıca X.", "Fiyat yüzde beşi (%5) geçemez{m}"),
+    ],
+)
+def test_verify_quote_ending_at_sentence_boundary_matches(
+    template: str, quote: str, mark: str
+) -> None:
+    clause = template.format(m=mark)
+    quote_text = quote.format(m=mark)
+    assert not any(_has_boundary(s) for s in _span_texts(clause, "duration"))
+    result = _run(_finding(quote_text), NO_CHECK, clause)
+    assert result.review_reasons == []
+    assert result.quote == quote_text
+
+
+@pytest.mark.parametrize("mark", list(_SENTENCE_MARKS))
+@pytest.mark.parametrize(
+    ("template", "kind"),
+    [
+        ("Fiyat 5{m} Ayrıca X.", "duration"),
+        ("Fiyat 5{m} Güncel.", "duration"),
+        ("Fiyat %5 olur{m} Güncel.", "duration"),
+        ("beş{m} Güncel", "duration"),
+        ("beşer{m} Günlük", "duration"),
+        ("Ödeme 30 olur{m} Gün", "duration"),
+        ("Ödeme 30{m} Takvim günü", "duration"),
+        ("Süre 30{m}\nAyrıca", "duration"),
+        ("Bildirim 10{m} Aynı hüküm uygulanır.", "duration"),
+        # The group holds the boundary: 5 reads nothing of its own either.
+        ("30 (bkz{m} Madde 5) gün", "duration"),
+        # Accepted loss: a capitalized real unit word starting the next sentence.
+        ("Süre 30{m} Gün hesabı yapılır.", "duration"),
+        ("teslimden sonraki 45{m} İş gününde", "duration"),
+        ("Bedel 500{m} Liralık", "amount"),
+        ("Artış 15{m} Oran% olur", "percent"),
+    ],
+)
+def test_extract_unit_across_sentence_boundary_no_expression(
+    template: str, kind: Kind, mark: str
+) -> None:
+    text = template.format(m=mark)
+    assert extract(text, kind) == Extraction((), ())
+    assert extract(text, kind).spans == ()
+
+
+@pytest.mark.parametrize("mark", list(_SENTENCE_MARKS))
+@pytest.mark.parametrize(
+    ("template", "kind", "expected"),
+    [
+        # The sentence before ends in a number: the expression starting the new one is not lost.
+        ("Madde 4{m} Doksanıncı günde ödeme yapılır.", "duration", ((), ("Doksanıncı günde",))),
+        ("Süre 30{m} Beşer gün", "duration", ((), ("Beşer gün",))),
+        ("4.2{m} Birinci yılın sonunda", "duration", ((), ("Birinci yılın",))),
+        ("Ek-3{m} Beşyüzbin liralık", "amount", ((), ("Beşyüzbin liralık",))),
+        ("Süre 30{m} Beş gün içinde ödenir.", "duration", ((_days(5),), ())),
+        ("Madde 4{m} Otuz (30) gün içinde", "duration", ((_days(30), _days(30)), ())),
+    ],
+)
+def test_extract_expression_starting_new_sentence_not_swallowed(
+    template: str, kind: Kind, expected: tuple[tuple[Quantity, ...], tuple[str, ...]], mark: str
+) -> None:
+    result = extract(template.format(m=mark), kind)
+    assert (result.values, result.unreadable) == expected
+    assert not any(_has_boundary(s) for s in _span_texts(template.format(m=mark), kind))
+
+
+@pytest.mark.parametrize(
+    ("text", "kind", "expected"),
+    [
+        # Amounts written with ",-" / ".-": no sentence boundary.
+        ("50.000,- TL", "amount", Extraction((), ("50.000,- TL",))),
+        ("500.000.-TL", "amount", Extraction((), ("500.000.-TL",))),
+        ("1.500,00.- TL", "amount", Extraction((), ("1.500,00.- TL",))),
+        # "." before a lower-case word: an ordinal or an abbreviation, no sentence boundary.
+        ("45. iş gününde", "duration", Extraction((), ("45. iş gününde",))),
+        ("90. takvim gününde", "duration", Extraction((), ("90. takvim gününde",))),
+        ("90. gününü", "duration", Extraction((), ("90. gününü",))),
+        ("60. günlerde", "duration", Extraction((), ("60. günlerde",))),
+        ("3. yılını", "duration", Extraction((), ("3. yılını",))),
+        ("12. ayını", "duration", Extraction((), ("12. ayını",))),
+        ("48. saatte", "duration", Extraction((), ("48. saatte",))),
+        ("2. senenin", "duration", Extraction((), ("2. senenin",))),
+        ("30. gün", "duration", Extraction((), ("30. gün",))),
+        ("30.gün", "duration", Extraction((), ("30.gün",))),
+        # Other marks are never a boundary.
+        ("30, gün", "duration", Extraction((), ("30, gün",))),
+        ("30; günü", "duration", Extraction((_days(30),), ())),
+        ("30: gün", "duration", Extraction((_days(30),), ())),
+        ("30 ; gün", "duration", Extraction((_days(30),), ())),
+        ("30 (otuz), gün", "duration", Extraction((_days(30), _days(30)), ())),
+        # All upper case, a single capital letter: no boundary, the old reading stands.
+        ("FİYAT 5. AYRICA X.", "duration", Extraction((), ("5. AYRICA",))),
+        ("Süre 30. A gün", "duration", Extraction((), ("30. A gün",))),
+        ("30 gün.", "duration", Extraction((_days(30),), ())),
+        ("otuz (30) gün", "duration", Extraction((_days(30), _days(30)), ())),
+        ("5 ayrı", "duration", Extraction((), ("5 ayrı",))),
+        # Known limit: the stem match stays wide with no boundary (safe-side over-capture).
+        ("bir aykırılık", "duration", Extraction((), ("bir aykırılık",))),
+        ("bir kez güncellenebilir", "duration", Extraction((), ("bir kez güncellenebilir",))),
+        ("bir önceki yılın", "duration", Extraction((), ("bir önceki yılın",))),
+        # A sentence starting with a word that is no unit leaves the link as it was.
+        ("30 gün veya 15. Bu", "duration", Extraction((_days(30), _days(15)), ())),
+    ],
+)
+def test_extract_no_sentence_boundary_unchanged(
+    text: str, kind: Kind, expected: Extraction
+) -> None:
+    result = extract(text, kind)
+    assert result == expected
+    assert result.spans == _without_boundaries(text, kind).spans
+
+
+def test_extract_number_with_unit_across_boundary_not_linked() -> None:
+    # Its unit word starts the next sentence: neither read, nor given the other value's unit.
+    assert extract("30 gün veya 15. Ayrıca", "duration") == Extraction((_days(30),), ())
+    assert extract("30 gün veya 15. Günlük", "duration") == Extraction((_days(30),), ())
+
+
+@pytest.mark.parametrize(
+    ("clause", "quote", "rule", "reasons"),
+    [
+        (
+            "Satıcı gecikme halinde 10.000 TL ceza öder; tekrarında Satıcı 500.000,- TL cezai "
+            "şart öder.",
+            "Satıcı gecikme halinde 10.000 TL ceza öder",
+            AT_MOST_100K_TL,
+            ["ambiguous_value"],
+        ),
+        (
+            "Satıcı gecikme halinde 10.000 TL ceza öder; tekrarında 500.000.-TL cezai şart öder.",
+            "Satıcı gecikme halinde 10.000 TL ceza öder",
+            AT_MOST_100K_TL,
+            ["ambiguous_value"],
+        ),
+        (
+            "Fatura 30 gün içinde düzenlenir. Ödeme, teslimden sonraki 90. iş gününde yapılır.",
+            "Fatura 30 gün içinde düzenlenir.",
+            AT_MOST_60_DAYS,
+            ["ambiguous_value"],
+        ),
+        (
+            "Fatura 30 gün içinde düzenlenir. Ödeme, teslimin 90. gününü izleyen hafta yapılır.",
+            "Fatura 30 gün içinde düzenlenir.",
+            AT_MOST_60_DAYS,
+            ["ambiguous_value"],
+        ),
+        (
+            "Fatura 30 gün içinde düzenlenir. Ödeme, teslimden sonraki 90. takvim gününde yapılır.",
+            "Fatura 30 gün içinde düzenlenir.",
+            AT_MOST_60_DAYS,
+            ["ambiguous_value"],
+        ),
+        (
+            "Ödeme 30 gün içinde yapılır; gecikmede 90: gün.",
+            "Ödeme 30 gün içinde yapılır",
+            AT_MOST_60_DAYS,
+            ["numeric_mismatch"],
+        ),
+        (
+            "FİYAT 5. AYRICA X.",
+            "FİYAT 5.",
+            NO_CHECK,
+            ["quote_not_found"],
+        ),
+    ],
+)
+def test_verify_value_outside_quote_with_no_boundary_still_queued(
+    clause: str, quote: str, rule: Rule, reasons: list[str]
+) -> None:
+    assert _reasons(_finding(quote), rule, clause) == reasons
+
+
+def test_verify_unit_less_number_before_new_sentence_not_queued() -> None:
+    # "süre 10." has no unit: like any unit-less number, the code does not see it (known limit).
+    # "Aynı" starting the next sentence is no unit of it, so nothing unreadable is left over.
+    clause = "Bildirim süresi 30 gündür. Kısa fesihte süre 10. Aynı hüküm uygulanır."
+    assert _reasons(_finding("Bildirim süresi 30 gündür."), AT_LEAST_20_DAYS, clause) == []
+
+
+def test_verify_contract_4_clause_5_first_sentence_matches() -> None:
+    clause = _contract_4_clause_5()
+    first = clause[: clause.index(" Güncellenen")]
+    assert first.endswith("(%15) geçemez.")
+    assert not any(_has_boundary(s) for s in _span_texts(clause, "duration"))
+    for finding in (_finding(first), _finding(first, value=15, unit="%")):
+        result = _run(finding, PRICE_CAP, clause)
+        assert result.quote == first
+        # "yüzde on beşini" is an inflected number word next to the read 15: ambiguous.
+        assert result.review_reasons == ["ambiguous_value"]
+
+
+def _random_text(rng: random.Random) -> str:
+    numbers = (
+        "5", "30", "15", "45", "1.000", "50.000", "2,5", "1.5", "beş", "otuz", "on iki", "Beş",
+        "45.", "90.", "3.", "50.000,-", "500.000.-", "1.500,00.-",
+    )  # fmt: skip
+    units = (
+        "gün", "günü", "günün", "gününü", "günlerde", "ay", "ayını", "yıl", "yılını", "hafta",
+        "saat", "saatte", "senenin", "TL", "-TL", "lira", "USD", "₺", "%", "Gün", "GÜN", "Ay",
+    )  # fmt: skip
+    traps = (
+        "Ayrıca", "Aynı", "aynı", "Güncel", "güncellenen", "Yılın", "Günlük", "Bu", "İş",
+        "Beşer", "beşer", "AYRICA", "AYNI", "FİYAT", "A", "X",
+    )  # fmt: skip
+    bridges = ("takvim", "iş", "türk", "Takvim")
+    fillers = ("olur", "fiyat", "veya", "ila", "-", "yüzde", "(otuz)", "(30)", "(bkz.", "5)", ")")
+    marks = (".", ",", ";", ":", "!", "?", ",-", ".-", "...")
+    text = ""
+    for k in range(rng.randint(2, 9)):
+        roll = rng.random()
+        if roll < 0.3:
+            piece = rng.choice(numbers)
+        elif roll < 0.55:
+            piece = rng.choice(units)
+        elif roll < 0.72:
+            piece = rng.choice(traps)
+        elif roll < 0.8:
+            piece = rng.choice(bridges)
+        else:
+            piece = rng.choice(fillers)
+        if rng.random() < 0.3:
+            piece += rng.choice(("", " ")) + rng.choice(marks)
+        text += (rng.choice((" ", " ", " ", "\n", "")) if k else "") + piece
+    return text
+
+
+def test_sentence_boundary_invariants_random() -> None:
+    """(i) An expression the reader with the check switched off does not read lies inside one
+    of its expressions that crosses a boundary, and starts right after that boundary: the new
+    sentence is read on its own. With no such expression, no value and no unreadable expression
+    is added. (ii) With no boundary in the text, the two
+    readers agree, spans included. (iii) No expression spans a boundary."""
+    rng = random.Random(20261112)
+    texts = [_random_text(rng) for _ in range(4000)]
+    kinds: tuple[Kind, ...] = ("duration", "percent", "amount")
+    on = [[extract(t, kind) for kind in kinds] for t in texts]
+    off = [[_without_boundaries(t, kind) for kind in kinds] for t in texts]
+    seen_boundary = 0
+    for text, with_check, without in zip(texts, on, off, strict=True):
+        norm = normalize(text, ALL_STEPS).text
+        boundary = _has_boundary(norm)
+        seen_boundary += boundary
+        for kind, a, b in zip(kinds, with_check, without, strict=True):
+            for start, end in set(a.spans) - set(b.spans):
+                crossing = [
+                    (s, e)
+                    for s, e in b.spans
+                    if s < start and end <= e and _has_boundary(norm[s:e])
+                ]
+                assert crossing, (text, kind)
+                assert norm[start - 2] in ".!?" and norm[start - 1] == " ", (text, kind)
+            if set(a.spans) <= set(b.spans):
+                assert not Counter(a.values) - Counter(b.values), (text, kind)
+                assert not Counter(a.unreadable) - Counter(b.unreadable), (text, kind)
+            if not boundary:
+                assert (a, a.spans) == (b, b.spans), (text, kind)
+            for start, end in a.spans:
+                assert not _has_boundary(norm[start:end]), (text, kind)
+    assert seen_boundary > 300  # the generator does reach the case under test
