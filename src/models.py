@@ -47,6 +47,11 @@ AuditEvent = Literal[
 ]
 InjectionKind = Literal["pattern", "hidden_characters"]
 MaskedText = NewType("MaskedText", str)
+# The lawyer's decision values (architecture.md §3 "Avukat kararı").
+FindingAction = Literal["accept", "correct"]
+ProposalAction = Literal["accept", "edit", "reject"]
+ContractDecision = Literal["approve", "request_changes"]
+DecidedStatus = Literal["approved", "changes_requested"]
 
 
 class _Model(BaseModel):
@@ -155,6 +160,65 @@ class AuditRecord(_Model):
     payload: dict[str, object]
 
 
+class FindingDecision(_Model):
+    """One entry of the lawyer's decision, after masking: `edited_text` is masked.
+
+    Built only from a request that already passed the format rules and the record checks; the
+    format rules are the ones of the request model, written once in `src/decision.py`.
+    """
+
+    rule_id: str = Field(min_length=1)
+    action: FindingAction | None = None
+    status: FindingStatus | None = None
+    proposal_action: ProposalAction | None = None
+    edited_text: MaskedText | None = None
+
+    @model_validator(mode="after")
+    def _format_rules(self) -> Self:
+        # Imported here: src.decision imports this module at its top.
+        from src.decision import entry_format_error
+
+        error = entry_format_error(self.action, self.status, self.proposal_action, self.edited_text)
+        if error is not None:
+            raise ValueError(error)
+        return self
+
+
+class LawyerDecision(_Model):
+    """The lawyer's masked decision: the resume payload and the input of `finalize`."""
+
+    findings: list[FindingDecision] = Field(default_factory=list)
+    contract_decision: ContractDecision
+
+    @model_validator(mode="after")
+    def _rule_ids_unique(self) -> Self:
+        from src.decision import duplicate_rule_id_error
+
+        error = duplicate_rule_id_error([entry.rule_id for entry in self.findings])
+        if error is not None:
+            raise ValueError(error)
+        return self
+
+
+class FindingOutcome(_Model):
+    """The stored final result of one rule; one per rule, in rule order."""
+
+    rule_id: str = Field(min_length=1)
+    # From the rule copy in the graph state: a later change to rules.yaml does not change it.
+    severity: Severity
+    final_status: FindingStatus
+    action: FindingAction | None = None
+    proposal_action: ProposalAction | None = None
+    edited_text: MaskedText | None = None
+
+
+class ReviewOutcome(_Model):
+    """The `reviews.decision` column: the contract decision and the final result of every rule."""
+
+    contract_decision: ContractDecision
+    findings: list[FindingOutcome]
+
+
 class ReviewRecord(_Model):
     review_id: str
     status: ReviewStatus
@@ -165,6 +229,6 @@ class ReviewRecord(_Model):
     clauses: list[Clause] = Field(default_factory=list)
     injection_flags: list[InjectionFlag] = Field(default_factory=list)
     findings: list[Finding] = Field(default_factory=list)
-    decision: dict[str, object] | None = None
+    decision: ReviewOutcome | None = None
     decided_at: str | None = None
     decided_by: str | None = None

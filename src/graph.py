@@ -2,8 +2,10 @@
 
 Design (`docs/agent_design.md` §1, §4, §6, §7):
 
-- `START → review_rule per rule (Send) → verify → human_review (interrupt) → END`. Preparation runs
-  before the graph; only masked clauses enter it. `finalize` comes in a later step.
+- `START → review_rule per rule (Send) → verify → human_review (interrupt) → finalize → END`.
+  Preparation runs before the graph; only masked clauses enter it. The lawyer's masked decision
+  enters through `resume_command` (the only way the API resumes a thread); `finalize` writes the
+  final result and every decision and closing audit row in one `Store.complete_review` call.
 - The state holds plain dicts (`model_dump(mode="json")`), never pydantic objects: the checkpoint
   serializer reads registered types only. Nodes validate what they read.
 - The clause index is never in the state or in a `Send` payload; `review_rule` takes it from the
@@ -29,8 +31,8 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
-from langgraph.types import Send, interrupt
-from pydantic import TypeAdapter
+from langgraph.types import Command, Send, interrupt
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 
 from src.agent import (
     RuleAgent,
@@ -40,8 +42,9 @@ from src.agent import (
     run_rule_agent,
 )
 from src.config import Settings
+from src.decision import build_outcome, decided_status, decision_events
 from src.llm import build_chat_model, classify_provider_error
-from src.models import Clause, Finding, InterruptReason, Rule
+from src.models import Clause, Finding, InterruptReason, LawyerDecision, Rule
 from src.prepare import PreparedContract
 from src.prepare.index import get_index
 from src.store import Store
@@ -66,6 +69,8 @@ class ReviewState(TypedDict):
     findings: Annotated[list[dict[str, Any]], operator.add]
     # The verified findings, in the rule order of the rule set.
     verified: NotRequired[list[dict[str, Any]]]
+    # The resume payload: {"decision": masked LawyerDecision dump, "decided_by": the key's name}.
+    decision: NotRequired[dict[str, Any]]
 
 
 class RuleTask(TypedDict):
@@ -76,6 +81,17 @@ class RuleTask(TypedDict):
 
 
 ReviewGraph = CompiledStateGraph[ReviewState, None, ReviewState, ReviewState]
+
+
+class ReviewNotAwaitingError(Exception):
+    """`finalize` found the review no longer `awaiting_lawyer`; nothing was written."""
+
+
+class _ResumePayload(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: LawyerDecision
+    decided_by: str = Field(min_length=1)
 
 
 # --- Invoke helpers -------------------------------------------------------------------------------
@@ -100,6 +116,17 @@ def review_config(settings: Settings, review_id: str) -> RunnableConfig:
         "configurable": {"thread_id": review_id},
         "max_concurrency": settings.max_concurrency,
     }
+
+
+def resume_command(decision: LawyerDecision, decided_by: str) -> Command[Any]:
+    """The one command that resumes a review with the lawyer's (masked) decision.
+
+    The payload is a plain dict. It is given both as the interrupt's resume value and as a state
+    update: a thread left at `finalize` by an earlier failure still holds the old decision, and a
+    resume value alone would run `finalize` again with that old decision (agent_design.md §1).
+    """
+    payload = {"decision": decision.model_dump(mode="json"), "decided_by": decided_by}
+    return Command(resume=payload, update={"decision": payload})
 
 
 # --- Nodes ----------------------------------------------------------------------------------------
@@ -177,11 +204,32 @@ class _Nodes:
         self._store.append_audit_many(state["review_id"], SYSTEM_ACTOR, "verification", payloads)
         return {"verified": [finding.model_dump(mode="json") for finding in verified]}
 
+    def finalize(self, state: ReviewState) -> dict[str, Any]:
+        """Compute the final result and close the review in one transaction.
+
+        Raises `ReviewNotAwaitingError` (nothing written) when the review is no longer
+        `awaiting_lawyer`. Any error leaves the review `awaiting_lawyer` with no audit row.
+        """
+        if "decision" not in state or "verified" not in state:
+            raise RuntimeError("finalize kararsız ya da doğrulanmış bulgusuz çalıştı.")
+        payload = _ResumePayload.model_validate(state["decision"])
+        rules = _RULES.validate_python(state["rules"])
+        findings = _FINDINGS.validate_python(state["verified"])
+        outcome = build_outcome(payload.decision, findings, rules)
+        status = decided_status(payload.decision.contract_decision)
+        events = decision_events(payload.decision, outcome, payload.decided_by, status)
+        if not self._store.complete_review(
+            state["review_id"], status, outcome, payload.decided_by, events
+        ):
+            raise ReviewNotAwaitingError("İnceleme avukat kararı beklemiyor.")
+        return {}
+
 
 def _human_review(state: ReviewState) -> dict[str, Any]:
-    # No side effect before interrupt(): on resume this node runs again from its start.
-    interrupt({"review_id": state["review_id"]})
-    return {}
+    # No side effect before interrupt(): on resume this node runs again from its start. The
+    # decision is written by the separate finalize node (agent_design.md §1).
+    decision = interrupt({"review_id": state["review_id"]})
+    return {"decision": decision}
 
 
 def _compile(store: Store, model: BaseChatModel, saver: SqliteSaver) -> ReviewGraph:
@@ -190,10 +238,12 @@ def _compile(store: Store, model: BaseChatModel, saver: SqliteSaver) -> ReviewGr
     builder.add_node("review_rule", nodes.review_rule)
     builder.add_node("verify", nodes.verify)
     builder.add_node("human_review", _human_review)
+    builder.add_node("finalize", nodes.finalize)
     builder.add_conditional_edges(START, _fan_out, ["review_rule"])
     builder.add_edge("review_rule", "verify")
     builder.add_edge("verify", "human_review")
-    builder.add_edge("human_review", END)
+    builder.add_edge("human_review", "finalize")
+    builder.add_edge("finalize", END)
     return builder.compile(checkpointer=saver)
 
 

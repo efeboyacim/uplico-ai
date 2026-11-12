@@ -27,13 +27,17 @@
   hiçbir şeyi değiştirmez).
 - **`viewer` karar veremez:** `awaiting_lawyer` durumundaki incelemeye `viewer` anahtarıyla geçerli
   bir karar gövdesi gönderilir → **403**. Ardından inceleme durumu hâlâ `awaiting_lawyer`, graph
-  devam etmemiş, audit log'da karar olayı (`finding_decision`, `proposal_decision`,
-  `contract_decision`) yok. Aynı gövde `lawyer` anahtarıyla → 200.
+  devam etmemiş (`get_state(config).next == ("human_review",)`), audit log'da karar olayı
+  (`finding_decision`, `proposal_decision`, `contract_decision`) yok. Aynı gövde `lawyer`
+  anahtarıyla → 200.
 - **Tüm yazma uçları `lawyer` ister:** test uygulamanın rota listesini dolaşır ve `GET` dışındaki her
   ucu `viewer` anahtarıyla çağırır → hepsi **403**. Yeni eklenen bir yazma ucu korumasız kalırsa bu
-  test başarısız olur.
+  test başarısız olur. Rota dolaşan iki test karar ucunu kendiliğinden kapsar (şemaya uymayan
+  gövdeyle de 401 / 403); bilinen rotaların listesine (`test_routes_walk_covers_the_known_endpoints`)
+  karar ucu eklenir.
 - **Gövdedeki rol/ad yok sayılır:** `viewer` anahtarıyla gövdeye `role: lawyer` eklenir → yine 403.
-  `lawyer` anahtarıyla gövdeye `reviewer: "başkası"` eklenir → audit log'daki ad anahtarın adıdır.
+  `lawyer` anahtarıyla gövdeye `reviewer: "başkası"` eklenir → audit log'daki aktör
+  (`lawyer:<ad>`) ve kayıttaki `decided_by` anahtarın adıdır.
 - **Anahtar yok / tanınmıyor:** `GET /` (veri içermeyen arayüz sayfası) dışındaki her uç 401 döner.
 - **Sağlayıcı anahtarı yoksa başlamaz:** `LLM_PROVIDER=groq` ve boş `GROQ_API_KEY` ile config
   yüklenir → açık hata fırlar; mesaj `GROQ_API_KEY` adını ve `LLM_PROVIDER=ollama` seçeneğini içerir.
@@ -106,20 +110,62 @@
   - Kuyruktaki bir bulgunun `action`'ı yoksa → 422, graph devam etmez.
   - Kuyruktaki taslaklı bir bulgunun `proposal_action`'ı yoksa → 422.
   - Kuyruk dışındaki bulgular hiç gönderilmezse → 200.
-  - Kuyruk dışındaki bir bulgu `correct` ile düzeltilirse → 200 ve raporda son sonuç değişmiş.
+  - Kuyruk dışındaki bir bulgu `correct` ile düzeltilirse → 200 ve saklanan son sonuç
+    (`final_status`) değişmiş (raporda da; Adım 14).
   - Kuyruk dışındaki taslaklı bir bulgu yalnızca `proposal_action` ile gönderilirse → 200; bulgu
-    olduğu gibi kalır.
-  - Kuyruk dışındaki bir taslağa hiç karar verilmezse → raporda "karar verilmedi" görünür ve talep
-    edilen değişikliklerde yer almaz.
+    olduğu gibi kalır (`final_status` modelinki).
+  - Kuyruk dışındaki bir taslağa hiç karar verilmezse → saklanan `proposal_action` `null`'dır;
+    raporda "karar verilmedi" görünür ve talep edilen değişikliklerde yer almaz.
 - **Avukat kararı — geçersiz değerler (hepsi 422):** `action: reject` · `correct` ama `status` yok ·
   `accept` ile birlikte `status` · ne `action` ne `proposal_action` içeren girdi ·
-  `proposal_action: edit` ama `edited_text` boş · taslağı olmayan bulguda `proposal_action` ·
-  bilinmeyen ya da tekrarlı `rule_id` · `contract_decision: reject`.
+  `proposal_action: edit` ama `edited_text` boş ya da yalnızca boşluk · taslağı olmayan bulguda
+  `proposal_action` · bilinmeyen ya da tekrarlı `rule_id` · `contract_decision: reject`.
 - **Son karar:** `request_changes` → durum `changes_requested`. Son hali `non_compliant` olan bulgu
-  varken `approve` → 200, durum `approved`, raporda `approved_with_noncompliant=true`.
+  varken `approve` → 200, durum `approved`, raporda `approved_with_noncompliant=true`. "Avukatsız
+  geçen bulgu" için işaretsiz ayrı bir metin kullanılır (örnek sözleşmede her bulgu
+  `injection_suspected` taşır).
 - **Düzenlenmiş metin maskelenir:** `edited_text` içinde eşlemede zaten olan bir ad ve yeni bir TCKN
-  gönderilir → `reviews` kaydında, graph state'inde ve audit log'da ham değer yoktur; bilinen ad aynı
-  yer tutucuyu almış, TCKN eşlemeye eklenmiştir. `lawyer` raporunda metin maskesizdir.
+  gönderilir → `reviews` kaydında, `get_state` değerlerinde, audit log'da ve `checkpoints.db`
+  (+ `-wal`) ham baytlarında ham değer yoktur (`close_graphs()` sonrası bayt taraması; yer
+  tutucunun bulunması pozitif kontroldür); bilinen ad aynı yer tutucuyu almış, TCKN eşlemeye
+  eklenmiştir. `lawyer` inceleme yanıtında (ve raporunda) metin maskesiz, `viewer` yanıtında
+  maskelidir.
+- **Karar ucunun kontrol sırası:** `viewer` + şemaya uymayan gövde → 403; `lawyer` + olmayan
+  inceleme + geçersiz gövde → 404; kapanmış inceleme + geçersiz gövde → 409.
+- **Karar ucunun 422'si girdiyi yansıtmaz:** şema hatasında da, kayda bakan kontrollerin ürettiği
+  422'de de gövde yalnızca `type`, `loc`, `msg` taşır; `edited_text` ve hiçbir girdi değeri geri
+  dönmez. `findings` öğesindeki bilinmeyen alan → 422; gövdenin üst düzeyindeki bilinmeyen alan yok
+  sayılır.
+- **`edited_text` sınırları:** `accept` ya da `reject` ile birlikte `edited_text` → 422; 20.000
+  karakteri aşan `edited_text` → 422. `edit` + yalnızca görünmez karakter (`U+200B`; `U+200B` ve
+  boşluk karışık) → 422; durum, audit ve `pii_map` değişmez. (Test kaynağındaki görünmez
+  karakterler kaçış dizisiyle yazılır; sonra Cf taraması yapılır.)
+- **Kayda bakan kontroller maskelemeden önce:** bilinmeyen `rule_id` taşıyan (ve `edited_text`'inde
+  yeni bir TCKN olan) istek 422 alır ve `pii_map` değişmez.
+- **Karar kilidi tenant başınadır:** bir tenant'ın karar kilidi tutulurken diğer tenant'ın karar
+  isteği tamamlanır.
+- **`complete_review` atomiktir:** durum ve tüm olay satırları tek transaction'dadır; olay eklemesi
+  TEMP TRIGGER ile düşürülünce durum da geri alınır. İnceleme `awaiting_lawyer` değilse `False`
+  döner ve hiçbir satır yazılmaz.
+- **`finalize` hatası incelemeyi `failed` yapmaz:** `review_closed` eklemesi TEMP TRIGGER ile
+  düşürülür → 500; durum `awaiting_lawyer`; audit'e satır eklenmemiş. Ardından **farklı** bir
+  kararla yeniden deneme → 200; kayıt ve audit **yeni** kararı taşır, karar olayları tam bir kez
+  yazılmıştır.
+- **Eşzamanlı iki karar:** aynı incelemeye iki thread karar gönderir; sıra olaylarla
+  (`threading.Event`) kurulur, zamanlamayla değil: ilk istek `check_decision` içinde tutulur, ikinci
+  istek ya tutulan kilidi bulup beklemeye geçer ya da (kilitsiz uygulamada) `check_decision`'a girer;
+  ancak ondan sonra ilk istek bırakılır → biri 200, öteki 409; `check_decision` içinde aynı anda en
+  çok bir istek bulunur; karar olayları tam bir kez yazılmıştır. Süre assert'i yok.
+- **Karar fonksiyonları (`tests/test_decision.py`):** `build_outcome` (`correct` / `accept` /
+  dokunulmamış bulgu; `severity` state'teki kural kopyasından; kural sırası); `check_decision` her
+  kural için; `decision_events`'in sırası ve aktörleri.
+- **Resume sonrası graph:** `get_state(config).next == ()`; checkpoint'ten okuma "kayıtsız tip"
+  uyarısı loglamaz; `src/` altında `async def` yok testi geçmeye devam eder.
+- **Reddedilen karar isteği iz bırakmaz:** ikinci karar 409, başka tenant'ın incelemesine karar 404;
+  her reddedilen istekte (403 / 404 / 409 / 422) durum, audit satır sayısı, `pii_map` ve
+  `get_state().next` değişmez. İstisna: `finalize` içinde `complete_review`'ün `False` dönmesinden
+  gelen 409 (yalnızca çok süreçli dağıtımda olabilir). O durumda durum ve audit değişmez, ama
+  `pii_map` gövdedeki `edited_text`'in yeni TCKN girdisini tutar ve `next == ("finalize",)` olur.
 - **Rapor:** son karardan önce → 409. Sonra → kural sonuçlarını, taslakları (kod kontrolü ve avukat
   kararıyla) ve talep edilen değişiklikleri içerir; kabul edilen ve düzenlenen taslaklar listededir,
   reddedilen değildir. Raporu okumak audit log'a satır eklemez.
@@ -130,12 +176,16 @@
 - **Yanıt sabit alan listesiyle kurulur:** `viewer` inceleme yanıtının anahtar kümesi inceleme,
   madde, işaret ve bulgu düzeyinde beklenen kümeyle birebir aynıdır (maddede `start` / `end`,
   işarette `start` / `end` / `detail` yok). `lawyer` yanıtı aynı küme artı `original_text`, madde
-  ofsetleri ve işaret konumlarıdır.
+  ofsetleri ve işaret konumlarıdır. Karar alanları iki rolün kümesinde de vardır (bulguda
+  `final_status`, `action`, `proposal_action`, `edited_text`; incelemede `contract_decision`,
+  `decided_at`, `decided_by`); karardan önce `null`'dır. `provider` / `model` yoktur.
 - **`awaiting_lawyer` yazımı atomiktir:** audit satırının yazımı hata verirse durum `running`
   kalmaz ama `awaiting_lawyer` da olmaz: inceleme `failed`, API 500, bulgular kayıtta yok.
-- **Graph hatası → `failed`:** `config` sınıfı hata 502 + `review_failed` (`provider_config`); başka
-  hata (tool gövdesi, hazırlık) 500 + `review_failed` (`internal_error` / `prepare_error`).
-  `review_failed` son audit satırıdır; indeks başarıda da hatada da silinmiştir.
+- **Graph hatası → `failed`** (`POST /reviews`; `interrupt`'tan önceki koşu): `config` sınıfı hata
+  502 + `review_failed` (`provider_config`); başka hata (tool gövdesi, hazırlık) 500 +
+  `review_failed` (`internal_error` / `prepare_error`). `review_failed` son audit satırıdır; indeks
+  başarıda da hatada da silinmiştir. Karar ucundaki (`finalize`) hata bu teste girmez; inceleme
+  `failed` olmaz (yukarıda *`finalize` hatası incelemeyi `failed` yapmaz*).
 - **Bozuk JSON istisnası:** anahtarsız, sözdizimi bozuk JSON gövdeli `POST /reviews` 422 döner ve
   hiçbir inceleme oluşmaz; gövdesiz ya da şeması yanlış anahtarsız istek 401 döner.
 - **Otomatik doküman uçları kapalı:** `/docs`, `/redoc`, `/openapi.json` 404 döner.
@@ -144,7 +194,8 @@
 - **Kayıt eksiksiz:** sahte modelle baştan sona bir inceleme → audit log'da `review_started`,
   `clauses_split`, `pii_masked`, `index_built`, `model_call`, `tool_call`, `finding`, `verification`,
   `awaiting_lawyer`, `finding_decision`, `proposal_decision`, `contract_decision`, `report_created`,
-  `review_closed` vardır. Kimlik / yapılandırma hatası senaryosunda `review_failed` vardır.
+  `review_closed` vardır (taslaklı bir bulgu gerekir); son satır `review_closed`'dır. Kimlik /
+  yapılandırma hatası senaryosunda `review_failed` vardır.
 
 ## 3. Dataset
 - **Konum:** `evals/dataset/` — sözleşmeler `contracts/*.md`, etiketler `labels.json`

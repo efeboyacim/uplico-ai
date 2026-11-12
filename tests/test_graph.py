@@ -18,16 +18,26 @@ from pydantic import PrivateAttr
 from test_prepare import ALL_RAW, FIXTURE
 
 from src.config import Settings, load_settings
+from src.decision import build_outcome
 from src.graph import (
     CHECKPOINTS_NAME,
+    ReviewNotAwaitingError,
     ReviewState,
     _ordered,
     close_graphs,
     get_review_graph,
     initial_state,
+    resume_command,
     review_config,
 )
-from src.models import Finding, InjectionFlag, Rule
+from src.models import (
+    ContractDecision,
+    Finding,
+    FindingDecision,
+    InjectionFlag,
+    LawyerDecision,
+    Rule,
+)
 from src.prepare import PreparedContract, prepare_contract
 from src.prepare.index import MAX_RESULTS, ClauseIndex, SearchHit, put_index
 from src.store import Store, UnknownTenantError
@@ -358,6 +368,128 @@ def test_graph_checkpoint_read_back_logs_no_unregistered_type(
     assert all(type(f) is dict for f in snapshot.values["findings"] + snapshot.values["verified"])
     serializer = [r for r in caplog.records if r.name.startswith("langgraph.checkpoint")]
     assert serializer == [], [r.getMessage() for r in serializer]
+
+
+# --- Resume and finalize --------------------------------------------------------------------------
+
+CLOSING_EVENTS = ("report_created", "review_closed")
+
+
+def _to_interrupt(review: _Review) -> Any:
+    """Run the review to its interrupt and store the findings, as the API does."""
+    model = ScriptedChatModel.keyed(_scripts(review.rules))
+    graph = get_review_graph(review.settings, review.store.tenant_id, model=model)
+    out = graph.invoke(review.state, review.config)
+    assert out["__interrupt__"]
+    findings = [Finding.model_validate(f) for f in out["verified"]]
+    assert review.store.save_findings(review.review_id, findings)
+    return graph
+
+
+def _accept_all(review: _Review, contract: ContractDecision = "approve") -> LawyerDecision:
+    entries = [FindingDecision(rule_id=rule.id, action="accept") for rule in review.rules]
+    return LawyerDecision(findings=entries, contract_decision=contract)
+
+
+def _events_of(review: _Review) -> list[str]:
+    return [r.event for r in review.store.list_audit(review.review_id)]
+
+
+def test_graph_resume_runs_finalize_and_closes_review(data_dir: Path) -> None:
+    review = _Review(_settings(data_dir))
+    graph = _to_interrupt(review)
+    before = _events_of(review)
+
+    graph.invoke(resume_command(_accept_all(review), "Av. Test"), review.config)
+
+    snapshot = graph.get_state(review.config)
+    assert snapshot.next == ()
+    assert snapshot.values["decision"]["decided_by"] == "Av. Test"
+    record = review.store.get_review(review.review_id)
+    assert record is not None and record.status == "approved"
+    assert record.decided_by == "Av. Test"
+    assert record.decision is not None
+    assert [o.rule_id for o in record.decision.findings] == [r.id for r in review.rules]
+    after = _events_of(review)[len(before) :]
+    assert after == ["finding_decision"] * len(review.rules) + [
+        "contract_decision",
+        *CLOSING_EVENTS,
+    ]
+    assert review.actors("finding_decision") == {"lawyer:Av. Test"}
+    assert review.actors("review_closed") == {"system"}
+
+
+def test_graph_resume_checkpoint_read_back_logs_no_unregistered_type(
+    data_dir: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    review = _Review(_settings(data_dir))
+    graph = _to_interrupt(review)
+    with caplog.at_level(logging.DEBUG):
+        graph.invoke(resume_command(_accept_all(review), "Av. Test"), review.config)
+        # A fresh connection: the state is deserialized from the file, not served from memory.
+        close_graphs()
+        snapshot = get_review_graph(review.settings, "acme").get_state(review.config)
+    assert snapshot.next == ()
+    assert type(snapshot.values["decision"]) is dict
+    assert type(snapshot.values["decision"]["decision"]) is dict
+    serializer = [r for r in caplog.records if r.name.startswith("langgraph.checkpoint")]
+    assert serializer == [], [r.getMessage() for r in serializer]
+
+
+def test_graph_finalize_review_no_longer_awaiting_raises_writes_nothing(data_dir: Path) -> None:
+    review = _Review(_settings(data_dir))
+    graph = _to_interrupt(review)
+    # Closed in between by someone else (another process): complete_review answers False.
+    verified = [
+        Finding.model_validate(f) for f in graph.get_state(review.config).values["verified"]
+    ]
+    outcome = build_outcome(_accept_all(review), verified, review.rules)
+    assert review.store.complete_review(review.review_id, "approved", outcome, "Başka", [])
+    rows = review.store.list_audit(review.review_id)
+
+    with pytest.raises(ReviewNotAwaitingError):
+        graph.invoke(resume_command(_accept_all(review), "Av. Test"), review.config)
+    assert review.store.list_audit(review.review_id) == rows
+    record = review.store.get_review(review.review_id)
+    assert record is not None and record.decided_by == "Başka"
+    assert graph.get_state(review.config).next == ("finalize",)
+
+
+def test_graph_finalize_failure_then_resume_with_new_decision_records_latest(
+    data_dir: Path,
+) -> None:
+    review = _Review(_settings(data_dir))
+    graph = _to_interrupt(review)
+    rows_before = review.store.list_audit(review.review_id)
+    _fail_audit_event(review.store, "review_closed")
+
+    with pytest.raises(sqlite3.IntegrityError):
+        graph.invoke(resume_command(_accept_all(review, "approve"), "Av. Eski"), review.config)
+    assert graph.get_state(review.config).next == ("finalize",)
+    record = review.store.get_review(review.review_id)
+    assert record is not None and record.status == "awaiting_lawyer"
+    assert record.decision is None
+    assert review.store.list_audit(review.review_id) == rows_before
+    assert not review.store._conn.in_transaction
+
+    review.store._conn.execute("DROP TRIGGER temp.fail_review_closed")
+    graph.invoke(resume_command(_accept_all(review, "request_changes"), "Av. Yeni"), review.config)
+    assert graph.get_state(review.config).next == ()
+    record = review.store.get_review(review.review_id)
+    assert record is not None and record.status == "changes_requested"
+    assert record.decided_by == "Av. Yeni"
+    assert record.decision is not None and record.decision.contract_decision == "request_changes"
+    # The decision rows are written exactly once, for the new decision.
+    events = _events_of(review)
+    assert events.count("finding_decision") == len(review.rules)
+    assert events.count("proposal_decision") == 0
+    for event in ("contract_decision", *CLOSING_EVENTS):
+        assert events.count(event) == 1, event
+    assert review.actors("contract_decision") == {"lawyer:Av. Yeni"}
+    assert review.rows("contract_decision") == [
+        {"contract_decision": "request_changes", "status": "changes_requested"}
+    ]
+    assert events[-1] == "review_closed"
 
 
 # --- Provider errors ------------------------------------------------------------------------------

@@ -75,6 +75,8 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
 - **Kenar durumlar:** Kuyrukta kararsız bulgu ya da taslak varken son karar kabul edilmez (422) ·
   kapanmış incelemeye karar verilemez (409) · başka şirketin incelemesine karar verilemez (404) ·
   avukat olmayan (`viewer`) karar veremez (403) · son karardan önce rapor istenirse 409 ·
+  karar kaydedilirken beklenmeyen bir hata çıkarsa (500) inceleme "avukat bekleniyor" durumunda
+  kalır, kayda yarım karar girmez ve avukat kararı yeniden gönderebilir ·
   yeniden yüklenen sözleşme yeni bir incelemedir.
 
 ### Senaryo 3: Gizli talimatlı sözleşme
@@ -114,7 +116,9 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   `viewer` 403 alır. Kuyrukta kararsız bulgu ya da taslak varken son karar kabul edilmez.
 - FR-7: Hazırlık adımları, her model ve tool çağrısı, bulgu, doğrulama sonucu, bulgu ve taslak
   kararları, son karar, rapor kaydı ve hata durumu audit log'a yazılır. Kayıt **uygulama üzerinden
-  değiştirilemez**.
+  değiştirilemez**. Avukat kararı, son durum ve kapanış kayıtları tek seferde yazılır: karar
+  kaydedilirken (`finalize`) çıkan hata audit'e iz bırakmaz; atomik yazım yüzünden yarım kayıt
+  yoktur.
 - FR-8: Her şirketin kural seti ve verisi ayrıdır. İsteği yapanın şirketi ve rolü yalnızca API
   anahtarından çözülür; istemcinin gönderdiği hiçbir parametreden okunmaz.
 - FR-9: Sözleşme metni model sağlayıcıya gitmeden önce kimlik bilgileri maskelenir. Tutar, süre ve
@@ -156,7 +160,9 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   403 / 404, Ollama 404) hiçbir kural çalışamaz; inceleme `failed` olur ve API 502 döner. Audit
   log'a yazılamıyorsa ya da model çağrısının dışında beklenmeyen bir kod hatası çıkarsa da inceleme
   `failed` olur (API 500); eksik kayıtla tamamlanmaz, kod hatası avukata kural sonucu gibi gitmez
-  (`agent_design.md` §6).
+  (`agent_design.md` §6). Bu kurallar incelemenin avukata gelene kadarki kısmı (`POST /reviews`)
+  içindir. Avukat kararı kaydedilirken hata çıkarsa inceleme `failed` olmaz: API 500 döner,
+  inceleme `awaiting_lawyer`'da kalır, audit'e satır yazılmaz ve karar yeniden gönderilebilir.
 
 ## 7. İnsan dahil olma (human-in-the-loop)
 - Agent yalnızca **önerir**: bulgu, değişiklik taslağı, "avukata bırak" işareti.
@@ -198,6 +204,12 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   650–1.100 sayfa; 300 sayfalık bir sözleşme geçer). Sunucunun okuduğu bayt miktarı sınırlanmaz.
 - **Sözleşme başına enjeksiyon işareti sayısı:** sınırlanmaz. Her işaret bir audit satırı ve avukatın
   listesinde bir girdidir; üst sınır ya da özet satırı Adım 12'de düşünüldü ve bilerek eklenmedi.
+- **Düzenlenmiş taslaktaki yeni kişi adı:** Avukatın `edited_text`'e yazdığı, eşlemede olmayan yeni bir kişi adı maskelenmez; viewer onu inceleme yanıtında, raporda ve audit'te görebilir.
+- **Karar kilidi tek süreç içindir:** aynı incelemeye aynı anda gelen iki karardan yalnızca birinin
+  işlenmesini süreç içi bir kilit sağlar; uygulama tek süreç çalışır (`python -m src.api`, tek
+  uvicorn worker). Çok süreçli dağıtımda yalnızca veritabanındaki durum şartı kalır.
+- **Düzenlenmiş taslak metninin uzunluğu:** `edited_text` 20.000 karakterle sınırlıdır; aşan karar
+  422 alır.
 
 ## 9. Varsayımlar ve bağımlılıklar
 - İki kurgusal şirket: `acme` ve `globex`; her birinin ~5 kurallık seti var. Her kural `critical` ya

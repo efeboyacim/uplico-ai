@@ -24,7 +24,11 @@
 - API hataları FastAPI `HTTPException` ile döner: tanınmayan anahtar **401**, yetersiz rol **403**,
   başka tenant'ın kaynağı **404** (403 değil), yanlış durum **409**, geçersiz gövde **422**,
   sağlayıcı kimlik ya da yapılandırma hatası **502**, graph'tan fırlayan başka her hata **500**
-  (inceleme `failed`).
+  (`POST /reviews`'te inceleme `failed`; karar ucunda inceleme `awaiting_lawyer`'da kalır, aşağıda
+  "Async / eşzamanlılık").
+- Kayda bakan gövde kontrollerinin 422'si elle `HTTPException(422)` ile değil,
+  `RequestValidationError([{"type", "loc", "msg"}, …])` fırlatılarak üretilir (üç anahtar da
+  zorunlu); böylece şema hatasıyla aynı işleyiciden ve aynı biçimle döner, girdi değeri taşımaz.
 - API hata yanıtına ve loga hata metni konmaz (sözleşme metni ya da PII taşıyabilir); yanıtta sabit
   bir Türkçe mesaj, logda yalnızca hata sınıfının adı olur.
 - Sözdizimi bozuk JSON gövdesi kimlik kontrolünden önce 422 alır (FastAPI gövdeyi bağımlılıklardan
@@ -77,13 +81,20 @@
 ## Avukat aşaması
 - Bulgu ve taslak kararlarını ve son kararı alan tek uç `POST /reviews/{id}/decision`'dır; bulgu
   başına ayrı uç eklenmez.
-- Karar gövdesi `LawyerDecision` pydantic modeliyle doğrulanır: bulgu için `accept | correct`, taslak
-  için `accept | edit | reject`, son karar için `approve | request_changes`. Başka değer 422'dir.
-- Zorunluluk kontrolü (kuyruktaki her bulgu ve taslak için karar) graph devam ettirilmeden önce
-  API'de yapılır.
+- Karar gövdesi iki modelle taşınır: `src/api.py`'deki istek modeli (`DecisionRequest` +
+  `FindingDecisionRequest`) ve maskelemeden sonra kurulan iç model `src/models.py::LawyerDecision`
+  (`edited_text: MaskedText`). Değerler: bulgu için `accept | correct`, taslak için
+  `accept | edit | reject`, son karar için `approve | request_changes`. Başka değer 422'dir.
+  Biçim kuralları (`architecture.md` §3 "Avukat kararı") `src/decision.py`'de tek yerde yazılır;
+  iki model de onları çağırır, kopyası yazılmaz. `edited_text` pydantic `max_length=20000` taşır.
+- Zorunluluk ve kayda bakan diğer kontroller (kuyruktaki her bulgu ve taslak için karar, `rule_id`'nin
+  incelemeye ait olması) graph devam ettirilmeden önce API'de, saf `check_decision` fonksiyonuyla
+  yapılır; `reviews` tablosunu okur, checkpoint'i okumaz. **Maskelemeden önce** çalışır.
 - Avukatın yazdığı `edited_text`, saklanmadan ve `Command(resume=...)`'a verilmeden önce
   hazırlıktaki aynı maskeleme fonksiyonundan, incelemenin mevcut eşlemesiyle geçer. İkinci bir
-  maskeleme yolu yazılmaz.
+  maskeleme yolu yazılmaz. Yeni eşleme girdileri tüm kontroller geçtikten sonra yazılır.
+- Son sonuç ve karar olayları saf fonksiyonlarla (`build_outcome`, `decision_events`) kurulur ve
+  `finalize` onları tek `Store.complete_review` çağrısıyla yazar.
 - Rapor `src/report.py`'de saf fonksiyondur: saklanan son sonuçtan üretilir, DB'ye yazmaz, LLM çağırmaz.
 - Rapor yalnızca JSON'dur.
 
@@ -104,13 +115,24 @@
   Satır başına ayrı commit, işaret sayısıyla doğrusal büyüyen bir süre demektir (4000 işaret ≈ 26 sn);
   sözleşmeyi yazan kişi bu sayıyı belirlediği için bu bir meşgul etme yoludur.
 - Durum değişikliği ile onu anlatan audit satırı ayrı transaction'lara bölünmez: `save_findings`
-  `awaiting_lawyer` durumunu ve `awaiting_lawyer` satırını birlikte yazar.
+  `awaiting_lawyer` durumunu ve `awaiting_lawyer` satırını birlikte yazar; `complete_review` son
+  durumu, son sonucu ve tüm karar / kapanış satırlarını (`finding_decision`, `proposal_decision`,
+  `contract_decision`, `report_created`, `review_closed`) birlikte yazar.
+- **Karar kilidi:** karar ucunun işleyici gövdesi tenant başına bir `threading.Lock` altında çalışır;
+  kilit `Store` ve graph önbelleğiyle aynı `(çözülmüş data_dir, tenant_id)` anahtarıyla tutulur
+  (süreç genelinde tek kilit bir tenant'ın isteğinin diğerini bekletmesine yol açardı). Kilit
+  altında kayıt yeniden okunur ve durum yeniden denetlenir; kayda bakan kontroller ve ancak onlardan
+  sonra maskeleme bu kilidin içindedir. Kilit tek süreç içindir; uygulama tek süreç (tek uvicorn
+  worker) çalışır.
 - Testler paylaşılan bağlantıları `close_all()` ile, derlenmiş graph'ları ve checkpoint
   bağlantılarını `close_graphs()` ile kapatır (`tests/conftest.py`, her testten sonra, autouse
   fixture); Windows'ta açık bağlantı `tmp_path` dosyalarını kilitler. Uygulama kodu ikisini de
   çağırmaz.
-- Hata fırlatan bir graph thread'i (`failed` inceleme) bir daha çağrılmaz: checkpoint'i biten
-  dalların bulgularını ve bekleyen dalı tutar, ama `failed` inceleme sondur (`agent_design.md` §1).
+- `interrupt`'tan önce hata fırlatan bir graph thread'i (`POST /reviews`, `failed` inceleme) bir
+  daha çağrılmaz: checkpoint'i biten dalların bulgularını ve bekleyen dalı tutar, ama `failed`
+  inceleme sondur (`agent_design.md` §1). Resume'da (`finalize`) hata fırlatan thread ise
+  `awaiting_lawyer` incelemenindir ve karar ucundan yeniden devam ettirilir; `mark_failed`
+  çağrılmaz, `review_failed` yazılmaz (`agent_design.md` §6).
 - `app.db`'de WAL açılmaz (`./data` host'tan bağlanır). `checkpoints.db`'yi `SqliteSaver` kendisi
   WAL'a alır; `-wal` / `-shm` dosyaları da `.gitignore`'dadır.
 
@@ -143,6 +165,9 @@
   açıkça eklenir. `viewer` için `get_pii_map` çağrılmaz.
 - İstek modelleri bilinmeyen alanı yok sayar (`extra="ignore"`); `_Model`'den (`extra="forbid"`)
   türetilmez. Gövdedeki `tenant` / `role` gibi alanlar 422 üretmez, hiçbir şeyi de değiştirmez.
+  **Tek istisna:** karar gövdesinin liste öğesi `FindingDecisionRequest` `extra="forbid"`'dir;
+  öğede yanlış yazılmış bir alan yok sayılsaydı avukatın kararı sessizce kaybolurdu. Üst düzey
+  `DecisionRequest` yine `extra="ignore"`'dur. 422 yalnızca alanın adını (`loc`) taşır, değerini değil.
 - `GROQ_API_KEY` loglanmaz, hata mesajına ve audit log'a yazılmaz.
 - Tüm DB erişimi `Store(data_dir, tenant_id)` üzerinden yapılır.
 - `tenant_id` ve rol yalnızca API anahtarından çözülür (`get_principal` bağımlılığı). Hiçbir endpoint

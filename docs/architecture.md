@@ -44,10 +44,11 @@ flowchart LR
 | Kural agent'ı | `create_agent`, system prompt, audit middleware'leri, adım limiti | `src/agent.py` |
 | Tool'lar | 5 tool; onay tool'u yok | `src/tools.py` |
 | Doğrulama | Alıntı, sayı/birim, taslak kontrolü, avukat kuyruğu sinyalleri (saf fonksiyon) | `src/verify.py` |
+| Karar | Avukat kararının saf fonksiyonları (I/O ve log yok): kayda bakan gövde kontrolleri (`check_decision`), son sonucun hesabı (`build_outcome`), karar ve kapanış audit olaylarının listesi (`decision_events`); biçim kuralları da burada tek yerde yazılır ve iki karar modeli onları çağırır | `src/decision.py` |
 | Config | Env okuma; başlangıçta sağlayıcı ve anahtar kontrolü (eksikse açık hatayla durur) | `src/config.py` |
 | LLM | Sohbet modeli (Groq ya da Ollama) kurulumu; yeniden deneme ayarı | `src/llm.py` |
-| Store | Tenant'a bağlı SQLite, üç tablo: `reviews` (asıl sözleşme metni, maskeli maddeler, işaretler, durum, doğrulanmış bulgular ve taslaklar, kararlar), `audit_log` (tetikleyiciyle yalnızca ekleme), `pii_map`. Maddeler, işaretler, bulgular ve karar `reviews` satırında JSON sütunlarıdır. Durum değiştiren yazımlar (`save_findings`, `complete_review`, `mark_failed`) beklenen durumu `WHERE status = ?` ile şart koşar ve geçişin olup olmadığını döner; aynı anda gelen iki karardan yalnızca biri yazılır. `save_findings` durumu `awaiting_lawyer` yaparken `awaiting_lawyer` audit satırını **aynı transaction'da** yazar (ya ikisi ya hiçbiri; ayrı yazılsaydı ikinci yazımın hatası audit satırı olmayan ve artık `failed` yapılamayan bir `awaiting_lawyer` incelemesi bırakırdı) | `src/store.py` |
-| Modeller | pydantic şemaları: `RawClause`, `Clause`, `Rule`, `Finding`, `Proposal`, `InjectionFlag`, `LawyerDecision`, `Report`. Ham ve maskeli madde tip düzeyinde ayrıdır: `RawClause` (`text: str`, asıl metnin `start`–`end` aralığı, birebir) yalnızca bölme ve enjeksiyon taramasında kullanılır; `Clause` (`text: MaskedText`) yalnızca maskelemeden sonra kurulur ve indeks, `save_prepared`, graph ve tool'lar yalnızca onu alır. `Clause`'ta `start` / `end` asıl metne göredir, `text` maskelidir ve uzunluğu `end - start`'a eşit olmayabilir. `MaskedText` bir `NewType`'tır; yalnızca `mypy`'de zorlanır, çalışma anında düz `str`'dir (sınır). `Finding` tektir: agent'ın ham önerisi ve doğrulanmış hali aynı modeldir (`needs_review`, `review_reasons` ve taslağın `code_check`'i doğrulamada dolar); `compliant` / `non_compliant` için `clause_id` ve `quote` zorunluluğu modelin kendisindedir. `interrupted_by` (`step_limit` / `rate_limited` / `llm_error`) bulgu bildirildikten sonra yarıda kesilen koşuyu işaretler; `no_finding_reason` ile birlikte dolu olamaz. Bilinmeyen alan reddedilir | `src/models.py` |
+| Store | Tenant'a bağlı SQLite, üç tablo: `reviews` (asıl sözleşme metni, maskeli maddeler, işaretler, durum, doğrulanmış bulgular ve taslaklar, kararlar), `audit_log` (tetikleyiciyle yalnızca ekleme), `pii_map`. Maddeler, işaretler, bulgular ve karar `reviews` satırında JSON sütunlarıdır. Durum değiştiren yazımlar (`save_findings`, `complete_review`, `mark_failed`) beklenen durumu `WHERE status = ?` ile şart koşar ve geçişin olup olmadığını döner; aynı anda gelen iki karardan yalnızca biri yazılır. `save_findings` durumu `awaiting_lawyer` yaparken `awaiting_lawyer` audit satırını **aynı transaction'da** yazar (ya ikisi ya hiçbiri; ayrı yazılsaydı ikinci yazımın hatası audit satırı olmayan ve artık `failed` yapılamayan bir `awaiting_lawyer` incelemesi bırakırdı). `complete_review(review_id, status, decision: ReviewOutcome, decided_by, events)` de öyledir: tek `BEGIN IMMEDIATE` içinde `UPDATE … WHERE review_id = ? AND status = 'awaiting_lawyer'` çalışır; satır güncellendiyse verilen tüm olay satırları (karar olayları, `report_created`, `review_closed`) aynı transaction'da eklenir, güncellenmediyse hiçbir şey yazılmaz ve `False` döner. Bulguları (`findings`) yeniden yazmaz; `decided_by` sütununa yalnızca ad yazılır | `src/store.py` |
+| Modeller | pydantic şemaları: `RawClause`, `Clause`, `Rule`, `Finding`, `Proposal`, `InjectionFlag`, `FindingDecision` / `LawyerDecision` (avukat kararının iç modeli; `edited_text: MaskedText`, yalnızca maskelemeden sonra kurulur; resume yükü ve `finalize` onu kullanır), `FindingOutcome` / `ReviewOutcome` (saklanan son sonuç; `ReviewRecord.decision` bu tiptedir), `Report`. Karar ucunun istek modelleri (`DecisionRequest`, `FindingDecisionRequest`) burada değil `src/api.py`'dedir (§3 "Avukat kararı"). Ham ve maskeli madde tip düzeyinde ayrıdır: `RawClause` (`text: str`, asıl metnin `start`–`end` aralığı, birebir) yalnızca bölme ve enjeksiyon taramasında kullanılır; `Clause` (`text: MaskedText`) yalnızca maskelemeden sonra kurulur ve indeks, `save_prepared`, graph ve tool'lar yalnızca onu alır. `Clause`'ta `start` / `end` asıl metne göredir, `text` maskelidir ve uzunluğu `end - start`'a eşit olmayabilir. `MaskedText` bir `NewType`'tır; yalnızca `mypy`'de zorlanır, çalışma anında düz `str`'dir (sınır). `Finding` tektir: agent'ın ham önerisi ve doğrulanmış hali aynı modeldir (`needs_review`, `review_reasons` ve taslağın `code_check`'i doğrulamada dolar); `compliant` / `non_compliant` için `clause_id` ve `quote` zorunluluğu modelin kendisindedir. `interrupted_by` (`step_limit` / `rate_limited` / `llm_error`) bulgu bildirildikten sonra yarıda kesilen koşuyu işaretler; `no_finding_reason` ile birlikte dolu olamaz. Bilinmeyen alan reddedilir | `src/models.py` |
 | Arayüz | Bulguları ve enjeksiyon işaretlerini sözleşme metni üzerinde gösteren tek sayfa (karar API ucundan verilir) | `src/static/index.html` |
 
 ## 3. Veri akışı (ana senaryo)
@@ -90,12 +91,31 @@ flowchart LR
    `reviews` tablosunu okur; checkpoint'i okumaz.
 7. `POST /reviews/{id}/decision` gelir. API rolü ve kararı **graph'ı devam ettirmeden önce** kontrol
    eder, avukatın yazdığı düzenlenmiş metni maskeler (aşağıda) ve kararı verenin adını anahtardan
-   alıp yüke ekler. Hepsi geçerse graph `Command(resume=maskeli karar)` ile devam eder.
-8. **finalize:** Kararlar ve son durum (`approved` / `changes_requested`) audit log'a yazılır ve
-   `reviews` kaydı son sonuçla tamamlanır. Kayıt raporun ihtiyaç duyduğu her şeyi içerir: her kural
-   için `severity`, modelin sonucu, son sonuç, madde, alıntı, `needs_review` ve sebepleri, taslak ve
-   `code_check`, avukat kararları; ayrıca sağlayıcı, model, karar zamanı ve kararı verenin adı.
-   Rapor yalnızca bu kayıttan üretilir (`rules.yaml` sonradan değişse de rapor değişmez).
+   alıp yüke ekler. İşleyicinin gövdesi tenant'ın **karar kilidi** altında çalışır (kilit
+   `(çözülmüş data_dir, tenant_id)` ile anahtarlanır; bir tenant'ın kararı ötekini bekletmez), bu
+   sırayla: kaydı yeniden oku → `awaiting_lawyer` değilse 409 → kayda bakan gövde kontrolleri (422)
+   → ancak ondan sonra eşlemeyi oku, `edited_text`'i maskele, iç `LawyerDecision`'ı kur → yeni
+   eşleme girdilerini yaz → checkpoint'in `next`'i `("human_review",)` ya da `("finalize",)` değilse
+   dur (500, tutarsız durum) → graph `Command(resume=yük, update={"decision": yük})` ile devam eder
+   (gerekçe: `agent_design.md` §1) → kaydı oku ve yanıtla. Başarılı yanıt **200** ve
+   `GET /reviews/{id}` ile aynı gövdedir (aynı fonksiyondan; çağıran `lawyer` olduğu için maskesiz).
+8. **finalize:** Bulguların son sonucunu hesaplar (`build_outcome`) ve `Store.complete_review` ile
+   **tek transaction'da** durumu (`approved` / `changes_requested`), son sonucu, karar zamanını ve
+   kararı verenin adını `reviews` kaydına, karar olaylarını, `report_created` ve `review_closed`'ı
+   audit log'a yazar (yükler: `agent_design.md` §7). Kayıt raporun ihtiyaç duyduğu her şeyi içerir:
+   `findings` sütunu modelin sonucunu, madde, alıntı, `needs_review` ve sebepleri, taslak ve
+   `code_check`'i olduğu gibi tutar (`Finding` değişmez; avukat madde ya da alıntı veremez,
+   `not_found → non_compliant` düzeltmesinde ikisi boş kalır); `decision` sütunu `ReviewOutcome`'u
+   tutar: `contract_decision` ve kural sırasında, kural başına bir `FindingOutcome` (`rule_id`,
+   state'teki kural kopyasından `severity`, `final_status`, `action`, `proposal_action`,
+   maskeli `edited_text`; avukatın dokunmadığı bulgu için de yazılır, `action: null`). Sağlayıcı ve
+   model kaydın kendi sütunlarındadır. `approved_with_noncompliant` ve talep edilen değişiklik
+   listesi saklanmaz; rapor fonksiyonu onları saklanan sonuçtan türetir. Rapor yalnızca bu kayıttan
+   üretilir (`rules.yaml` sonradan değişse de rapor değişmez).
+   **`finalize` hata verirse** (ya da resume başka bir sebeple fırlarsa) API 500 döner; transaction
+   atomik olduğu için yarım kayıt yoktur: inceleme `awaiting_lawyer`'da kalır, audit'e satır
+   eklenmez, `review_failed` yazılmaz ve avukat aynı ya da farklı kararı yeniden gönderebilir
+   (`agent_design.md` §6).
 
 İnceleme durumları: `running → awaiting_lawyer → approved | changes_requested` (hata: `failed`).
 
@@ -103,7 +123,7 @@ flowchart LR
 | Uç | İş | Gerekli rol |
 |---|---|---|
 | `POST /reviews` | Sözleşme metnini alır (`{"text": "…"}`), hazırlar, graph'ı `interrupt`'a kadar çalıştırır, bulguları döner | `lawyer` |
-| `POST /reviews/{id}/decision` | Bulgu kararları + taslak kararları + son karar (onay / değişiklik talebi), tek istekte | `lawyer` |
+| `POST /reviews/{id}/decision` | Bulgu kararları + taslak kararları + son karar (onay / değişiklik talebi), tek istekte; başarıda `GET /reviews/{id}` ile aynı gövde | `lawyer` |
 | `GET /reviews/{id}` | Durum, maddeler, enjeksiyon işaretleri, bulgular, taslaklar; `lawyer` için ayrıca asıl sözleşme metni | `lawyer` ya da `viewer` |
 | `GET /reviews/{id}/report` | Son karardan sonra rapor (yalnızca JSON) | `lawyer` ya da `viewer` |
 | `GET /reviews/{id}/audit` | İncelemenin audit kayıtları | `lawyer` ya da `viewer` |
@@ -116,7 +136,7 @@ kurulur. Kural uç adına değil yönteme bağlıdır: **`GET` dışındaki her 
 ### Role göre gösterim
 | Veri | `lawyer` | `viewer` |
 |---|---|---|
-| Maddeler, alıntılar, taslaklar, rapor | **Maskesiz** (yer tutucular gerçek değerle değiştirilir) | **Maskeli** (yer tutucular olduğu gibi) |
+| Maddeler, alıntılar, taslaklar, avukatın düzenlediği taslak metni (`edited_text`), rapor | **Maskesiz** (yer tutucular gerçek değerle değiştirilir) | **Maskeli** (yer tutucular olduğu gibi) |
 | Enjeksiyon işaretleri | Madde, tür, eşleşen ifade (maskesiz), asıl metindeki konum, gizli karakterlerin türü ve konumu | Madde, tür ve eşleşen ifade (maskeli); konum ve gizli karakter ayrıntısı yok |
 | Maddelerin asıl metindeki ofseti (`start` / `end`) | Var | **Yok** |
 | Asıl sözleşme metni (`original_text`) | Var; işaret konumları bu metne göre karakter ofsetidir | **Yok** |
@@ -132,6 +152,11 @@ kurulur. Kural uç adına değil yönteme bağlıdır: **`GET` dışındaki her 
   alanları. Kayda sonradan eklenen bir alan listeye yazılmadıkça hiçbir role gitmez; unutulan alan
   görünmez olur, sızmaz. Maske açma kurulmuş `lawyer` yanıtındaki tüm metin alanlarında çalışır;
   `viewer` için `pii_map` hiç okunmaz.
+- **Karar alanları** iki role de aynı listeyle gider: bulguda `final_status`, `action`,
+  `proposal_action`, `edited_text`; incelemede `contract_decision`, `decided_at`, `decided_by`.
+  Karardan önce hepsi `null`'dır. `edited_text` maske açma fonksiyonunun alan listesindedir
+  (`lawyer` maskesiz, `viewer` maskeli). `provider` / `model` inceleme yanıtına girmez (rapor
+  başlığında yer alır).
 - `viewer` için "konum yok" kuralı inceleme ve rapor yanıtlarına uygulanır; audit kayıtları iki rol
   için de saklandığı gibi döner. **İşaret konumları `viewer`'dan gizlenmiş sayılmaz:**
   `injection_flagged` audit satırı işaretin `start` / `end` / `detail` alanlarını taşır ve `viewer`
@@ -147,6 +172,8 @@ kurulur. Kural uç adına değil yönteme bağlıdır: **`GET` dışındaki her 
   `tenant_id`, `role` (`lawyer` / `viewer`) ve `name` verir.
 - **Tenant ve rol yalnızca buradan gelir.** İstek gövdesindeki, sorgu dizgisindeki ya da yoldaki
   `tenant`, `role`, `reviewer` gibi alanlar okunmaz; gönderilirse yok sayılır. İstemci bunları değiştiremez.
+  (Tek ayrım: karar gövdesindeki `findings` öğesinin bilinmeyen alanı 422'dir; aşağıda "Avukat
+  kararı". Gövdenin üst düzeyindeki bilinmeyen alan yine yok sayılır.)
 - Anahtarlar sunucu tarafında env'de durur; yanıtlarda ve loglarda yer almaz.
 - Kontrol sırası (ilk tutmayan döner; graph ancak hepsi geçerse devam eder):
 
@@ -159,7 +186,11 @@ kurulur. Kural uç adına değil yönteme bağlıdır: **`GET` dışındaki her 
 | 5 | Gövde geçerli (karar ucu, aşağıda) | **422** |
 
 Rol kontrolü kaynağa bakmadan önce yapılır; `viewer` başka tenant'ın incelemesi için de 403 alır,
-yani incelemenin var olup olmadığını öğrenemez.
+yani incelemenin var olup olmadığını öğrenemez. İlk dört kontrol bağımlılıklardadır (incelemeyi
+yükleyen bağımlılık 404, durumu denetleyen 409 verir; `review_id` yolda düz `str`'dir, UUID tipi
+verilmez, yoksa 404 yerine 422 çıkardı); bağımlılıktaki `HTTPException` şema hatasından önce döner,
+bu yüzden şemaya uymayan gövde de sırayla 401 / 403 / 404 / 409 alır. Karar ucunda 409'un asıl
+koruması karar kilidi altındaki yeniden okumadır; bağımlılıktaki kontrol sırayı sağlar.
 
 **Sıranın tek istisnası — sözdizimi bozuk JSON:** FastAPI gövdeyi bağımlılıklardan önce ayrıştırır;
 gövdesi JSON olarak ayrıştırılamayan bir istek anahtar ve rol kontrolüne gelmeden **422** alır
@@ -184,7 +215,7 @@ Sınırın dürüst kapsamı: işlenen ve saklanan metni sınırlar, sunucunun o
 FastAPI tüm JSON gövdesini kontrolden önce ayrıştırır; bayt düzeyinde bir sınır ya da bunu yapacak
 bir middleware yoktur.
 
-### Avukat kararı (`LawyerDecision`)
+### Avukat kararı (`DecisionRequest` → `LawyerDecision`)
 ```json
 {
   "findings": [
@@ -199,6 +230,16 @@ bir middleware yoktur.
   "contract_decision": "approve | request_changes"
 }
 ```
+**İki model.** Gövde önce `src/api.py`'deki istek modeliyle doğrulanır: `DecisionRequest` üst
+düzeyde bilinmeyen alanı yok sayar (`extra="ignore"`; gövdedeki `role`, `reviewer`, `tenant` hiçbir
+şeyi değiştirmez), liste öğesi `FindingDecisionRequest` ise bilinmeyen alanı **reddeder**
+(`extra="forbid"`, 422). Sebep: öğede yanlış yazılmış bir alan (ör. `proposal_actoin`) yok
+sayılsaydı, kuyruk dışındaki bir bulguda avukatın taslak kararı sessizce kaybolur ve kayda girmezdi.
+Maskelemeden sonra `src/models.py`'deki iç model `LawyerDecision` / `FindingDecision` kurulur
+(`extra="forbid"`, `edited_text: MaskedText | None`); resume yükü ve `finalize` yalnızca onu
+kullanır. İç modelin kurulamaması kod hatasıdır (500), gövde hatası değil. `findings` verilmezse
+boş listedir.
+
 **Kim neye karar verir.** Avukat her bulguya değil, yalnızca **avukat kuyruğundaki**
 (`needs_review=true`) bulgulara karar vermek zorundadır (CASE.md'deki gibi). İsterse kuyruk
 dışındaki bir bulguyu da düzeltebilir.
@@ -208,19 +249,41 @@ dışındaki bir bulguyu da düzeltebilir.
 | `action` | Bulgu kararı: `accept` (olduğu gibi) ya da `correct` (sonucu değiştir). `reject` yoktur. | Kuyruktaki her bulgu için. Kuyruk dışındakiler için isteğe bağlı. |
 | `status` | Düzeltilmiş sonuç: `compliant` / `non_compliant` / `not_found` | `action = correct` ise |
 | `proposal_action` | Taslak kararı: `accept` / `edit` / `reject` | Taslağı olan **kuyruktaki** her bulgu için. Taslağı olan kuyruk dışı bulgularda isteğe bağlı. |
-| `edited_text` | Avukatın düzenlediği taslak metni | `proposal_action = edit` ise |
+| `edited_text` | Avukatın düzenlediği taslak metni; en fazla **20.000 karakter** | `proposal_action = edit` ise; başka durumda verilemez |
 | `contract_decision` | Son karar: `approve` (onay) ya da `request_changes` (değişiklik talebi) | Her zaman |
 
-Gövde doğrulaması (kontrol 5) — biri tutmazsa **422**, graph devam etmez:
+Gövde doğrulaması (kontrol 5) — biri tutmazsa **422**, graph devam etmez, durum, audit ve
+`pii_map` değişmez. İki aşamadır:
+
+*Biçim kuralları* (kayda bakmadan; istek modelinin şema doğrulamasında, kurallar `src/decision.py`'de
+tek yerde yazılır ve iki model de onları çağırır):
+- `action` yalnızca `accept` / `correct`; `correct` ise geçerli bir `status` var. `status` yalnızca
+  `correct` ile verilir. `correct` ile modelin verdiği `status`'ün aynısı da geçerlidir.
+- `proposal_action` yalnızca `accept` / `edit` / `reject`; `edit` ise boş olmayan `edited_text` var.
+  "Boş" görünmez karakterleri çıkarılmış metne bakar (`strip_invisible(edited_text).strip()`):
+  yalnızca boşluktan ya da `U+200B` gibi görünmez karakterlerden oluşan metin 422'dir (yoksa
+  maskeleme metni boşaltır ve boş bir `edit` kaydedilirdi). `edited_text` yalnızca `edit` ile
+  verilir; `accept` / `reject` ile gönderilen `edited_text` 422'dir, sessizce atılmaz.
+- `edited_text` en fazla 20.000 karakterdir.
+- Her girdide `action` ya da `proposal_action`'dan en az biri var. `rule_id`'ler tekrarsız.
+- Öğede bilinmeyen alan yok.
+- `contract_decision` yalnızca `approve` / `request_changes`.
+
+*Kayda bakan kontroller* (`src/decision.py::check_decision`; kilit altında, durum kontrolünden
+sonra ve **maskelemeden önce**, istek modeli üzerinde çalışır; yalnızca `rule_id`, `action` ve
+`proposal_action`'a bakar):
+- `rule_id`'ler bu incelemeye ait.
 - Kuyruktaki her bulgu için `action` var.
 - Taslağı olan kuyruktaki her bulgu için `proposal_action` var.
-- `rule_id`'ler bu incelemeye ait ve tekrarsız.
-- `action` yalnızca `accept` / `correct`; `correct` ise geçerli bir `status` var. `status` yalnızca
-  `correct` ile verilir.
-- `proposal_action` yalnızca taslağı olan bulguda verilir; `edit` ise boş olmayan `edited_text` var.
-- Her girdide `action` ya da `proposal_action`'dan en az biri var. Kuyruk dışındaki bir bulgu
-  yalnızca `proposal_action` ile gönderilebilir; `action` yoksa bulgu olduğu gibi kalır.
-- `contract_decision` yalnızca `approve` / `request_changes`.
+- `proposal_action` yalnızca taslağı olan bulguda verilir.
+- Kuyruk dışındaki bir bulgu yalnızca `proposal_action` ile gönderilebilir; `action` yoksa bulgu
+  olduğu gibi kalır.
+
+Böylece maskeleme yalnızca incelemenin gerçek, tekrarsız bulguları için çalışır; uydurma
+`rule_id`'lerle dolu büyük bir gövde kilidi meşgul edemez ve `pii_map`'e yazamaz. Kayda bakan
+kontrollerin 422'si `RequestValidationError([{"type", "loc", "msg"}, …])` ile üretilir ve şema
+hatasıyla aynı işleyiciden geçer: her iki 422 de yalnızca `type`, `loc`, `msg` taşır; hiçbir girdi
+değeri (`edited_text` dahil) geri dönmez. Doğrulayıcı mesajları sabit metindir, girdiyi içermez.
 
 Son sonuç (raporda ve `reviews` kaydında):
 - Bulgunun son sonucu: `action = correct` ise avukatın `status`'ü; değilse (`accept` ya da karar
@@ -235,12 +298,27 @@ Kurallar:
   (`approved_with_noncompliant`, bulguların **son** sonucundan hesaplanır).
 - **Düzenlenmiş metin maskelenir.** `edited_text`, saklanmadan ve graph'a verilmeden önce
   hazırlıktaki aynı maskeleyiciden, incelemenin mevcut eşlemesiyle geçer: bilinen değer aynı yer
-  tutucuyu alır, yeni bir kimlik bilgisi eşlemeye eklenir. State, checkpoint, audit log ve trace
-  yalnızca maskeli metni görür. Sınır: eşlemede olmayan yeni bir kişi adı yakalanmaz (serbest metin
-  adlarıyla aynı sınır); TCKN, IBAN, telefon ve e-posta yakalanır.
+  tutucuyu alır, yeni bir kimlik bilgisi eşlemeye eklenir. Çağrı zinciri `prepare_contract`'ın madde
+  metnine uyguladığının aynısıdır (`mask(strip_invisible(metin), eşleme)`); birden çok `edited_text`
+  varsa eşleme çağrıdan çağrıya taşınır. Yeni girdiler tüm doğrulamalar geçtikten sonra ve
+  resume'dan önce `add_pii_entries` ile yazılır; 422 ya da 409 ile reddedilen istek `pii_map`'e
+  yazmaz. Tek istisna `finalize` içinde `complete_review`'ün `False` dönmesinden gelen 409'dur:
+  girdiler resume'dan önce yazıldığı için kalır (aşağıda "Eşzamanlılık"). Resume sonra hata verirse yazılan girdiler kalır (yalnızca ekleme; aynı değer yeniden
+  gelince aynı yer tutucuyu alır). State, checkpoint, audit log ve trace yalnızca maskeli metni
+  görür. Sınır: eşlemede olmayan yeni bir kişi adı yakalanmaz (serbest metin adlarıyla aynı sınır);
+  `viewer` onu inceleme yanıtında, raporda ve audit'te görebilir (`spec.md` §8 "Bilinen sınırlar").
+  TCKN, IBAN, telefon ve e-posta yakalanır.
 - Düzenlenmiş metin kod kontrolünden geçmez; avukatın kararıdır.
 - Avukat taslağı olmayan bir bulguya yeni taslak ekleyemez (kapsam dışı).
-- Kararı kimin verdiği gövdeden değil anahtardan gelir: audit log'a `lawyer:<name>` yazılır.
+- Kararı kimin verdiği gövdeden değil anahtardan gelir: audit log'a aktör olarak `lawyer:<name>`,
+  `reviews.decided_by` sütununa yalnızca `<name>` yazılır.
+- **Eşzamanlılık:** aynı incelemeye aynı anda gelen iki karardan biri 200, öteki 409 alır; karar
+  olayları tam bir kez yazılır. Karar kilidi süreç içindir; uygulama tek süreç çalışır
+  (`python -m src.api`, tek uvicorn worker). Çok süreçli dağıtımda son savunma `complete_review`'ün
+  `WHERE status = 'awaiting_lawyer'` şartıdır: `False` dönerse `finalize` hata fırlatır ve API 409
+  döner; karar ve audit yazılmaz, ama resume'dan önce eklenen `pii_map` girdileri kalır ve thread
+  `finalize`'da kalır (`next == ("finalize",)`; 500 durumundaki gibi) (`spec.md` §8 "Bilinen
+  sınırlar").
 
 ### Rapor (`GET /reviews/{id}/report`)
 - Yalnızca JSON. İstek anında, `reviews` tablosundaki son sonuçtan `src/report.py` ile üretilir;
@@ -263,7 +341,8 @@ Yeniden yüklenen sözleşme yeni bir incelemedir; önceki incelemeyle bağlanma
 ## 4. Klasör yapısı
 ```
 src/
-  api.py  config.py  llm.py  graph.py  agent.py  tools.py  verify.py  report.py  store.py  models.py
+  api.py  config.py  llm.py  graph.py  agent.py  tools.py  verify.py  decision.py  report.py
+  store.py  models.py
   text.py         # normalleştirme + asıl metindeki konuma eşleme (tek yardımcı)
   prepare/        clauses.py  injection.py  pii.py  index.py   # index.py: BM25
   prompts/        rule_agent.md

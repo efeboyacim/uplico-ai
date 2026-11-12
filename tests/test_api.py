@@ -1,8 +1,9 @@
 import json
 import logging
 import sqlite3
+import threading
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -12,14 +13,14 @@ from conftest import ScriptedChatModel, ScriptItem, ai, call, done
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
-from test_graph import _config_errors, _fail_audit_event, _groq_error
+from test_graph import WAIT_S, _config_errors, _fail_audit_event, _groq_error
 from test_prepare import ALL_RAW, FIXTURE, SUSPICIOUS_SENTENCE_START
 
 import src.api as api_module
 import src.prepare as prepare_module
 from src.api import create_app
 from src.config import ConfigError, Settings, load_settings
-from src.graph import get_review_graph
+from src.graph import CHECKPOINTS_NAME, close_graphs, get_review_graph, review_config
 from src.models import Clause, Finding, InjectionFlag, ReviewRecord
 from src.prepare.index import MAX_RESULTS, ClauseIndex, SearchHit, get_index
 from src.prepare.pii import PLACEHOLDER
@@ -37,7 +38,17 @@ ACME_VIEWER = {"X-API-Key": "k-acme-viewer"}
 GLOBEX_LAWYER = {"X-API-Key": "k-globex-lawyer"}
 GLOBEX_VIEWER = {"X-API-Key": "k-globex-viewer"}
 
-REVIEW_KEYS = {"review_id", "status", "created_at", "clauses", "injection_flags", "findings"}
+REVIEW_KEYS = {
+    "review_id",
+    "status",
+    "created_at",
+    "clauses",
+    "injection_flags",
+    "findings",
+    "contract_decision",
+    "decided_at",
+    "decided_by",
+}
 CLAUSE_KEYS = {"clause_id", "clause_no", "text"}
 FLAG_KEYS = {"clause_id", "kind", "phrase"}
 FINDING_KEYS = {
@@ -54,7 +65,13 @@ FINDING_KEYS = {
     "interrupted_by",
     "needs_review",
     "review_reasons",
+    "final_status",
+    "action",
+    "proposal_action",
+    "edited_text",
 }
+DECISION_REVIEW_KEYS = ("contract_decision", "decided_at", "decided_by")
+DECISION_FINDING_KEYS = ("final_status", "action", "proposal_action", "edited_text")
 PROPOSAL_KEYS = {"clause_id", "proposed_text", "rationale", "code_check"}
 LAWYER_REVIEW_KEYS = REVIEW_KEYS | {"original_text"}
 LAWYER_CLAUSE_KEYS = CLAUSE_KEYS | {"start", "end"}
@@ -254,6 +271,7 @@ def test_routes_walk_covers_the_known_endpoints(app: FastAPI) -> None:
     assert ("POST", "/reviews") in routes
     assert ("GET", "/reviews/{review_id}") in routes
     assert ("GET", "/reviews/{review_id}/audit") in routes
+    assert ("POST", "/reviews/{review_id}/decision") in routes
 
 
 def test_all_write_endpoints_viewer_key_forbidden(
@@ -788,6 +806,9 @@ def test_response_fixed_field_lists_per_role(client: TestClient, settings: Setti
     viewer = client.get(f"/reviews/{review_id}", headers=ACME_VIEWER).json()
     assert set(viewer) == REVIEW_KEYS
     assert viewer["clauses"] and viewer["injection_flags"] and viewer["findings"]
+    # Before the decision every decision field is null, for both roles.
+    assert all(viewer[k] is None for k in DECISION_REVIEW_KEYS)
+    assert all(f[k] is None for f in viewer["findings"] for k in DECISION_FINDING_KEYS)
     assert all(set(c) == CLAUSE_KEYS for c in viewer["clauses"])
     assert all(set(f) == FLAG_KEYS for f in viewer["injection_flags"])
     assert all(set(f) == FINDING_KEYS for f in viewer["findings"])
@@ -796,6 +817,8 @@ def test_response_fixed_field_lists_per_role(client: TestClient, settings: Setti
 
     lawyer = client.get(f"/reviews/{review_id}", headers=ACME_LAWYER).json()
     assert set(lawyer) == LAWYER_REVIEW_KEYS
+    assert all(lawyer[k] is None for k in DECISION_REVIEW_KEYS)
+    assert all(f[k] is None for f in lawyer["findings"] for k in DECISION_FINDING_KEYS)
     assert all(set(c) == LAWYER_CLAUSE_KEYS for c in lawyer["clauses"])
     assert all(set(f) == LAWYER_FLAG_KEYS for f in lawyer["injection_flags"])
     assert all(set(f) == FINDING_KEYS for f in lawyer["findings"])
@@ -887,3 +910,893 @@ def test_suspicious_phrase_kept_lawyer_sees_flag_phrase_and_positions(
     flagged = next(c for c in body["clauses"] if c["clause_id"] == pattern[0]["clause_id"])
     assert SUSPICIOUS_SENTENCE_START in flagged["text"]
     assert text[flagged["start"] : flagged["end"]].startswith("## Madde 13")
+
+
+# --- Lawyer decision ------------------------------------------------------------------------------
+#
+# The sample contract flags every finding with injection_suspected, so nothing would pass without
+# the lawyer. These tests use a short, unflagged contract instead (c1 parties, c2 termination, c3
+# governing law) where the scripts below decide which findings are queued:
+#   termination_notice: non_compliant (15 days) with a passing draft  -> outside the queue, draft
+#   governing_law:      compliant                                     -> outside the queue
+#   the other three:    not_found                                     -> queued (unverified)
+
+KNOWN_NAME = "Mehmet Demir"
+NEW_TCKN = "10000000146"
+CLEAN_TEXT = (
+    "# TEDARİK SÖZLEŞMESİ\n\n"
+    f"Bu sözleşme Alıcı A.Ş. adına temsilen Genel Müdür {KNOWN_NAME} ile Tedarikçi Ltd. Şti. "
+    "arasında imzalanmıştır.\n\n"
+    "## Madde 1 - Fesih\n\n"
+    "Taraflar sözleşmeyi 15 gün önceden yazılı bildirimle feshedebilir.\n\n"
+    "## Madde 2 - Uygulanacak Hukuk\n\n"
+    "Bu sözleşmeye Türk hukuku uygulanır ve İstanbul mahkemeleri yetkilidir.\n"
+)
+DECISION_EVENTS = ("finding_decision", "proposal_decision", "contract_decision")
+MSG_DECISION_FAILED = "Karar kaydedilemedi: beklenmeyen bir hata oluştu."
+
+
+def _termination_draft(proposed_days: int = 30) -> list[ScriptItem]:
+    # 30 days passes the rule's check (outside the queue); 20 fails it (proposal_noncompliant).
+    return [
+        ai(call("search_contract", query="fesih bildirim")),
+        ai(
+            call(
+                "submit_finding",
+                status="non_compliant",
+                clause_id="c2",
+                quote="15 gün önceden",
+                value=15,
+                unit="gün",
+                reasoning="Süre kısa.",
+            )
+        ),
+        ai(
+            call(
+                "propose_change",
+                clause_id="c2",
+                proposed_text=f"Taraflar sözleşmeyi {proposed_days} gün önceden yazılı "
+                "bildirimle feshedebilir.",
+                rationale="Kurala uyum.",
+            )
+        ),
+        done(),
+    ]
+
+
+def _governing_law_compliant() -> list[ScriptItem]:
+    return [
+        ai(
+            call(
+                "submit_finding",
+                status="compliant",
+                clause_id="c3",
+                quote="Türk hukuku uygulanır ve İstanbul mahkemeleri yetkilidir",
+                reasoning="Uygun.",
+            )
+        ),
+        done(),
+    ]
+
+
+def _clean_scripts(proposed_days: int = 30) -> dict[str, list[ScriptItem]]:
+    return {
+        "termination_notice": _termination_draft(proposed_days),
+        "governing_law": _governing_law_compliant(),
+    }
+
+
+def _post_clean(
+    client: TestClient, settings: Settings, headers: Mapping[str, str] = ACME_LAWYER
+) -> dict[str, Any]:
+    response = client.post("/reviews", json={"text": CLEAN_TEXT}, headers=dict(headers))
+    assert response.status_code == 200, response.text
+    body: dict[str, Any] = response.json()
+    tenant = settings.api_keys[headers["X-API-Key"]].tenant_id
+    _assert_no_model_error(Store(settings.data_dir, tenant), body["review_id"])
+    return body
+
+
+def _clean_review(
+    client: TestClient, settings: Settings, proposed_days: int = 30, runs: int = 1
+) -> dict[str, Any]:
+    _install_model(settings, "acme", _clean_scripts(proposed_days), runs=runs)
+    return _post_clean(client, settings)
+
+
+def _queue_decision(review: Mapping[str, Any], contract: str = "approve") -> dict[str, Any]:
+    """A decision with exactly what is required: every queued finding accepted, and its draft."""
+    entries: list[dict[str, Any]] = []
+    for finding in review["findings"]:
+        if finding["needs_review"]:
+            entry = {"rule_id": finding["rule_id"], "action": "accept"}
+            if finding["proposal"] is not None:
+                entry["proposal_action"] = "accept"
+            entries.append(entry)
+    return {"findings": entries, "contract_decision": contract}
+
+
+def _with_entry(body: Mapping[str, Any], entry: Mapping[str, Any]) -> dict[str, Any]:
+    return {**body, "findings": [*body["findings"], dict(entry)]}
+
+
+def _decide(
+    client: TestClient,
+    review_id: str,
+    body: Any,
+    headers: Mapping[str, str] = ACME_LAWYER,
+) -> Any:
+    return client.post(f"/reviews/{review_id}/decision", json=body, headers=dict(headers))
+
+
+def _snapshot(settings: Settings, tenant: str, review_id: str) -> tuple[Any, ...]:
+    """What a rejected decision must leave unchanged: status, audit rows, PII map, graph."""
+    store = Store(settings.data_dir, tenant)
+    record = store.get_review(review_id)
+    assert record is not None
+    graph = get_review_graph(settings, tenant)
+    next_nodes = graph.get_state(review_config(settings, review_id)).next
+    return (
+        record.status,
+        record.decision,
+        len(store.list_audit(review_id)),
+        store.get_pii_map(review_id),
+        next_nodes,
+    )
+
+
+def _decision_rows(store: Store, review_id: str) -> list[Any]:
+    return [r for r in store.list_audit(review_id) if r.event in DECISION_EVENTS]
+
+
+def _outcomes(store: Store, review_id: str) -> dict[str, Any]:
+    record = store.get_review(review_id)
+    assert record is not None and record.decision is not None
+    return {o.rule_id: o for o in record.decision.findings}
+
+
+def test_clean_contract_queues_only_the_not_found_rules(
+    client: TestClient, settings: Settings
+) -> None:
+    # The premise of the decision tests below.
+    review = _clean_review(client, settings)
+    assert review["injection_flags"] == []
+    findings = {f["rule_id"]: f for f in review["findings"]}
+    termination = findings["termination_notice"]
+    assert termination["status"] == "non_compliant"
+    assert termination["needs_review"] is False
+    assert termination["proposal"]["code_check"] == "passed"
+    assert findings["governing_law"]["status"] == "compliant"
+    assert findings["governing_law"]["needs_review"] is False
+    queued = {r for r, f in findings.items() if f["needs_review"]}
+    assert queued == {"late_penalty_cap", "insurance_minimum", "liability_cap"}
+
+
+# Roles and identity
+
+
+def test_decision_viewer_forbidden_then_same_body_lawyer_ok(
+    client: TestClient, settings: Settings
+) -> None:
+    review = _clean_review(client, settings)
+    review_id = review["review_id"]
+    body = _queue_decision(review)
+    before = _snapshot(settings, "acme", review_id)
+    assert before[0] == "awaiting_lawyer" and before[4] == ("human_review",)
+
+    response = _decide(client, review_id, body, ACME_VIEWER)
+    assert response.status_code == 403
+    assert _snapshot(settings, "acme", review_id) == before
+    store = Store(settings.data_dir, "acme")
+    assert _decision_rows(store, review_id) == []
+
+    ok = _decide(client, review_id, body)
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["status"] == "approved"
+
+
+def test_decision_role_and_name_in_body_ignored(client: TestClient, settings: Settings) -> None:
+    review = _clean_review(client, settings)
+    review_id = review["review_id"]
+    body = _queue_decision(review)
+    before = _snapshot(settings, "acme", review_id)
+
+    forged = {**body, "role": "lawyer"}
+    assert _decide(client, review_id, forged, ACME_VIEWER).status_code == 403
+    assert _snapshot(settings, "acme", review_id) == before
+
+    impostor = {
+        **body,
+        "reviewer": "başkası",
+        "decided_by": "başkası",
+        "role": "viewer",
+        "tenant": "globex",
+    }
+    response = _decide(client, review_id, impostor)
+    assert response.status_code == 200, response.text
+    assert response.json()["decided_by"] == "Av. Acme"
+    store = Store(settings.data_dir, "acme")
+    record = store.get_review(review_id)
+    assert record is not None and record.decided_by == "Av. Acme"
+    lawyer_rows = [r for r in store.list_audit(review_id) if r.actor.startswith("lawyer:")]
+    assert lawyer_rows and {r.actor for r in lawyer_rows} == {"lawyer:Av. Acme"}
+    assert "başkası" not in _all_text(
+        [r.model_dump(mode="json") for r in store.list_audit(review_id)]
+    )
+
+
+# Required fields
+
+
+def test_decision_queued_finding_without_action_unprocessable(
+    client: TestClient, settings: Settings
+) -> None:
+    review = _clean_review(client, settings)
+    review_id = review["review_id"]
+    body = _queue_decision(review)
+    body["findings"] = body["findings"][1:]
+    before = _snapshot(settings, "acme", review_id)
+    response = _decide(client, review_id, body)
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert [d["type"] for d in detail] == ["missing_action"]
+    assert _snapshot(settings, "acme", review_id) == before
+
+
+def test_decision_queued_draft_without_proposal_action_unprocessable(
+    client: TestClient, settings: Settings
+) -> None:
+    review = _clean_review(client, settings, proposed_days=20)
+    findings = {f["rule_id"]: f for f in review["findings"]}
+    assert findings["termination_notice"]["needs_review"] is True  # the failing draft queued it
+    review_id = review["review_id"]
+    body = _queue_decision(review)
+    for entry in body["findings"]:
+        entry.pop("proposal_action", None)
+    before = _snapshot(settings, "acme", review_id)
+    response = _decide(client, review_id, body)
+    assert response.status_code == 422
+    assert [d["type"] for d in response.json()["detail"]] == ["missing_proposal_action"]
+    assert _snapshot(settings, "acme", review_id) == before
+
+    body = _queue_decision(review)
+    assert _decide(client, review_id, body).status_code == 200
+
+
+def test_decision_findings_outside_queue_not_sent_ok_and_stored_untouched(
+    client: TestClient, settings: Settings
+) -> None:
+    review = _clean_review(client, settings)
+    review_id = review["review_id"]
+    response = _decide(client, review_id, _queue_decision(review))
+    assert response.status_code == 200, response.text
+    store = Store(settings.data_dir, "acme")
+    outcomes = _outcomes(store, review_id)
+    termination = outcomes["termination_notice"]
+    # The draft outside the queue got no decision: stored as null, not as accepted.
+    assert termination.proposal_action is None
+    assert termination.action is None
+    assert termination.final_status == "non_compliant"
+    assert outcomes["governing_law"].final_status == "compliant"
+    assert {
+        r.payload["rule_id"] for r in _decision_rows(store, review_id) if "rule_id" in r.payload
+    } == {
+        "late_penalty_cap",
+        "insurance_minimum",
+        "liability_cap",
+    }
+    body = {f["rule_id"]: f for f in response.json()["findings"]}
+    assert body["termination_notice"]["proposal_action"] is None
+
+
+def test_decision_outside_queue_correct_changes_stored_final_status(
+    client: TestClient, settings: Settings
+) -> None:
+    review = _clean_review(client, settings)
+    review_id = review["review_id"]
+    body = _with_entry(
+        _queue_decision(review),
+        {"rule_id": "governing_law", "action": "correct", "status": "non_compliant"},
+    )
+    response = _decide(client, review_id, body)
+    assert response.status_code == 200, response.text
+    store = Store(settings.data_dir, "acme")
+    governing = _outcomes(store, review_id)["governing_law"]
+    assert governing.final_status == "non_compliant"
+    assert governing.action == "correct"
+    # The model's finding itself is kept as it was.
+    record = store.get_review(review_id)
+    assert record is not None
+    assert {f.rule_id: f.status for f in record.findings}["governing_law"] == "compliant"
+    shown = {f["rule_id"]: f for f in response.json()["findings"]}["governing_law"]
+    assert shown["status"] == "compliant" and shown["final_status"] == "non_compliant"
+    [row] = [
+        r for r in _decision_rows(store, review_id) if r.payload.get("rule_id") == "governing_law"
+    ]
+    assert row.event == "finding_decision"
+    assert row.payload == {
+        "rule_id": "governing_law",
+        "action": "correct",
+        "status": "non_compliant",
+        "final_status": "non_compliant",
+    }
+
+
+def test_decision_outside_queue_draft_with_proposal_action_only_ok(
+    client: TestClient, settings: Settings
+) -> None:
+    review = _clean_review(client, settings)
+    review_id = review["review_id"]
+    body = _with_entry(
+        _queue_decision(review), {"rule_id": "termination_notice", "proposal_action": "reject"}
+    )
+    response = _decide(client, review_id, body)
+    assert response.status_code == 200, response.text
+    store = Store(settings.data_dir, "acme")
+    termination = _outcomes(store, review_id)["termination_notice"]
+    assert termination.final_status == "non_compliant"  # the model's
+    assert termination.action is None
+    assert termination.proposal_action == "reject"
+    rows = [
+        r for r in store.list_audit(review_id) if r.payload.get("rule_id") == "termination_notice"
+    ]
+    assert [(r.event, r.payload) for r in rows if r.event in DECISION_EVENTS] == [
+        (
+            "proposal_decision",
+            {"rule_id": "termination_notice", "proposal_action": "reject", "edited_text": None},
+        )
+    ]
+
+
+# Invalid values
+
+
+def _set(rule_id: str, **fields: Any) -> Callable[[dict[str, Any]], None]:
+    def change(body: dict[str, Any]) -> None:
+        for entry in body["findings"]:
+            if entry["rule_id"] == rule_id:
+                entry.clear()
+                entry.update({"rule_id": rule_id, **fields})
+                return
+        body["findings"].append({"rule_id": rule_id, **fields})
+
+    return change
+
+
+def _top(**fields: Any) -> Callable[[dict[str, Any]], None]:
+    def change(body: dict[str, Any]) -> None:
+        body.update(fields)
+
+    return change
+
+
+def _duplicate(body: dict[str, Any]) -> None:
+    body["findings"].append(dict(body["findings"][0]))
+
+
+INVALID_BODIES: dict[str, Callable[[dict[str, Any]], None]] = {
+    "action-reject": _set("liability_cap", action="reject"),
+    "correct-without-status": _set("liability_cap", action="correct"),
+    "accept-with-status": _set("liability_cap", action="accept", status="compliant"),
+    "neither-action-nor-proposal-action": _set("liability_cap"),
+    "edit-empty-text": _set("termination_notice", proposal_action="edit", edited_text=""),
+    "edit-blank-text": _set("termination_notice", proposal_action="edit", edited_text="  \n\t"),
+    "edit-without-text": _set("termination_notice", proposal_action="edit"),
+    "proposal-action-without-draft": _set("governing_law", proposal_action="accept"),
+    "unknown-rule-id": _set("ghost_rule", action="accept"),
+    "duplicate-rule-id": _duplicate,
+    "contract-decision-reject": _top(contract_decision="reject"),
+    "contract-decision-missing": lambda body: body.pop("contract_decision"),
+    "accept-with-edited-text": _set(
+        "termination_notice", proposal_action="accept", edited_text="metin"
+    ),
+    "reject-with-edited-text": _set(
+        "termination_notice", proposal_action="reject", edited_text="metin"
+    ),
+    "edited-text-over-limit": _set(
+        "termination_notice", proposal_action="edit", edited_text="a" * 20_001
+    ),
+    "edit-only-zero-width": _set(
+        "termination_notice", proposal_action="edit", edited_text="\u200b"
+    ),
+    "edit-zero-width-and-space": _set(
+        "termination_notice", proposal_action="edit", edited_text="\u200b \u200b\n\u200d"
+    ),
+    "unknown-field-in-entry": _set("liability_cap", action="accept", proposal_actoin="accept"),
+    "findings-not-a-list": _top(findings={"rule_id": "liability_cap"}),
+}
+
+
+@pytest.mark.parametrize("change", INVALID_BODIES.values(), ids=INVALID_BODIES.keys())
+def test_decision_invalid_body_unprocessable_nothing_changes(
+    client: TestClient, settings: Settings, change: Callable[[dict[str, Any]], None]
+) -> None:
+    review = _clean_review(client, settings)
+    review_id = review["review_id"]
+    body = _queue_decision(review)
+    change(body)
+    before = _snapshot(settings, "acme", review_id)
+    response = _decide(client, review_id, body)
+    assert response.status_code == 422, response.text
+    detail = response.json()["detail"]
+    assert detail and all(set(error) == {"type", "loc", "msg"} for error in detail)
+    assert all(error["loc"][0] == "body" for error in detail)
+    assert _snapshot(settings, "acme", review_id) == before
+    assert _decision_rows(Store(settings.data_dir, "acme"), review_id) == []
+
+
+def test_decision_edited_text_at_limit_accepted(client: TestClient, settings: Settings) -> None:
+    review = _clean_review(client, settings)
+    body = _with_entry(
+        _queue_decision(review),
+        {"rule_id": "termination_notice", "proposal_action": "edit", "edited_text": "a" * 20_000},
+    )
+    assert _decide(client, review["review_id"], body).status_code == 200
+
+
+def test_decision_unprocessable_body_echoes_no_input(
+    client: TestClient, settings: Settings
+) -> None:
+    review = _clean_review(client, settings)
+    review_id = review["review_id"]
+    secret = "GIZLI-DUZENLEME-METNI"
+    # A schema error (edited_text with accept) and a record-check error (unknown rule id).
+    schema_error = _with_entry(
+        _queue_decision(review),
+        {"rule_id": "termination_notice", "proposal_action": "accept", "edited_text": secret},
+    )
+    record_error = _with_entry(
+        _with_entry(
+            _queue_decision(review),
+            {"rule_id": "termination_notice", "proposal_action": "edit", "edited_text": secret},
+        ),
+        {"rule_id": "GIZLI-KURAL", "action": "accept"},
+    )
+    for body in (schema_error, record_error):
+        response = _decide(client, review_id, body)
+        assert response.status_code == 422
+        assert secret not in response.text
+        assert "GIZLI" not in response.text
+        detail = response.json()["detail"]
+        assert all(set(error) == {"type", "loc", "msg"} for error in detail)
+    [unknown] = _decide(client, review_id, record_error).json()["detail"]
+    assert unknown["type"] == "unknown_rule_id"
+    assert unknown["loc"] == ["body", "findings", 4, "rule_id"]
+
+
+def test_decision_unknown_rule_id_rejected_before_masking(
+    client: TestClient, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    review = _clean_review(client, settings)
+    review_id = review["review_id"]
+    masked: list[str] = []
+    original_mask = api_module.mask
+
+    def spying(text: str, mapping: Mapping[str, str]) -> Any:
+        masked.append(text)
+        return original_mask(text, mapping)
+
+    monkeypatch.setattr(api_module, "mask", spying)
+    body = _with_entry(
+        _with_entry(
+            _queue_decision(review),
+            {
+                "rule_id": "termination_notice",
+                "proposal_action": "edit",
+                "edited_text": f"Yeni TCKN {NEW_TCKN}.",
+            },
+        ),
+        {"rule_id": "ghost_rule", "action": "accept"},
+    )
+    before = _snapshot(settings, "acme", review_id)
+    assert _decide(client, review_id, body).status_code == 422
+    assert masked == []
+    assert _snapshot(settings, "acme", review_id) == before
+    assert NEW_TCKN not in Store(settings.data_dir, "acme").get_pii_map(review_id).values()
+
+
+# Final decision
+
+
+def test_decision_request_changes_changes_requested(client: TestClient, settings: Settings) -> None:
+    review = _clean_review(client, settings)
+    response = _decide(client, review["review_id"], _queue_decision(review, "request_changes"))
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "changes_requested"
+    assert response.json()["contract_decision"] == "request_changes"
+    record = Store(settings.data_dir, "acme").get_review(review["review_id"])
+    assert record is not None and record.status == "changes_requested"
+
+
+def test_decision_approve_with_non_compliant_finding_approved(
+    client: TestClient, settings: Settings
+) -> None:
+    review = _clean_review(client, settings)
+    review_id = review["review_id"]
+    response = _decide(client, review_id, _queue_decision(review, "approve"))
+    assert response.status_code == 200, response.text
+    store = Store(settings.data_dir, "acme")
+    record = store.get_review(review_id)
+    assert record is not None and record.status == "approved"
+    # The finding that passed without the lawyer is still non_compliant in the final result.
+    assert _outcomes(store, review_id)["termination_notice"].final_status == "non_compliant"
+    assert [r.payload for r in store.list_audit(review_id) if r.event == "contract_decision"] == [
+        {"contract_decision": "approve", "status": "approved"}
+    ]
+
+
+def test_decision_response_same_as_get_and_fixed_fields(
+    client: TestClient, settings: Settings
+) -> None:
+    review = _clean_review(client, settings)
+    review_id = review["review_id"]
+    response = _decide(client, review_id, _queue_decision(review))
+    assert response.status_code == 200
+    decided = response.json()
+    assert client.get(f"/reviews/{review_id}", headers=ACME_LAWYER).json() == decided
+    assert set(decided) == LAWYER_REVIEW_KEYS
+    assert decided["decided_by"] == "Av. Acme" and decided["decided_at"]
+    assert all(set(f) == FINDING_KEYS for f in decided["findings"])
+    assert all(f["final_status"] is not None for f in decided["findings"])
+    viewer = client.get(f"/reviews/{review_id}", headers=ACME_VIEWER).json()
+    assert set(viewer) == REVIEW_KEYS
+    assert all(set(f) == FINDING_KEYS for f in viewer["findings"])
+    assert viewer["contract_decision"] == "approve" and viewer["decided_by"] == "Av. Acme"
+    assert "provider" not in decided and "model" not in decided
+
+
+# Edited text is masked
+
+
+def test_decision_edited_text_masked_everywhere_but_lawyer_response(
+    client: TestClient, settings: Settings
+) -> None:
+    review = _clean_review(client, settings)
+    review_id = review["review_id"]
+    store = Store(settings.data_dir, "acme")
+    mapping_before = store.get_pii_map(review_id)
+    assert mapping_before == {"[KISI_1]": KNOWN_NAME}
+    edited = f"Bildirimler {KNOWN_NAME} adına 30 gün önceden yapılır; TCKN {NEW_TCKN}."
+    body = _with_entry(
+        _queue_decision(review),
+        {"rule_id": "termination_notice", "proposal_action": "edit", "edited_text": edited},
+    )
+    response = _decide(client, review_id, body)
+    assert response.status_code == 200, response.text
+    raw_values = (KNOWN_NAME, NEW_TCKN)
+
+    # The known name kept its placeholder; the new TCKN was added to the map.
+    mapping = store.get_pii_map(review_id)
+    assert mapping["[KISI_1]"] == KNOWN_NAME
+    [tckn] = [p for p, v in mapping.items() if v == NEW_TCKN]
+    assert set(mapping) == {"[KISI_1]", tckn}
+    expected = f"Bildirimler [KISI_1] adına 30 gün önceden yapılır; TCKN {tckn}."
+
+    # The record, the graph state and the audit log hold the masked text only.
+    termination = _outcomes(store, review_id)["termination_notice"]
+    assert termination.edited_text == expected
+    record = store.get_review(review_id)
+    assert record is not None and record.decision is not None
+    stored = record.decision.model_dump_json()
+    values = get_review_graph(settings, "acme").get_state(review_config(settings, review_id)).values
+    state_text = json.dumps(values, ensure_ascii=False)
+    assert expected in state_text
+    audit_text = _all_text([r.model_dump(mode="json") for r in store.list_audit(review_id)])
+    [row] = [r for r in store.list_audit(review_id) if r.event == "proposal_decision"]
+    assert row.payload["edited_text"] == expected
+    for value in raw_values:
+        assert value not in stored
+        assert value not in state_text
+        assert value not in audit_text
+
+    # The lawyer response is unmasked, the viewer response masked.
+    shown = {f["rule_id"]: f for f in response.json()["findings"]}["termination_notice"]
+    assert shown["edited_text"] == edited
+    viewer = client.get(f"/reviews/{review_id}", headers=ACME_VIEWER).json()
+    viewer_edit = {f["rule_id"]: f for f in viewer["findings"]}["termination_notice"]
+    assert viewer_edit["edited_text"] == expected
+
+    # And so does the checkpoint file, byte for byte.
+    close_graphs()  # closing the last connection folds the WAL into the database file
+    path = store.tenant_dir / CHECKPOINTS_NAME
+    raw = b"".join(
+        p.read_bytes() for p in (path, path.with_name(f"{CHECKPOINTS_NAME}-wal")) if p.exists()
+    )
+    assert tckn.encode() in raw  # the masked decision is in the checkpoint
+    for value in raw_values:
+        assert value.encode("utf-8") not in raw, f"{value!r} is in checkpoints.db"
+
+
+# The audit log is complete
+
+
+def test_decision_full_review_audit_log_complete_ends_with_review_closed(
+    client: TestClient, settings: Settings
+) -> None:
+    review = _clean_review(client, settings)
+    review_id = review["review_id"]
+    body = _with_entry(
+        _queue_decision(review, "request_changes"),
+        {"rule_id": "termination_notice", "action": "accept", "proposal_action": "accept"},
+    )
+    assert _decide(client, review_id, body).status_code == 200
+    store = Store(settings.data_dir, "acme")
+    rows = store.list_audit(review_id)
+    events = [r.event for r in rows]
+    for event in (
+        "review_started",
+        "clauses_split",
+        "pii_masked",
+        "index_built",
+        "model_call",
+        "tool_call",
+        "finding",
+        "verification",
+        "awaiting_lawyer",
+        "finding_decision",
+        "proposal_decision",
+        "contract_decision",
+        "report_created",
+        "review_closed",
+    ):
+        assert event in events, event
+    tail = events[events.index("awaiting_lawyer") + 1 :]
+    # finding_decision for the three queued rules and termination, in rule order.
+    assert tail == [
+        "finding_decision",
+        "proposal_decision",
+        "finding_decision",
+        "finding_decision",
+        "finding_decision",
+        "contract_decision",
+        "report_created",
+        "review_closed",
+    ]
+    assert rows[-1].event == "review_closed" and rows[-1].actor == "system"
+    assert rows[-1].payload == {"status": "changes_requested"}
+    assert rows[-2].payload == {
+        "final_status_counts": {"compliant": 1, "non_compliant": 1, "not_found": 3}
+    }
+
+
+# Rejected requests leave no trace; the check order
+
+
+def test_decision_second_decision_conflict_and_other_tenant_not_found(
+    client: TestClient, settings: Settings
+) -> None:
+    review = _clean_review(client, settings)
+    review_id = review["review_id"]
+    body = _queue_decision(review)
+    assert _decide(client, review_id, body).status_code == 200
+    closed = _snapshot(settings, "acme", review_id)
+    assert closed[0] == "approved" and closed[4] == ()
+
+    second = _decide(client, review_id, _queue_decision(review, "request_changes"))
+    assert second.status_code == 409
+    assert _snapshot(settings, "acme", review_id) == closed
+
+    for headers in (GLOBEX_LAWYER,):
+        assert _decide(client, review_id, body, headers).status_code == 404
+    assert _decide(client, review_id, body, GLOBEX_VIEWER).status_code == 403
+    assert _snapshot(settings, "acme", review_id) == closed
+    globex = Store(settings.data_dir, "globex")
+    assert _review_ids(globex) == [] and _audit_count(globex) == 0
+
+
+def test_decision_other_tenant_awaiting_review_not_found_nothing_changes(
+    client: TestClient, settings: Settings
+) -> None:
+    review = _clean_review(client, settings)
+    review_id = review["review_id"]
+    before = _snapshot(settings, "acme", review_id)
+    assert _decide(client, review_id, _queue_decision(review), GLOBEX_LAWYER).status_code == 404
+    assert _snapshot(settings, "acme", review_id) == before
+
+
+def test_decision_check_order_role_then_review_then_status_before_body(
+    client: TestClient, settings: Settings
+) -> None:
+    review = _clean_review(client, settings)
+    review_id = review["review_id"]
+    invalid = {"findings": [{"rule_id": "", "action": "reject"}], "contract_decision": "reject"}
+    assert _decide(client, review_id, invalid, ACME_VIEWER).status_code == 403
+    assert _decide(client, review_id, "not even an object", ACME_VIEWER).status_code == 403
+    assert _decide(client, str(uuid.uuid4()), invalid).status_code == 404
+    assert _decide(client, "not-a-uuid", invalid).status_code == 404
+    assert _decide(client, review_id, invalid, GLOBEX_LAWYER).status_code == 404
+    assert _decide(client, review_id, _queue_decision(review)).status_code == 200
+    assert _decide(client, review_id, invalid).status_code == 409
+    assert _decide(client, review_id, invalid, {"X-API-Key": "yanlis"}).status_code == 401
+
+
+# Failures and concurrency
+
+
+def test_decision_finalize_failure_stays_awaiting_then_new_decision_recorded(
+    client: TestClient, settings: Settings, caplog: pytest.LogCaptureFixture
+) -> None:
+    review = _clean_review(client, settings)
+    review_id = review["review_id"]
+    store = Store(settings.data_dir, "acme")
+    rows_before = store.list_audit(review_id)
+    _fail_audit_event(store, "review_closed")
+    first = _with_entry(
+        _queue_decision(review, "approve"),
+        {
+            "rule_id": "termination_notice",
+            "proposal_action": "edit",
+            "edited_text": f"Eski metin, TCKN {NEW_TCKN}.",
+        },
+    )
+    with caplog.at_level(logging.DEBUG, logger="src.api"):
+        response = _decide(client, review_id, first)
+    assert response.status_code == 500
+    assert response.json() == {"detail": MSG_DECISION_FAILED}
+    api_logs = "\n".join(r.getMessage() for r in caplog.records if r.name == "src.api")
+    assert "IntegrityError" in api_logs
+    assert NEW_TCKN not in api_logs and "Eski metin" not in api_logs
+    record = store.get_review(review_id)
+    assert record is not None and record.status == "awaiting_lawyer" and record.decision is None
+    assert store.list_audit(review_id) == rows_before
+    assert "review_failed" not in _events(store, review_id)
+    assert not store._conn.in_transaction
+    # The map entries written before the failure stay (append-only).
+    assert NEW_TCKN in store.get_pii_map(review_id).values()
+
+    store._conn.execute("DROP TRIGGER temp.fail_review_closed")
+    second = _with_entry(
+        _queue_decision(review, "request_changes"),
+        {"rule_id": "termination_notice", "proposal_action": "reject"},
+    )
+    response = _decide(client, review_id, second)
+    assert response.status_code == 200, response.text
+    record = store.get_review(review_id)
+    assert record is not None and record.status == "changes_requested"
+    assert _outcomes(store, review_id)["termination_notice"].proposal_action == "reject"
+    rows = store.list_audit(review_id)
+    new_rows = rows[len(rows_before) :]
+    assert [r.event for r in new_rows].count("contract_decision") == 1
+    assert [r.event for r in new_rows].count("review_closed") == 1
+    assert [r.payload for r in new_rows if r.event == "proposal_decision"] == [
+        {"rule_id": "termination_notice", "proposal_action": "reject", "edited_text": None}
+    ]
+    assert [r.payload for r in new_rows if r.event == "contract_decision"] == [
+        {"contract_decision": "request_changes", "status": "changes_requested"}
+    ]
+    assert len([r for r in new_rows if r.event == "finding_decision"]) == 3
+
+
+def test_decision_complete_review_false_conflict_no_decision_or_audit_written(
+    client: TestClient, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The last guard of a multi-process deployment: the status changed after the re-read. No
+    # decision or audit row is written, but the map entries added before the resume stay
+    # (append-only) and the thread stays at finalize, as after a 500.
+    review = _clean_review(client, settings)
+    review_id = review["review_id"]
+    before = _snapshot(settings, "acme", review_id)
+    assert NEW_TCKN not in before[3].values()
+    monkeypatch.setattr(Store, "complete_review", lambda self, *args, **kwargs: False)
+    body = _with_entry(
+        _queue_decision(review),
+        {
+            "rule_id": "termination_notice",
+            "proposal_action": "edit",
+            "edited_text": f"Eski metin, TCKN {NEW_TCKN}.",
+        },
+    )
+    response = _decide(client, review_id, body)
+    assert response.status_code == 409
+    after = _snapshot(settings, "acme", review_id)
+    assert after[:3] == before[:3]
+    assert after[0] == "awaiting_lawyer" and after[1] is None
+    assert NEW_TCKN in after[3].values()
+    assert {k: v for k, v in after[3].items() if k in before[3]} == before[3]
+    assert after[4] == ("finalize",)
+
+
+def test_decision_two_concurrent_decisions_one_ok_one_conflict(
+    app: FastAPI, client: TestClient, settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Event-ordered, not timed: the first request is held inside `check_decision` until the
+    # second one has either been refused the tenant's lock (it is held) or, without a lock,
+    # entered `check_decision` too. Only then is the first one released.
+    review = _clean_review(client, settings)
+    review_id = review["review_id"]
+    first_inside = threading.Event()
+    second_arrived = threading.Event()
+    release = threading.Event()
+    counter_lock = threading.Lock()
+    calls = 0
+    inside = 0
+    peak = 0
+    real_check = api_module.check_decision
+    real_lock = api_module.decision_lock
+
+    def held_check(*args: Any, **kwargs: Any) -> Any:
+        nonlocal calls, inside, peak
+        with counter_lock:
+            calls += 1
+            call_no = calls
+            inside += 1
+            peak = max(peak, inside)
+        try:
+            if call_no == 1:
+                first_inside.set()
+                release.wait(WAIT_S)
+            else:
+                second_arrived.set()
+            return real_check(*args, **kwargs)
+        finally:
+            with counter_lock:
+                inside -= 1
+
+    class ObservedLock:
+        def __init__(self, lock: Any) -> None:
+            self._lock = lock
+
+        def __enter__(self) -> None:
+            if not self._lock.acquire(blocking=False):
+                second_arrived.set()  # the lock is held: this request now waits for it
+                self._lock.acquire()
+
+        def __exit__(self, *exc: object) -> None:
+            self._lock.release()
+
+    monkeypatch.setattr(api_module, "check_decision", held_check)
+    monkeypatch.setattr(
+        api_module,
+        "decision_lock",
+        lambda data_dir, tenant: ObservedLock(real_lock(data_dir, tenant)),
+    )
+    statuses: list[int] = []
+    lock = threading.Lock()
+
+    def send(contract: str) -> None:
+        own = TestClient(app)
+        response = _decide(own, review_id, _queue_decision(review, contract))
+        with lock:
+            statuses.append(response.status_code)
+
+    threads = [threading.Thread(target=send, args=(c,)) for c in ("approve", "request_changes")]
+    threads[0].start()
+    assert first_inside.wait(WAIT_S)
+    threads[1].start()
+    assert second_arrived.wait(WAIT_S)
+    release.set()
+    for thread in threads:
+        thread.join(WAIT_S * 3)
+        assert not thread.is_alive()
+    assert sorted(statuses) == [200, 409]
+    assert peak == 1
+    store = Store(settings.data_dir, "acme")
+    events = _events(store, review_id)
+    assert events.count("contract_decision") == 1
+    assert events.count("review_closed") == 1
+    assert events.count("finding_decision") == 3
+
+
+def test_decision_lock_per_tenant_other_tenant_decides_while_held(
+    client: TestClient, settings: Settings
+) -> None:
+    _install_model(settings, "globex")
+    globex_review = _post_clean(client, settings, GLOBEX_LAWYER)
+    acme_lock = api_module.decision_lock(settings.data_dir, "acme")
+    assert api_module.decision_lock(settings.data_dir, "acme") is acme_lock
+    assert api_module.decision_lock(settings.data_dir, "globex") is not acme_lock
+
+    result: list[int] = []
+
+    def decide_globex() -> None:
+        response = _decide(
+            client, globex_review["review_id"], _queue_decision(globex_review), GLOBEX_LAWYER
+        )
+        result.append(response.status_code)
+
+    with acme_lock:
+        thread = threading.Thread(target=decide_globex)
+        thread.start()
+        thread.join(WAIT_S)  # deadlock guard, not a timing assertion
+        assert not thread.is_alive(), "globex waited for acme's decision lock"
+    assert result == [200]

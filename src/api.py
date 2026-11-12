@@ -1,4 +1,4 @@
-"""HTTP API: start a review, read it and its audit log.
+"""HTTP API: start a review, read it and its audit log, take the lawyer's decision.
 
 Design (`docs/architecture.md` §3, `docs/agent_design.md` §6 and §7):
 
@@ -9,42 +9,66 @@ Design (`docs/architecture.md` §3, `docs/agent_design.md` §6 and §7):
   A lawyer gets the viewer fields plus explicitly added ones, unmasked in one function.
 - No exception text reaches a response or the log (it may carry contract text): the response has
   a fixed Turkish message and the log the exception class name.
+- The decision endpoint runs under the tenant's decision lock: re-read the record, check the
+  status (409) and the record checks (422), only then mask `edited_text` and resume the graph.
 - Synchronous endpoints only (`SqliteSaver` has no async support).
 """
 
 import logging
 import sys
+import threading
 from collections.abc import Callable, Mapping, Sequence
-from typing import Annotated, Any
+from pathlib import Path
+from typing import Annotated, Any, Self
 
 import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.config import ConfigError, Principal, Settings, load_settings_or_exit
-from src.graph import get_review_graph, initial_state, review_config
+from src.decision import (
+    MAX_EDITED_TEXT_CHARS,
+    check_decision,
+    duplicate_rule_id_error,
+    entry_format_error,
+)
+from src.graph import (
+    ReviewNotAwaitingError,
+    get_review_graph,
+    initial_state,
+    resume_command,
+    review_config,
+)
 from src.llm import classify_provider_error
 from src.models import (
     AuditRecord,
     Clause,
     CodeCheck,
+    ContractDecision,
     Finding,
+    FindingAction,
+    FindingDecision,
+    FindingOutcome,
     FindingStatus,
     InjectionFlag,
     InjectionKind,
     InterruptReason,
+    LawyerDecision,
+    MaskedText,
     NoFindingReason,
     Proposal,
+    ProposalAction,
     ReviewReason,
     ReviewRecord,
     ReviewStatus,
 )
 from src.prepare import prepare_contract
 from src.prepare.index import drop_index
-from src.prepare.pii import unmask
+from src.prepare.pii import mask, unmask
 from src.store import Store, UnknownTenantError
+from src.text import strip_invisible
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +84,9 @@ _MSG_NOT_FOUND = "İnceleme bulunamadı."
 _MSG_PROVIDER_CONFIG = "Model sağlayıcısının kimlik ya da yapılandırma ayarı hatalı."
 _MSG_INTERNAL = "İnceleme tamamlanamadı: beklenmeyen bir hata oluştu."
 _MSG_TOO_LARGE = "Sözleşme metni çok uzun: en fazla 2.000.000 karakter kabul edilir."
+_MSG_NOT_AWAITING = "İnceleme avukat kararı beklemiyor."
+_MSG_DECISION_FAILED = "Karar kaydedilemedi: beklenmeyen bir hata oluştu."
+_RESUMABLE_NEXT = (("human_review",), ("finalize",))
 
 
 # --- Request model --------------------------------------------------------------------------------
@@ -79,6 +106,43 @@ class ReviewRequest(BaseModel):
         if not value.strip():
             raise ValueError("Sözleşme metni boş olamaz.")
         return value
+
+
+class FindingDecisionRequest(BaseModel):
+    """One entry of the decision body. The one request model that rejects unknown fields: a
+    mistyped field ignored here would silently drop the lawyer's decision (code_standards.md)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rule_id: str = Field(min_length=1)
+    action: FindingAction | None = None
+    status: FindingStatus | None = None
+    proposal_action: ProposalAction | None = None
+    edited_text: str | None = Field(default=None, max_length=MAX_EDITED_TEXT_CHARS)
+
+    @model_validator(mode="after")
+    def _format_rules(self) -> Self:
+        error = entry_format_error(self.action, self.status, self.proposal_action, self.edited_text)
+        if error is not None:
+            raise ValueError(error)
+        return self
+
+
+class DecisionRequest(BaseModel):
+    """`POST /reviews/{id}/decision` body. Unknown top-level fields (`role`, `reviewer`,
+    `tenant`, ...) are ignored, not rejected; the decider's name comes from the key."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    findings: list[FindingDecisionRequest] = Field(default_factory=list)
+    contract_decision: ContractDecision
+
+    @model_validator(mode="after")
+    def _rule_ids_unique(self) -> Self:
+        error = duplicate_rule_id_error([entry.rule_id for entry in self.findings])
+        if error is not None:
+            raise ValueError(error)
+        return self
 
 
 # --- Response models: each names its fields one by one --------------------------------------------
@@ -132,6 +196,11 @@ class FindingView(_View):
     interrupted_by: InterruptReason | None
     needs_review: bool
     review_reasons: list[ReviewReason]
+    # The lawyer's decision; all null before it.
+    final_status: FindingStatus | None
+    action: FindingAction | None
+    proposal_action: ProposalAction | None
+    edited_text: str | None
 
 
 class ReviewView(_View):
@@ -142,6 +211,9 @@ class ReviewView(_View):
     clauses: Sequence[ClauseView]
     injection_flags: Sequence[InjectionFlagView]
     findings: list[FindingView]
+    contract_decision: ContractDecision | None
+    decided_at: str | None
+    decided_by: str | None
 
 
 class LawyerReviewView(ReviewView):
@@ -191,7 +263,7 @@ def _proposal_view(proposal: Proposal) -> ProposalView:
     )
 
 
-def _finding_view(finding: Finding) -> FindingView:
+def _finding_view(finding: Finding, outcome: FindingOutcome | None) -> FindingView:
     return FindingView(
         rule_id=finding.rule_id,
         status=finding.status,
@@ -206,7 +278,16 @@ def _finding_view(finding: Finding) -> FindingView:
         interrupted_by=finding.interrupted_by,
         needs_review=finding.needs_review,
         review_reasons=list(finding.review_reasons),
+        final_status=outcome.final_status if outcome is not None else None,
+        action=outcome.action if outcome is not None else None,
+        proposal_action=outcome.proposal_action if outcome is not None else None,
+        edited_text=outcome.edited_text if outcome is not None else None,
     )
+
+
+def _finding_views(record: ReviewRecord) -> list[FindingView]:
+    outcomes = {o.rule_id: o for o in record.decision.findings} if record.decision else {}
+    return [_finding_view(f, outcomes.get(f.rule_id)) for f in record.findings]
 
 
 def _viewer_review(record: ReviewRecord) -> ReviewView:
@@ -216,26 +297,34 @@ def _viewer_review(record: ReviewRecord) -> ReviewView:
         created_at=record.created_at,
         clauses=[_clause_view(c) for c in record.clauses],
         injection_flags=[_flag_view(f) for f in record.injection_flags],
-        findings=[_finding_view(f) for f in record.findings],
+        findings=_finding_views(record),
+        contract_decision=record.decision.contract_decision if record.decision else None,
+        decided_at=record.decided_at,
+        decided_by=record.decided_by,
     )
 
 
 def _lawyer_review(record: ReviewRecord) -> LawyerReviewView:
     """The lawyer view, still masked: the viewer fields plus the explicitly added ones."""
+    base = _viewer_review(record)
     return LawyerReviewView(
-        review_id=record.review_id,
-        status=record.status,
-        created_at=record.created_at,
+        review_id=base.review_id,
+        status=base.status,
+        created_at=base.created_at,
         original_text=record.original_text,
         clauses=[_lawyer_clause_view(c) for c in record.clauses],
         injection_flags=[_lawyer_flag_view(f) for f in record.injection_flags],
-        findings=[_finding_view(f) for f in record.findings],
+        findings=base.findings,
+        contract_decision=base.contract_decision,
+        decided_at=base.decided_at,
+        decided_by=base.decided_by,
     )
 
 
 def _unmask_lawyer_view(view: LawyerReviewView, mapping: Mapping[str, str]) -> LawyerReviewView:
     """The only place where placeholders are replaced by raw values: every text field of a built
-    lawyer view (clause text, flag phrase, quote, reasoning, escalation reason, proposal)."""
+    lawyer view (clause text, flag phrase, quote, reasoning, escalation reason, proposal, the
+    lawyer's edited text)."""
 
     def put_back(text: str) -> str:
         return unmask(text, mapping)
@@ -258,6 +347,7 @@ def _unmask_lawyer_view(view: LawyerReviewView, mapping: Mapping[str, str]) -> L
                 "reasoning": put_back(f.reasoning),
                 "escalation_reason": put_back_optional(f.escalation_reason),
                 "proposal": proposal,
+                "edited_text": put_back_optional(f.edited_text),
             }
         )
 
@@ -327,6 +417,35 @@ def require_lawyer(
     if principal.role != "lawyer":
         raise _reject(request, 403, _MSG_FORBIDDEN, "rol yetersiz")
     return principal
+
+
+def load_review(
+    review_id: str,
+    request: Request,
+    principal: Annotated[Principal, Depends(get_principal)],
+) -> ReviewRecord:
+    """The review in the caller's own tenant; 404 when it is not there (another tenant's too).
+
+    `review_id` is a plain `str`: a UUID type would answer 422 instead of 404.
+    """
+    record = Store(_settings_of(request).data_dir, principal.tenant_id).get_review(review_id)
+    if record is None:
+        raise _reject(request, 404, _MSG_NOT_FOUND, "inceleme bu tenant'ta yok")
+    return record
+
+
+def require_awaiting_lawyer(
+    request: Request,
+    principal: Annotated[Principal, Depends(require_lawyer)],
+    record: Annotated[ReviewRecord, Depends(load_review)],
+) -> ReviewRecord:
+    """409 unless the review waits for the lawyer. The role is checked first (403 before 404).
+
+    This keeps the check order; the real guard is the re-read under the decision lock.
+    """
+    if record.status != "awaiting_lawyer":
+        raise _reject(request, 409, _MSG_NOT_AWAITING, "inceleme karar beklemiyor")
+    return record
 
 
 # --- Review run -----------------------------------------------------------------------------------
@@ -406,6 +525,93 @@ def _start_review(settings: Settings, store: Store, text: str) -> str:
     return review_id
 
 
+# --- Lawyer decision ------------------------------------------------------------------------------
+
+# One lock per (resolved data_dir, tenant_id), the key of the shared store and graph caches: a
+# global lock would make one tenant's decision wait for another's. In-process only (one worker).
+_decision_locks: dict[tuple[Path, str], threading.Lock] = {}
+_decision_locks_guard = threading.Lock()
+
+
+def decision_lock(data_dir: Path, tenant_id: str) -> threading.Lock:
+    key = (Path(data_dir).resolve(), tenant_id)
+    with _decision_locks_guard:
+        lock = _decision_locks.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _decision_locks[key] = lock
+        return lock
+
+
+def _masked_decision(
+    body: DecisionRequest, mapping: Mapping[str, str]
+) -> tuple[LawyerDecision, dict[str, str]]:
+    """The internal decision with every `edited_text` masked, and the mapping after masking.
+
+    The same call chain as the clause text in `prepare_contract`; the mapping is threaded from
+    one edited text to the next.
+    """
+    current = dict(mapping)
+    entries: list[FindingDecision] = []
+    for entry in body.findings:
+        edited: MaskedText | None = None
+        if entry.edited_text is not None:
+            edited, current = mask(strip_invisible(entry.edited_text), current)
+        entries.append(
+            FindingDecision(
+                rule_id=entry.rule_id,
+                action=entry.action,
+                status=entry.status,
+                proposal_action=entry.proposal_action,
+                edited_text=edited,
+            )
+        )
+    return LawyerDecision(findings=entries, contract_decision=body.contract_decision), current
+
+
+def _decide(
+    settings: Settings,
+    store: Store,
+    request: Request,
+    review_id: str,
+    body: DecisionRequest,
+    principal: Principal,
+) -> ReviewRecord:
+    """Check, mask and resume; called under the tenant's decision lock."""
+    record = store.get_review(review_id)
+    if record is None:
+        raise _reject(request, 404, _MSG_NOT_FOUND, "inceleme bu tenant'ta yok")
+    if record.status != "awaiting_lawyer":
+        raise _reject(request, 409, _MSG_NOT_AWAITING, "inceleme karar beklemiyor")
+    issues = check_decision(body.findings, record.findings)
+    if issues:
+        # The same handler and shape as a schema error: type, loc and a fixed message only.
+        raise RequestValidationError(
+            [{"type": i.type, "loc": ("body", *i.loc), "msg": i.msg} for i in issues]
+        )
+    try:
+        mapping = store.get_pii_map(review_id)
+        decision, masked_mapping = _masked_decision(body, mapping)
+        new_entries = {k: v for k, v in masked_mapping.items() if k not in mapping}
+        if new_entries:
+            store.add_pii_entries(review_id, new_entries)
+        graph = get_review_graph(settings, store.tenant_id)
+        config = review_config(settings, review_id)
+        if graph.get_state(config).next not in _RESUMABLE_NEXT:
+            raise RuntimeError("İncelemenin graph durumu karar beklemiyor.")
+        graph.invoke(resume_command(decision, principal.name), config)
+        closed = store.get_review(review_id)
+        if closed is None or closed.status not in ("approved", "changes_requested"):
+            raise RuntimeError("Karar sonrası inceleme kapanmamış.")
+    except ReviewNotAwaitingError:
+        raise _reject(request, 409, _MSG_NOT_AWAITING, "inceleme karar beklemiyor") from None
+    except Exception as exc:
+        # The review stays awaiting_lawyer; nothing is marked failed, the lawyer may retry.
+        logger.error("Karar kaydedilemedi: inceleme=%s, hata=%s", review_id, type(exc).__name__)
+        raise HTTPException(status_code=500, detail=_MSG_DECISION_FAILED) from None
+    return closed
+
+
 # --- App ------------------------------------------------------------------------------------------
 
 
@@ -456,28 +662,45 @@ def create_app(settings: Settings) -> FastAPI:
             raise RuntimeError("Kaydedilen inceleme okunamadı.")
         return JSONResponse(review_body(store, record, principal))
 
-    @app.get("/reviews/{review_id}")
-    def get_review(
-        review_id: str,
+    @app.post("/reviews/{review_id}/decision")
+    def decide(
+        body: DecisionRequest,
         request: Request,
-        principal: Annotated[Principal, Depends(get_principal)],
+        principal: Annotated[Principal, Depends(require_lawyer)],
+        record: Annotated[ReviewRecord, Depends(require_awaiting_lawyer)],
     ) -> JSONResponse:
         store = Store(settings.data_dir, principal.tenant_id)
-        record = store.get_review(review_id)
-        if record is None:
-            raise _reject(request, 404, _MSG_NOT_FOUND, "inceleme bu tenant'ta yok")
+        with decision_lock(settings.data_dir, principal.tenant_id):
+            closed = _decide(settings, store, request, record.review_id, body, principal)
+        try:
+            response = review_body(store, closed, principal)
+        except Exception as exc:
+            # The decision is recorded; a retry answers 409 and GET shows the closed review.
+            logger.error(
+                "Karar yanıtı kurulamadı: inceleme=%s, hata=%s",
+                record.review_id,
+                type(exc).__name__,
+            )
+            raise HTTPException(status_code=500, detail=_MSG_DECISION_FAILED) from None
+        return JSONResponse(response)
+
+    @app.get("/reviews/{review_id}")
+    def get_review(
+        principal: Annotated[Principal, Depends(get_principal)],
+        record: Annotated[ReviewRecord, Depends(load_review)],
+    ) -> JSONResponse:
+        store = Store(settings.data_dir, principal.tenant_id)
         return JSONResponse(review_body(store, record, principal))
 
     @app.get("/reviews/{review_id}/audit")
     def get_audit(
-        review_id: str,
-        request: Request,
         principal: Annotated[Principal, Depends(get_principal)],
+        record: Annotated[ReviewRecord, Depends(load_review)],
     ) -> JSONResponse:
         store = Store(settings.data_dir, principal.tenant_id)
-        if store.get_review(review_id) is None:
-            raise _reject(request, 404, _MSG_NOT_FOUND, "inceleme bu tenant'ta yok")
-        entries = [_audit_entry(r).model_dump(mode="json") for r in store.list_audit(review_id)]
+        entries = [
+            _audit_entry(r).model_dump(mode="json") for r in store.list_audit(record.review_id)
+        ]
         return JSONResponse(entries)
 
     return app

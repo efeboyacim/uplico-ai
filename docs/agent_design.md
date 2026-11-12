@@ -16,7 +16,7 @@
   çevrimdışı modda Ollama `qwen3.5:9b`; prompt ve tool'lar aynıdır (`tech_stack.md`).
 
 ### Graph
-`START → review_rule × N (Send) → verify → human_review (interrupt) → finalize`
+`START → review_rule × N (Send) → verify → human_review (interrupt) → finalize → END`
 
 Hazırlık graph'tan önce düz fonksiyon olarak çalışır (`architecture.md` §3); graph'a yalnızca maskeli
 maddeler girer.
@@ -27,7 +27,28 @@ maddeler girer.
   bir kod hatasıdır: bulguya çevrilmez, graph'tan dışarı fırlar.
 - State'te iki liste vardır: `findings` (agent'ın ham önerileri, `Annotated[list, operator.add]` ile
   dallardan toplanır) ve `verified` (`verify` çıktısı). Resume'dan sonra state'e avukatın maskeli
-  kararı da girer; `finalize` son sonucu `reviews` tablosuna yazar.
+  kararı da girer (`decision: NotRequired[dict[str, Any]]`); `finalize` son sonucu `reviews`
+  tablosuna yazar.
+- **`human_review` ve resume:** düğüm yalnızca `decision = interrupt({...}); return {"decision":
+  decision}`'dır; `interrupt()`'tan önce yan etki yoktur. Resume yükü düz sözlüktür: `{"decision":
+  LawyerDecision.model_dump(mode="json"), "decided_by": <anahtarın adı>}`. API yükü ve komutu graph
+  modülündeki tek yardımcıdan (`resume_command(decision, decided_by)`) alır; komut
+  `Command(resume=yük, update={"decision": yük})`'tür. **Neden `update` de verilir** (kurulu
+  sürümlerle sınandı): `finalize` hata verince checkpoint `next == ("finalize",)`'da kalır ve eski
+  karar state'te durur; o noktada yalnızca `Command(resume=YENİ)` ya da `invoke(None)` hata vermeden
+  **eski kararla** koşar, yeni karar sessizce kaybolur. `update` ile aynı çağrı hem `human_review`'da
+  bekleyen hem `finalize`'da kalmış thread'de `finalize`'ı en son kararla tam bir kez koşturur.
+  Bitmiş thread'de (`next == ()`) aynı çağrı `finalize`'ı koşturmaz ama state'teki kararı sessizce
+  değiştirir; bu yüzden API resume'dan önce `next`'in `("human_review",)` ya da `("finalize",)`
+  olduğunu denetler (değilse 500, tutarsız durum). `interrupt()` ile yan etkiyi aynı düğüme koymak
+  daha kötüdür (yeni resume yok sayılır); `finalize` ayrı düğümdür.
+- **`finalize` düğümü:** state'teki kararı `LawyerDecision` olarak, `verified`'ı ve kuralları
+  doğrulayıp okur; `build_outcome` ile `ReviewOutcome`'u, `decision_events` ile olay listesini kurar
+  ve `Store.complete_review`'ü tek kez çağırır (durum + son sonuç + tüm olay satırları tek
+  transaction'da; `architecture.md` §2). `complete_review` `False` dönerse (inceleme artık
+  `awaiting_lawyer` değil) `ReviewNotAwaitingError` fırlatır; API bunu 409'a çevirir. Karar ve audit
+  yazılmamıştır, ama resume'dan önce eklenen `pii_map` girdileri kalır ve thread `finalize`'da kalır
+  (`next == ("finalize",)`; 500 durumundaki gibi). Resume model çağırmaz ve indekse ihtiyaç duymaz.
 - **State düz sözlük tutar, pydantic nesnesi tutmaz:** bulgular, kurallar ve maddeler state'e
   `model_dump(mode="json")` ile girer; düğümler onları girişte `model_validate` / `TypeAdapter` ile
   geri kurar. Sebep: `SqliteSaver`'ın serileştiricisi kayıtsız bir pydantic tipini okurken "bu tip
@@ -60,7 +81,9 @@ maddeler girer.
   başladı). Yani `failed` bir incelemede hata veren kuralın dışındaki bazı kuralların da model
   çağrıları ve `finding` satırları bulunabilir; kaç tane olacağı belli değildir. Böyle bir
   thread'in checkpoint'i biten dalların bulgularını tutar; thread bir daha çağrılmaz (`failed`
-  inceleme sondur).
+  inceleme sondur). Bu kural `interrupt`'tan önceki koşu (`POST /reviews`) içindir. Resume'daki
+  `finalize` hatası incelemeyi `failed` yapmaz: inceleme `awaiting_lawyer`'da kalır ve thread karar
+  ucundan yeniden devam ettirilebilir (yukarıda "`human_review` ve resume"; §6).
 - Graph senkrondur: `async def`, `ainvoke`, `astream`, `awrap_*` yoktur (`code_standards.md`).
 - **Kural agent'ı checkpoint'e yazılmaz:** `create_agent(..., checkpointer=False)`. Bu verilmezse
   agent, içinde çağrıldığı graph'ın `SqliteSaver`'ını devralır ve her kuralın tüm mesaj geçmişini
@@ -471,7 +494,9 @@ yoktur.**
     kendi metninde yer tutucu biçiminde bir dize (`[KISI_1]`) geçerse o da olduğu gibi kalır ve
     `lawyer` görünümünde eşlemedeki değerle açılabilir.
   - Aynı maskeleyici, avukatın karar sırasında yazdığı düzenlenmiş taslak metnine de uygulanır
-    (incelemenin mevcut eşlemesiyle). Orada eşlemede olmayan yeni bir kişi adı yakalanmaz.
+    (incelemenin mevcut eşlemesiyle, aynı çağrı zinciriyle: `mask(strip_invisible(metin), eşleme)`;
+    ayrıntı `architecture.md` §3 "Avukat kararı"). Orada eşlemede olmayan yeni bir kişi adı
+    yakalanmaz; `viewer` onu inceleme yanıtında, raporda ve audit'te görebilir (bilinen sınır).
   - Sınır: maskelenmesi garanti edilmeyenler kaçabilir: gövdede geçen ad, öneksiz telefon,
     boşluklu TCKN, düzensiz gruplanmış ya da satıra bölünmüş IBAN, etiketsiz imza satırındaki ad. Ad sözleşmenin hiçbir yerinde bir etiketin
     ("Ad Soyad:", "Yetkili:", "temsilen") yanında geçmiyorsa hiçbir yazımı yakalanmaz: imza
@@ -537,6 +562,7 @@ kural için avukattan taslak kararı istenmez); ikisi de audit'teki `tool_call` 
 | Kimlik / yapılandırma hatası (Groq 401 / 403 / 404, Ollama 404) | **İstisna:** `review_rule`'da yakalanmaz, yeniden fırlatılır; graph durur, API incelemeyi `failed` yapar ve 502 döner |
 | Diğer LLM hatası (zaman aşımı, 5xx, 400, bağlantı reddi) | `review_rule` içinde yakalanır → `no_finding` (sebep `llm_error`) → avukat kuyruğu |
 | Model çağrısı dışından gelen hata (tool gövdesinde beklenmeyen hata, middleware, kütüphane, audit yazımı, eksik indeks) | Bulguya çevrilmez; graph'tan dışarı fırlar, API incelemeyi `failed` yapar ve 500 döner |
+| Avukat kararından sonra `finalize` ya da resume hatası | İnceleme `failed` olmaz, `awaiting_lawyer`'da kalır; audit'e satır yazılmaz; API 500; karar yeniden gönderilebilir (aşağıda) |
 | Tool hatası (beklenen: olmayan madde, eksik kanıt) | Açıklayıcı hata mesajı modele döner; model düzeltir |
 | Geçersiz tool argümanı | Şema hatası modele döner |
 | Düşük güven / belirsiz madde | Agent `escalate_to_lawyer` çağırır |
@@ -557,7 +583,29 @@ geçersizse, model engelliyse ya da model adı yanlışsa hiçbir kural çalış
 `no_finding` yapmak yerine inceleme `failed` olur (API 502). Model çağrısının dışından gelen her hata
 da incelemeyi `failed` yapar (API 500): audit log'a yazılamaması (`sqlite3.Error`; eksik kayıtla
 tamamlanmış inceleme olmaz) ve beklenmeyen kod hataları. Bunlar bulguya çevrilmez; bir kod hatası
-avukata kural sonucu gibi gitmez.
+avukata kural sonucu gibi gitmez. Bu paragraf `interrupt`'tan önceki koşu (`POST /reviews`) içindir;
+avukat kararından sonraki hata aşağıdadır.
+
+**Avukat kararından sonraki hata (`finalize` / resume):**
+- API **500** döner, yanıtta sabit mesaj ("Karar kaydedilemedi: beklenmeyen bir hata oluştu."),
+  loga yalnızca istisna tipi düşer.
+- İnceleme `awaiting_lawyer`'da kalır; `mark_failed` çağrılmaz, `review_failed` yazılmaz (inceleme
+  başarısız olmadı, kayıt yazılamadı). `complete_review` durumu ve tüm karar / kapanış olaylarını tek
+  transaction'da yazdığı için audit'e yarım kayıt girmez: ya hepsi ya hiçbiri.
+- Avukat aynı ya da **farklı** kararı yeniden gönderebilir; yeniden deneme ilk denemeyle aynı kod
+  yolundan geçer ve en son kararı kaydeder (`Command(resume, update)`, §1). Hatadan önce `pii_map`'e
+  eklenen girdiler kalır.
+- Kayıt yazıldıktan sonraki bir hata (checkpoint yazımı, yanıtın kurulması) da 500 döner; bu durumda
+  kayıt ve audit tamdır, yeniden deneme 409 alır ve `GET` kapanmış incelemeyi gösterir.
+- `complete_review` `False` dönerse (`ReviewNotAwaitingError`) API 409 döner; karar ve audit
+  yazılmaz, ama resume'dan önce eklenen `pii_map` girdileri kalır ve thread `finalize`'da kalır
+  (`next == ("finalize",)`; 500 durumundaki gibi).
+
+**Karar kilidi ve tek süreç:** karar ucunun işleyicisi tenant başına bir kilit altında çalışır
+(`(çözülmüş data_dir, tenant_id)` anahtarlı; `Store` ve graph önbelleğiyle aynı anahtar). Kilitsiz
+iki eşzamanlı resume'da `finalize` iki kez koşar ve hata çıkmaz (kurulu sürümle sınandı); kilit
+altında yeniden okunan durum ikinciyi 409 ile reddeder. Kilit süreç içindir: uygulama tek süreç
+çalışır (`python -m src.api`, tek uvicorn worker); çok süreçli dağıtım desteklenmez (bilinen sınır).
 
 ## 7. Gözlemlenebilirlik
 - **Audit log (asıl kayıt):** tenant'ın `app.db` dosyasında `audit_log` tablosu.
@@ -581,7 +629,8 @@ avukata kural sonucu gibi gitmez.
     yükteki `no_finding_reason`'dadır); `verification`'ı `verify` düğümü (`actor` = `system`);
     `awaiting_lawyer` ve `review_failed`'ı graph
     döndükten sonra API (`human_review`'da `interrupt()`'tan önce yan etki yok); karar olaylarını,
-    `report_created` ve `review_closed`'ı `finalize`.
+    `report_created` ve `review_closed`'ı `finalize`, tek `Store.complete_review` çağrısıyla, durum
+    değişikliğiyle aynı transaction'da. Karar ucu `review_failed` yazmaz (§6).
   - İstisna: hazırlık yarıda kalırsa `review_failed`'ı (`reason: prepare_error`) hazırlık
     fonksiyonunun kendisi yazar; çağıran o noktada `review_id`'yi henüz bilmez.
   - **API'nin yazdığı olaylar** (`actor` = `system`):
@@ -617,11 +666,23 @@ avukata kural sonucu gibi gitmez.
       `Store.append_audit_many` ile tek transaction'da yazılır (ya hepsi ya hiçbiri). Yük:
       `rule_id`, `needs_review`, `review_reasons`, `code_check` (taslağın sonucu; taslak yoksa
       `null`).
+  - **Karar ve kapanış olaylarının yükü** (hepsi `complete_review`'ün tek transaction'ında, bu
+    sırayla; listeyi `src/decision.py::decision_events` kurar):
+    1. Kural sırasında, karar gövdesindeki her girdi için: `action` verildiyse `finding_decision`
+       `{rule_id, action, status, final_status}` (`status` yalnızca `correct`'te avukatın verdiği,
+       yoksa `null`); `proposal_action` verildiyse `proposal_decision` `{rule_id, proposal_action,
+       edited_text}` (`edited_text` maskeli ya da `null`). Aktör `lawyer:<name>`. Karar verilmeyen
+       bulgu için satır yazılmaz.
+    2. `contract_decision` `{contract_decision, status}` (`status`: `approved` /
+       `changes_requested`) — aktör `lawyer:<name>`.
+    3. `report_created` `{final_status_counts: {compliant, non_compliant, not_found}}` — aktör
+       `system`.
+    4. `review_closed` `{status}` — aktör `system`. İncelemenin son audit satırıdır.
   - Raporu okumak (`GET`) kayıt üretmez.
   - `<name>` API anahtarının sunucudaki kaydından gelir; istek gövdesinden okunmaz.
-  - Reddedilen istekler (401 / 403 / 404 / 409 / 422) inceleme durumunu ve audit log'u değiştirmez;
-    yalnızca uygulama loguna yazılır (başka tenant'ın kaydına satır eklenmesin diye). Kayıt,
-    gerçekleşen işlemleri tutar.
+  - Reddedilen istekler (401 / 403 / 404 / 409 / 422) inceleme durumunu, audit log'u ve
+    `pii_map`'i değiştirmez; yalnızca uygulama loguna yazılır (başka tenant'ın kaydına satır
+    eklenmesin diye). Kayıt, gerçekleşen işlemleri tutar.
 - **Tracing:** LangSmith, yalnızca anahtar varsa. Graph yalnızca maskeli metin gördüğü için trace de maskelidir.
   - `review_started` kaydı sağlayıcıyı ve modeli içerir; hangi incelemenin metninin dışarı gittiği
     kayıttan görülür.

@@ -178,7 +178,24 @@
   bekliyor, karar ucunu gerçek veriyle elle denemek için kullanılabilir. (4) Örnek sözleşmede
   her bulgu `injection_suspected` taşır (iki maddedeki işaret beş bulguya da ekleniyor); *Son
   karar* testleri "avukatsız geçen bulgu" için ayrı, işaretsiz bir metin kullanmalı.
-- **Sıradaki:** Adım 13 — Avukat kararı ve finalize.
+  Adım 13: `POST /reviews/{id}/decision`, `finalize` düğümü, `src/decision.py` (saf karar
+  fonksiyonları) ve tek transaction'lı `Store.complete_review` yazıldı; kararlar (K1–K9) ve deney
+  sonuçları aşağıda Adım 13 bölümünde. Adım 11'in "inceleme yanıtında karar alanı yok" kararı
+  değişti: karar alanları `*View` modellerinde, karardan önce `null`. Uygulamayı alt-agent'lar yazdı
+  (önce dokümanlar, sonra kod); plan üç, kod üç bağımsız incelemeden geçti. Kod incelemesinin iki
+  bulgusu düzeltildi: (1) `complete_review` `False` dönünce gelen 409'da `pii_map` girdisi ve
+  `next == ("finalize",)` kalır; dokümanlar ve test buna göre düzeltildi; (2) eşzamanlı iki karar
+  testi olay tabanlı yazıldı (kilit kaldırılınca 10/10 kalıyor). Elle deneme Docker'da değil,
+  `data/`'nın bir kopyasında `TestClient` ile yapıldı: eski topolojiyle bekleyen gerçek bir inceleme
+  yeni graph'la kapandı (403 / 422 / 200 / ikinci karar 409, audit sırası beklenen gibi);
+  `data/tenants/acme/` altındaki dört inceleme hâlâ `awaiting_lawyer`. Taslaklı bulguda `edit`
+  yolu gerçek veride denenmedi (o incelemede taslak yoktu); testlerle kapsanıyor.
+  Adım 14 için notlar: rapor `ReviewRecord.findings` + `ReviewRecord.decision` (`ReviewOutcome`:
+  kural başına `severity`, `final_status`, `action`, `proposal_action`, maskeli `edited_text`)
+  üzerinden, `rules.yaml`'a bakmadan üretilir; `approved_with_noncompliant` ve talep edilen
+  değişiklikler saklanmaz, raporda türetilir; kayda bakan 422'lerde girdisi hiç gönderilmemiş
+  bulgunun `loc`'u indeks yerine `rule_id` taşır.
+- **Sıradaki:** Adım 14 — Rapor.
 - Bu bölüm her adımın commit'inde güncellenir; sıradaki adım, aşağıdaki ilk işaretsiz kutudur.
 
 ## Bağlam
@@ -651,19 +668,98 @@ gereksiz yönlendirme satırları bunu gösterir.
   `journal_mode=DELETE`.
 - **Commit:** `chore: add docker compose with offline ollama profile`
 
-### [ ] Adım 13 — Avukat kararı ve finalize
-- **Ne:** `LawyerDecision` şeması; `POST /reviews/{id}/decision` (kontrol sırası 401 → 403 → 404 →
-  409 → 422, ilk dördü bağımlılıklarda; zorunluluk kontrolü resume'dan önce; `edited_text` aynı
-  maskeleyiciden geçer; kararı verenin adı anahtardan). Graph'a `finalize` düğümü: bulguların son
-  sonucunu hesaplar, `reviews` kaydını tamamlar, karar olaylarını + `report_created` +
-  `review_closed` yazar.
-- **Dosyalar:** `src/models.py`, `src/api.py`, `src/graph.py`, `tests/test_api.py`,
-  `tests/test_graph.py`
-- **Doğrulama:** Testler: *`viewer` karar veremez*, *Gövdedeki rol/ad yok sayılır*, *Avukat kararı —
-  zorunlu alanlar*, *— geçersiz değerler*, *Son karar* (durum `approved` / `changes_requested`),
-  *Düzenlenmiş metin maskelenir* (`reviews` kaydı, graph state'i, audit), *Kayıt eksiksiz* (baştan
-  sona tüm olaylar); kapanmış incelemeye ikinci karar 409, başka tenant'ın incelemesine karar 404;
-  reddedilen isteklerde durum ve audit değişmez.
+### [x] Adım 13 — Avukat kararı ve finalize
+- **Ne:** `POST /reviews/{review_id}/decision` (`Depends(require_lawyer)`; kontrol sırası 401 → 403
+  → 404 → 409 → 422, ilk dördü bağımlılıklarda; zorunluluk kontrolü resume'dan önce; `edited_text`
+  aynı maskeleyiciden geçer; kararı verenin adı anahtardan). Graph'a `finalize` düğümü:
+  `human_review → finalize → END`; bulguların son sonucunu hesaplar, `reviews` kaydını tamamlar,
+  karar olaylarını + `report_created` + `review_closed` yazar. Başarılı yanıt 200 ve
+  `GET /reviews/{id}` ile aynı gövde.
+- **Kararlar** (dokümanların boş bıraktığı noktalar; kodlamadan önce `architecture.md` §2–§3,
+  `agent_design.md` §1 / §5 / §6 / §7, `code_standards.md`, `evals.md` §2 ve `spec.md`'ye işlendi;
+  kullanıcı 2026-11-12'de onayladı):
+  (K1) **İki model:** `src/api.py`'de istek modeli `DecisionRequest` (`extra="ignore"`; gövdedeki
+  `role` / `reviewer` / `tenant` yok sayılır) ve liste öğesi `FindingDecisionRequest`
+  (**`extra="forbid"`**; `code_standards.md`'deki istek modeli kuralına yazılan tek istisna: öğede
+  yanlış yazılmış alan yok sayılsaydı kuyruk dışı bulguda avukatın taslak kararı sessizce
+  kaybolurdu). `src/models.py`'de iç model `FindingDecision` / `LawyerDecision` (`_Model`,
+  `edited_text: MaskedText | None`), yalnızca maskelemeden sonra kurulur. Biçim kuralları
+  `src/decision.py`'de tek yerde, iki model de çağırır: `status` yalnızca `correct` ile ve `correct`
+  ise zorunlu; `edited_text` yalnızca `edit` ile (`accept` / `reject` ile 422) ve `edit` ise
+  `strip_invisible(edited_text).strip()` boş olamaz; her girdide `action` ya da `proposal_action`;
+  `rule_id` tekrarsız; `edited_text` en fazla 20.000 karakter; doğrulayıcı mesajları sabit metin.
+  (K2) **Kayda bakan kontroller** (bilinmeyen `rule_id`, kuyrukta eksik `action` /
+  `proposal_action`, taslaksız bulguda `proposal_action`) saf `check_decision(girdiler, findings)`
+  ile, **maskelemeden önce**, istek modeli üzerinde çalışır; 422'leri
+  `RequestValidationError([{"type", "loc", "msg"}, …])` ile üretilir (mevcut işleyiciden aynı
+  biçimle geçen tek yol).
+  (K3) **Son sonuç:** `Finding` değişmez. Yeni `FindingOutcome` (`rule_id`, state'teki kural
+  kopyasından `severity`, `final_status`, `action`, `proposal_action`, maskeli `edited_text`; kural
+  başına bir tane, kural sırasında, dokunulmayan bulgu için de) ve `ReviewOutcome`
+  (`contract_decision`, `findings`). `ReviewRecord.decision: ReviewOutcome | None`; şema değişmez.
+  `approved_with_noncompliant` ve talep edilen değişiklikler saklanmaz (Adım 14 türetir). Saf
+  `build_outcome(decision, findings, rules)`.
+  (K4) **Tek transaction:** `Store.complete_review(review_id, status, decision, decided_by, events)
+  -> bool`; tek `BEGIN IMMEDIATE`, `UPDATE … WHERE status = 'awaiting_lawyer'`, `rowcount == 1`
+  ise olay satırları aynı transaction'da, değilse hiçbir şey ve `False`. `findings` parametresi kalkar.
+  (K5) **Audit satırları** (bu sırayla): girdi başına `finding_decision` `{rule_id, action, status,
+  final_status}` / `proposal_decision` `{rule_id, proposal_action, edited_text}` (`lawyer:<ad>`);
+  `contract_decision` `{contract_decision, status}` (`lawyer:<ad>`); `report_created`
+  `{final_status_counts}` (`system`); `review_closed` `{status}` (`system`). `decided_by` sütununda
+  yalnızca ad.
+  (K6) **Resume ve eşzamanlılık:** `human_review` yalnızca `interrupt` + `{"decision": …}` döner;
+  `ReviewState.decision: NotRequired[dict[str, Any]]`; yük `{"decision": LawyerDecision dump,
+  "decided_by": ad}`; komut `resume_command(...)` → `Command(resume=yük, update={"decision": yük})`.
+  İşleyici gövdesi tenant başına karar kilidi (`(çözülmüş data_dir, tenant_id)`) altında: kaydı
+  yeniden oku → 409 → `check_decision` (422) → eşlemeyi oku, maskele, `LawyerDecision` kur →
+  `add_pii_entries` → `get_state(config).next` `("human_review",)` ya da `("finalize",)` değilse 500
+  → invoke → kaydı oku, yanıtla. `complete_review` `False` dönerse `ReviewNotAwaitingError` → 409
+  (karar ve audit yazılmaz; resume'dan önce eklenen `pii_map` girdileri kalır, thread `finalize`'da
+  kalır).
+  Kilit tek süreç içindir (bilinen sınır).
+  (K7) **`finalize` / resume hatası:** 500, sabit mesaj, loga yalnızca istisna tipi; inceleme
+  `awaiting_lawyer`'da kalır, audit'e satır yok, `review_failed` / `mark_failed` yok; aynı ya da
+  farklı kararla yeniden denenebilir. "Hata fırlatan thread bir daha çağrılmaz" ve "audit'e
+  yazılamıyorsa inceleme `failed` olur" kuralları `POST /reviews` ile sınırlandı.
+  (K8) **Yanıt:** karar alanları `*View` modellerine eklenir: `FindingView` + `final_status`,
+  `action`, `proposal_action`, `edited_text`; `ReviewView` + `contract_decision`, `decided_at`,
+  `decided_by`; karardan önce `null`. `edited_text` `_unmask_lawyer_view`'e eklenir. `provider` /
+  `model` yanıta girmez (Adım 11'deki "yanıtta karar alanı yok" kararı değişti).
+  (K9) **Maskeleme:** `mask(strip_invisible(metin), eşleme)`; eşleme `edited_text`'ler arasında
+  taşınır; yeni girdiler tüm doğrulamalardan sonra, resume'dan önce yazılır; reddedilen istek
+  `pii_map`'e yazmaz (istisna: `complete_review` `False`'tan gelen 409, K6). Sınır: eşlemede
+  olmayan yeni kişi adı maskelenmez (`spec.md` §8).
+- **Deney** (kurulu sürümler: langgraph 1.2.20, langgraph-checkpoint-sqlite 3.1.3, fastapi 0.162.4,
+  pydantic 2.14.3; model graph / model uygulama): bağımlılıktaki `HTTPException` şema hatasından
+  önce döner (tek istisna sözdizimi bozuk JSON); üstte `ignore` + öğede `forbid` çalışır ve 422
+  yalnızca alan adını taşır; yerleşik hata `msg`'leri girdiyi yansıtmaz; `finalize` hata verince
+  checkpoint `next == ("finalize",)`'da kalır ve yalnızca `Command(resume=YENİ)` eski kararla koşar,
+  `update` ile en son kararla tam bir kez koşar; bitmiş thread'de aynı çağrı `finalize`'ı koşturmaz
+  ama state'i değiştirir; kilitsiz iki eşzamanlı resume'da `finalize` iki kez koşar; resume değeri
+  `checkpoints.db`'ye dört yerde düz UTF-8 yazılır (maskeleme şart); eski topolojiyle bekleyen
+  checkpoint yeni graph'la resume edilip `finalize` çalışır.
+- **Dosyalar:** `src/models.py`, `src/decision.py` (yeni, saf; I/O ve log yok), `src/store.py`
+  (`complete_review`, `get_review`'ün `ReviewOutcome` okuması), `src/graph.py`, `src/api.py` (istek
+  modelleri, 404 / 409 bağımlılıkları — mevcut iki `GET` ucunun satır içi 404'ü de bu bağımlılığa
+  taşınır; `review_id: str`, UUID tipi değil —, karar kilidi, uç, View alanları),
+  `tests/test_decision.py` (yeni), `tests/test_store.py`, `tests/test_graph.py`, `tests/test_api.py`,
+  `docs/architecture.md`, `docs/agent_design.md`, `docs/code_standards.md`, `docs/evals.md`,
+  `docs/spec.md`, `CLAUDE.md`
+- **Doğrulama:** Testler (`evals.md` §2): *`viewer` karar veremez* (`next == ("human_review",)`),
+  *Gövdedeki rol/ad yok sayılır* (audit aktörü ve `decided_by`), *Avukat kararı — zorunlu alanlar*,
+  *— geçersiz değerler*, *Son karar* (durum `approved` / `changes_requested`; işaretsiz ayrı metin),
+  *Düzenlenmiş metin maskelenir* (`reviews` kaydı, `get_state`, audit, `checkpoints.db` + `-wal` ham
+  baytları; `lawyer` maskesiz, `viewer` maskeli), *Kayıt eksiksiz* (son satır `review_closed`),
+  *Reddedilen karar isteği iz bırakmaz* (ikinci karar 409, başka tenant 404; durum, audit, `pii_map`,
+  `next` değişmez; `complete_review` `False`'tan gelen 409 istisnadır). Ek: *Karar ucunun kontrol sırası*, *Karar ucunun 422'si girdiyi yansıtmaz*,
+  *`edited_text` sınırları*, *Kayda bakan kontroller maskelemeden önce*, *Karar kilidi tenant
+  başınadır*, *`complete_review` atomiktir*, *`finalize` hatası incelemeyi `failed` yapmaz* (TEMP
+  TRIGGER; farklı kararla yeniden deneme), *Eşzamanlı iki karar*, *Karar fonksiyonları*, *Resume
+  sonrası graph*; rota listesine yeni uç; *Role göre gösterim* ve *Yanıt sabit alan listesiyle
+  kurulur* yeni View alanlarıyla. Elle: `docker compose up --build`; `data/tenants/acme/` altındaki
+  `awaiting_lawyer` incelemelerinden biriyle karar ucu denenir (eski topolojiyle bekleyen thread'in
+  gerçek veride ilk resume'u; model çağrılmaz). Bitti: `uv run pytest`, ruff, `uv run mypy src`
+  temiz; görünmez karakter (Cf) taraması.
 - **Commit:** `feat: add lawyer decision endpoint and finalize step`
 
 ### [ ] Adım 14 — Rapor

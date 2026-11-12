@@ -6,7 +6,19 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from src.models import Check, Clause, Finding, InjectionFlag, MaskedText, Proposal, Rule
+from src.models import (
+    AuditEvent,
+    Check,
+    Clause,
+    ContractDecision,
+    Finding,
+    FindingOutcome,
+    InjectionFlag,
+    MaskedText,
+    Proposal,
+    ReviewOutcome,
+    Rule,
+)
 from src.store import RulesError, Store, UnknownTenantError, close_all
 
 SAMPLE_TEXT = (
@@ -72,6 +84,38 @@ def _findings() -> list[Finding]:
             review_reasons=["unverified_not_found"],
         ),
     ]
+
+
+def _outcome(contract_decision: ContractDecision = "request_changes") -> ReviewOutcome:
+    return ReviewOutcome(
+        contract_decision=contract_decision,
+        findings=[
+            FindingOutcome(
+                rule_id="termination_notice",
+                severity="critical",
+                final_status="non_compliant",
+                action="accept",
+                proposal_action="edit",
+                edited_text=MaskedText("[KISI_1] altmış (60) gün; Türkçe açıklama"),
+            ),
+            FindingOutcome(rule_id="governing_law", severity="normal", final_status="not_found"),
+        ],
+    )
+
+
+def _events(status: str = "changes_requested") -> list[tuple[str, AuditEvent, dict[str, object]]]:
+    return [
+        ("lawyer:Ayşe", "finding_decision", {"rule_id": "termination_notice", "action": "accept"}),
+        ("lawyer:Ayşe", "contract_decision", {"status": status}),
+        ("system", "report_created", {"final_status_counts": {"non_compliant": 1}}),
+        ("system", "review_closed", {"status": status}),
+    ]
+
+
+def _awaiting(store: Store) -> str:
+    review_id = store.create_review("metin", "groq", "m")
+    assert store.save_findings(review_id, _findings()) is True
+    return review_id
 
 
 def _write_rules(data_dir: Path, content: str) -> None:
@@ -446,17 +490,22 @@ def test_review_round_trip_persists_and_reads_back_equal_models(data_dir: Path) 
     assert awaiting.status == "awaiting_lawyer"
     assert awaiting.findings == _findings()
 
-    final = _findings()[:1]
-    decision = {"contract": "request_changes", "not": "Türkçe açıklama"}
-    assert store.complete_review(review_id, "changes_requested", final, decision, "Ayşe") is True
+    events_before = store.list_audit(review_id)
+    assert (
+        store.complete_review(review_id, "changes_requested", _outcome(), "Ayşe", _events()) is True
+    )
 
     done = store.get_review(review_id)
     assert done is not None
     assert done.status == "changes_requested"
     assert done.clauses == _clauses()
     assert done.injection_flags == _flags()
-    assert done.findings == final
-    assert done.decision == decision
+    # The findings are not rewritten: the model's result stays as stored.
+    assert done.findings == _findings()
+    assert done.decision == _outcome()
+    rows = store.list_audit(review_id)
+    assert rows[: len(events_before)] == events_before
+    assert [(r.actor, r.event, r.payload) for r in rows[len(events_before) :]] == _events()
     assert done.decided_by == "Ayşe"
     assert done.decided_at is not None and done.decided_at.endswith("+00:00")
     assert done.provider == "groq"
@@ -477,24 +526,70 @@ def test_review_original_text_stored_byte_for_byte(data_dir: Path) -> None:
 
 def test_review_complete_twice_returns_false_and_changes_nothing(data_dir: Path) -> None:
     store = Store(data_dir, "acme")
-    review_id = store.create_review("metin", "groq", "m")
-    store.save_findings(review_id, _findings())
-    assert store.complete_review(review_id, "approved", _findings(), {"c": "approve"}, "Ayşe")
+    review_id = _awaiting(store)
+    assert store.complete_review(
+        review_id, "approved", _outcome("approve"), "Ayşe", _events("approved")
+    )
     before = store.get_review(review_id)
+    audit_before = store.list_audit(review_id)
 
-    assert store.complete_review(review_id, "changes_requested", [], {"c": "x"}, "Can") is False
+    assert (
+        store.complete_review(review_id, "changes_requested", _outcome(), "Can", _events()) is False
+    )
     assert store.save_findings(review_id, []) is False
     assert store.save_prepared(review_id, [], []) is False
     assert store.mark_failed(review_id) is False
     assert store.get_review(review_id) == before
+    # Not awaiting_lawyer: no event row of the second call was written.
+    assert store.list_audit(review_id) == audit_before
 
 
-def test_review_complete_while_running_returns_false(data_dir: Path) -> None:
+def test_review_complete_while_running_returns_false_and_writes_no_row(data_dir: Path) -> None:
     store = Store(data_dir, "acme")
     review_id = store.create_review("metin", "groq", "m")
-    assert store.complete_review(review_id, "approved", [], {}, "Ayşe") is False
+    assert store.complete_review(review_id, "approved", _outcome(), "Ayşe", _events()) is False
     record = store.get_review(review_id)
     assert record is not None and record.status == "running" and record.decided_at is None
+    assert record.decision is None
+    assert store.list_audit(review_id) == []
+
+
+def test_review_complete_event_insert_failure_rolls_back_status(data_dir: Path) -> None:
+    store = Store(data_dir, "acme")
+    review_id = _awaiting(store)
+    audit_before = store.list_audit(review_id)
+    # TEMP: the trigger lives on the store's shared connection; the last event row fails.
+    store._conn.execute(
+        "CREATE TEMP TRIGGER fail_closed BEFORE INSERT ON main.audit_log "
+        "WHEN NEW.event = 'review_closed' BEGIN SELECT RAISE(ABORT, 'yazilamadi'); END"
+    )
+    with pytest.raises(sqlite3.IntegrityError, match="yazilamadi"):
+        store.complete_review(review_id, "changes_requested", _outcome(), "Ayşe", _events())
+    record = store.get_review(review_id)
+    assert record is not None
+    assert record.status == "awaiting_lawyer"
+    assert record.decision is None and record.decided_at is None and record.decided_by is None
+    # The rows before review_closed were rolled back with the status.
+    assert store.list_audit(review_id) == audit_before
+    assert not store._conn.in_transaction
+
+    store._conn.execute("DROP TRIGGER temp.fail_closed")
+    assert store.complete_review(review_id, "changes_requested", _outcome(), "Ayşe", _events())
+    assert [r.event for r in store.list_audit(review_id)][len(audit_before) :] == [
+        e for _, e, _ in _events()
+    ]
+
+
+def test_review_complete_unknown_event_raises_and_writes_nothing(data_dir: Path) -> None:
+    store = Store(data_dir, "acme")
+    review_id = _awaiting(store)
+    audit_before = store.list_audit(review_id)
+    bad = [("system", "not_an_event", {})]
+    with pytest.raises(ValueError):
+        store.complete_review(review_id, "approved", _outcome(), "Ayşe", bad)  # type: ignore[arg-type]
+    record = store.get_review(review_id)
+    assert record is not None and record.status == "awaiting_lawyer"
+    assert store.list_audit(review_id) == audit_before
 
 
 def test_review_save_findings_twice_returns_false_and_keeps_first(data_dir: Path) -> None:
@@ -555,7 +650,7 @@ def test_review_complete_with_invalid_status_raises(data_dir: Path) -> None:
     review_id = store.create_review("metin", "groq", "m")
     store.save_findings(review_id, [])
     with pytest.raises(ValueError):
-        store.complete_review(review_id, "failed", [], {}, "Ayşe")  # type: ignore[arg-type]
+        store.complete_review(review_id, "failed", _outcome(), "Ayşe", [])  # type: ignore[arg-type]
     record = store.get_review(review_id)
     assert record is not None and record.status == "awaiting_lawyer"
 
@@ -582,7 +677,8 @@ def test_review_missing_id_returns_none_and_false(data_dir: Path) -> None:
     assert store.get_review(missing) is None
     assert store.save_prepared(missing, [], []) is False
     assert store.save_findings(missing, []) is False
-    assert store.complete_review(missing, "approved", [], {}, "Ayşe") is False
+    assert store.complete_review(missing, "approved", _outcome(), "Ayşe", _events()) is False
+    assert store.list_audit(missing) == []
     assert store.mark_failed(missing) is False
 
 

@@ -14,7 +14,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal, get_args
+from typing import get_args
 
 import yaml
 from pydantic import TypeAdapter, ValidationError
@@ -23,13 +23,13 @@ from src.models import (
     AuditEvent,
     AuditRecord,
     Clause,
+    DecidedStatus,
     Finding,
     InjectionFlag,
+    ReviewOutcome,
     ReviewRecord,
     Rule,
 )
-
-DecidedStatus = Literal["approved", "changes_requested"]
 
 _DB_NAME = "app.db"
 _RULES_NAME = "rules.yaml"
@@ -253,7 +253,11 @@ class Store:
             clauses=_CLAUSES.validate_json(row["clauses"]),
             injection_flags=_FLAGS.validate_json(row["injection_flags"]),
             findings=_FINDINGS.validate_json(row["findings"]),
-            decision=None if row["decision"] is None else json.loads(row["decision"]),
+            decision=(
+                None
+                if row["decision"] is None
+                else ReviewOutcome.model_validate_json(row["decision"])
+            ),
             decided_at=row["decided_at"],
             decided_by=row["decided_by"],
         )
@@ -305,29 +309,40 @@ class Store:
         self,
         review_id: str,
         status: DecidedStatus,
-        findings: Sequence[Finding],
-        decision: Mapping[str, object],
+        decision: ReviewOutcome,
         decided_by: str,
+        events: Sequence[tuple[str, AuditEvent, Mapping[str, object]]],
     ) -> bool:
+        """Close an `awaiting_lawyer` review: the final status, the final result, the decision
+        time and the lawyer's name, plus every given audit row (decision rows, `report_created`,
+        `review_closed`), all in one transaction: all of it or none.
+
+        The stored findings are not rewritten. Returns False (and writes nothing) when the review
+        is not `awaiting_lawyer`.
+        """
         if status not in _DECIDED_STATUSES:
             raise ValueError("complete_review yalnızca approved ya da changes_requested alır.")
-        findings_json = _dumps([f.model_dump(mode="json") for f in findings])
-        decision_json = _dumps(dict(decision))
+        for _, event, _ in events:
+            if event not in _AUDIT_EVENTS:
+                raise ValueError("Bilinmeyen audit olayı.")
+        decision_json = _dumps(decision.model_dump(mode="json"))
+        rows = [(actor, event, _dumps(dict(payload))) for actor, event, payload in events]
         with self._write() as conn:
+            now = _now()
             cursor = conn.execute(
-                "UPDATE reviews SET status = ?, findings = ?, decision = ?, decided_at = ?, "
-                "decided_by = ? WHERE review_id = ? AND status = ?",
-                (
-                    status,
-                    findings_json,
-                    decision_json,
-                    _now(),
-                    decided_by,
-                    review_id,
-                    "awaiting_lawyer",
-                ),
+                "UPDATE reviews SET status = ?, decision = ?, decided_at = ?, decided_by = ? "
+                "WHERE review_id = ? AND status = ?",
+                (status, decision_json, now, decided_by, review_id, "awaiting_lawyer"),
             )
-            return cursor.rowcount == 1
+            if cursor.rowcount != 1:
+                return False
+            for actor, event, payload_json in rows:
+                conn.execute(
+                    "INSERT INTO audit_log (ts, review_id, actor, event, payload) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (_now(), review_id, actor, event, payload_json),
+                )
+            return True
 
     def mark_failed(self, review_id: str) -> bool:
         with self._write() as conn:
