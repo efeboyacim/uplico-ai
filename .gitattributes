@@ -1,0 +1,4 @@
+# Every text file is checked out with LF on every platform. Contracts, fixtures and the UI page
+# must reach each machine as the same bytes: offsets, the model input and the CSP script hash
+# depend on them.
+* text=auto eol=lf
