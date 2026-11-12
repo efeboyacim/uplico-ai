@@ -348,7 +348,9 @@
 - **Sıradaki:** Adım 18 — İlk eval koşusu ve kalibrasyon. `src/` değiştiği için imaj yeniden
   kurulmalı; önbellek özeti de değişti.
 - **Adım 18'e başlarken (2026-11-12 oturumunun devri):**
-  1. Depo temiz; son commit `9b6ca9a`. `origin/main`'e push yapılmadı (push Adım 20'dir).
+  1. Depo temiz; son kod commit'i `9b6ca9a`, ardından yalnızca doküman commit'leri (`78aa363`,
+     `48535ea` ve bu notun commit'i; önbellek özetini bozmaz). `origin/main`'e push yapılmadı
+     (push Adım 20'dir).
   2. Koşudan önce: Docker Desktop açık olmalı; `docker compose build app` (imajdaki `src/` Adım 17b
      ve `masked_value_in_clause` öncesinden kalmış olabilir).
   3. Tam koşu: `docker compose run --rm app python -m evals.run`. Kullanıcının Groq kotasını
@@ -359,6 +361,15 @@
      girmeden) çalıştırılır. Bayraksız çalıştırma koşuyu başlatmaz; `--fresh` önbelleği siler.
   5. İlk kez Adım 18'de çalışacak yollar: LangSmith'e yükleme (anahtar varsa; kısmi koşuda
      atlanır), gerçek limitte `--resume`, çıkış kodu 3 (eşik tutmadı).
+     Yükleme yolu 2026-11-12'de sahte anahtar ve sahte modelle, bütün HTTP istekleri süreç içinde
+     yakalanarak uçtan uca çalıştırıldı (7 sözleşme, 38 istek, ağa çıkış yok): isteklerde sözleşme
+     metni, alıntı ve PII listesi yok. Gerçek LangSmith sunucusuna karşı hâlâ denenmedi.
+     **Yüklemeli koşu Docker'dan yapılır:** host'ta `uv run` ile koşulursa SDK experiment'e git
+     bilgisini (uzak depo adresi, son commit'in yazar adı ve e-postası) ekler; Docker'da `.git`
+     olmadığı için boş gitmesi beklenir (konteynerde denenmedi; ilk yüklemeden sonra LangSmith
+     arayüzünde experiment metadata'sına bakılır). Ayrıntı `evals.md` §7.
+     Bilinen sınır: madde numarası başlıktan maskelemeden önce ve uzunluk sınırı olmadan okunur;
+     `Madde 12345678901` gibi bir başlık sayıyı satıra maskesiz taşır (veri kümesinde `1`–`14`).
   6. `evals/results/` altındaki iki `…_prepare-only.json` dosyası Adım 17b'nin önce/sonra kaydıdır
      (5 / 5 → 2 / 5); silinmez. Adım 19'da README'ye ikincil tablo olarak girer.
   7. README'ye (Adım 19) taşınacak sınırlar bu bölümde dağınık durur: model hiç hata yapmazsa
