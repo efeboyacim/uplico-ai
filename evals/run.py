@@ -1,4 +1,5 @@
-"""Eval runner: `python -m evals.run [--limit N] [--prepare-only] [--results-dir DIR]`.
+"""Eval runner: `python -m evals.run [--limit N] [--prepare-only] [--results-dir DIR]
+[--resume | --fresh]`.
 
 For every contract of `evals/dataset/labels.json` (in file order, sequentially) the runner
 prepares the contract and runs the review graph **once** up to its interrupt in a temporary
@@ -7,9 +8,15 @@ prepares the contract and runs the review graph **once** up to its interrupt in 
 `evaluate()` (local without a key, `upload_results=False`) and the counts it returns are summed by
 `evals/metrics.py` into the table on stdout and the result file under `evals/results/`.
 
+In full mode every completed contract is also written to the cache (`evals/cache.py`), so a run
+stopped by the rate limit goes on with `--resume` from the contracts it has not finished. Once the
+result file is written only the selected contracts' records leave the cache (a `--limit` run keeps
+the others); `--fresh` deletes the old cache before any contract runs.
+
 Exit codes (docs/evals.md §6): 0 run complete and the hard thresholds hold (or were not
-measured); 1 configuration error or the run crashed; 2 at least one rule was rate limited (no
-table, no result file); 3 run complete but a hard threshold failed (table and file written).
+measured); 1 configuration error, the run crashed, a usable cache without `--resume` / `--fresh`
+or a corrupt cache; 2 at least one rule was rate limited (no table, no result file; completed
+contracts stay in the cache); 3 run complete but a hard threshold failed (table and file written).
 
 Only `main` reads the environment (`load_settings_or_exit`) and the clock; everything below takes
 them as parameters, so tests pass a scripted model, a fixed time and a temporary results folder.
@@ -26,7 +33,7 @@ import tempfile
 import time
 import uuid
 import warnings
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -35,6 +42,20 @@ from langchain_core.language_models import BaseChatModel
 from langsmith import Client, evaluate
 from langsmith.schemas import Example
 
+from evals.cache import (
+    CachedContract,
+    CacheFile,
+    CorruptCacheError,
+    FingerprintError,
+    cache_path,
+    contract_fingerprint,
+    delete_cache,
+    label_records,
+    load_cache,
+    run_fingerprint,
+    usable_entries,
+    write_cache,
+)
 from evals.metrics import (
     ContractRun,
     Label,
@@ -61,6 +82,7 @@ from evals.metrics import (
     result_filename,
     rows_to_outputs,
     rule_json,
+    run_dates,
     sum_counts,
     thresholds_json,
     thresholds_passed,
@@ -75,6 +97,7 @@ from src.store import Store, close_all
 from src.verify import verify
 
 EVALS_DIR = Path(__file__).resolve().parent
+REPO_ROOT = EVALS_DIR.parent  # /app in Docker; the run digest covers its src/ (evals/cache.py)
 DATASET_DIR = EVALS_DIR / "dataset"
 LABELS_PATH = DATASET_DIR / "labels.json"
 DEFAULT_RESULTS_DIR = EVALS_DIR / "results"
@@ -113,6 +136,38 @@ class ContractRunError(Exception):
 class _ContractResult:
     run: ContractRun
     rows: Mapping[Mode, list[RuleRow]]  # empty lists in prepare-only mode
+    completed_at: str  # UTC ISO, seconds
+    from_cache: bool = False
+
+
+@dataclasses.dataclass
+class _Cache:
+    """The run's cache: where it lives, today's digests and the records it holds."""
+
+    path: Path
+    provider: str
+    model: str
+    run_digest: str
+    contract_digests: dict[str, str]
+    entries: dict[str, CachedContract]  # written to `path` after every completed contract
+    reused: frozenset[str]  # contract ids taken from the cache at the start (`--resume`)
+
+    def file(self) -> CacheFile:
+        return CacheFile(self.provider, self.model, self.run_digest, dict(self.entries))
+
+    def finish(self, selected: Sequence[Label]) -> None:
+        """After a successful run: drop the selected contracts' records, keep the others.
+
+        `entries` holds only records usable today (`--resume` loads the matching ones, a run
+        without it starts from none), so a rewritten file never carries a stale record. With no
+        record left the file (and the empty `.cache` folder) is removed.
+        """
+        done = {label.id for label in selected}
+        self.entries = {cid: entry for cid, entry in self.entries.items() if cid not in done}
+        if self.entries:
+            write_cache(self.path, self.file())
+        else:
+            delete_cache(self.path)
 
 
 # --- Labels and data dir --------------------------------------------------------------------------
@@ -140,6 +195,11 @@ def _copy_rules(source_dir: Path, target_dir: Path, tenant_ids: Sequence[str]) -
         shutil.copyfile(source, target / _RULES_NAME)
 
 
+def _iso(moment: datetime) -> str:
+    """UTC ISO with seconds, the form of `started_at` and `completed_at`."""
+    return moment.astimezone(UTC).isoformat(timespec="seconds")
+
+
 def _close_everything(reviews: Sequence[tuple[str, str]]) -> None:
     """Release every handle on the temporary data dir before it is deleted (decision 13)."""
     for tenant_id, review_id in reviews:
@@ -159,11 +219,13 @@ def _run_contract(
     prepare_only: bool,
     model: BaseChatModel | None,
     reviews: list[tuple[str, str]],
+    now: Callable[[], datetime],
 ) -> tuple[_ContractResult | None, list[str]]:
     """Prepare (and unless prepare-only, review) one contract.
 
     Returns the contract's result and the ids of its rate-limited rules; the result is None when
-    a rule was rate limited (the run is then invalid and its rows are not built).
+    a rule was rate limited (the run is then invalid and its rows are not built). `now` stamps
+    the result's `completed_at`.
     """
     store = Store(settings.data_dir, label.tenant_id)
     rules = store.load_rules()
@@ -182,7 +244,8 @@ def _run_contract(
             injection_flagged=injection_flagged,
             seconds=None,
         )
-        return _ContractResult(run=run, rows={"before": [], "after": []}), []
+        rows: dict[Mode, list[RuleRow]] = {"before": [], "after": []}
+        return _ContractResult(run=run, rows=rows, completed_at=_iso(now())), []
 
     graph = get_review_graph(settings, label.tenant_id, model=model)
     started = time.perf_counter()
@@ -208,7 +271,9 @@ def _run_contract(
     run = build_contract_run(
         label, prepared.clauses, audit, injection_flagged=injection_flagged, seconds=seconds
     )
-    return _ContractResult(run=run, rows={"before": before_rows, "after": after_rows}), []
+    return _ContractResult(
+        run=run, rows={"before": before_rows, "after": after_rows}, completed_at=_iso(now())
+    ), []
 
 
 # --- LangSmith evaluate() -------------------------------------------------------------------------
@@ -326,6 +391,102 @@ def _evaluate_both(
     return counts, "uploaded" if upload else "local"
 
 
+# --- The cache (docs/evals.md §6) -----------------------------------------------------------------
+
+
+def _contract_digests(
+    settings: Settings, labels: Sequence[Label], labels_bytes: bytes
+) -> dict[str, str]:
+    """Today's digest of every contract whose tenant has a rules.yaml in `settings.data_dir`.
+
+    A contract without one gets no digest (it can match no record); if it is selected the run
+    stops at `_copy_rules` as before.
+    """
+    records = label_records(labels_bytes)
+    digests: dict[str, str] = {}
+    for label in labels:
+        rules = settings.data_dir / "tenants" / label.tenant_id / _RULES_NAME
+        if not rules.is_file():
+            continue
+        digests[label.id] = contract_fingerprint(
+            (DATASET_DIR / label.contract_file).read_bytes(), records[label.id], rules.read_bytes()
+        )
+    return digests
+
+
+def _open_cache(
+    settings: Settings,
+    labels: Sequence[Label],
+    labels_bytes: bytes,
+    selected: Sequence[Label],
+    *,
+    results_dir: Path,
+    repo_root: Path,
+    resume: bool,
+    fresh: bool,
+) -> _Cache:
+    """Today's digests and, with `--resume`, the records that match them.
+
+    Without `--resume` / `--fresh`, a cache holding a record that matches today's digests stops
+    the run (`EvalError`): a forgotten `--resume` would spend a day's quota. With `--fresh` the
+    file is deleted unread (a corrupt one too) before any contract runs, so records the user
+    discarded never come back. Otherwise a corrupt file is an `EvalError` naming the path.
+    """
+    path = cache_path(results_dir, settings.llm_provider, settings.llm_model)
+    try:
+        run_digest = run_fingerprint(
+            repo_root,
+            provider=settings.llm_provider,
+            model=settings.llm_model,
+            num_ctx=settings.llm_num_ctx,
+        )
+    except FingerprintError as exc:
+        raise EvalError(str(exc)) from None
+    digests = _contract_digests(settings, labels, labels_bytes)
+    cache = _Cache(
+        path, settings.llm_provider, settings.llm_model, run_digest, digests, {}, frozenset()
+    )
+    if fresh:
+        delete_cache(path)
+        return cache
+    try:
+        stored = load_cache(path)
+    except CorruptCacheError as exc:
+        raise EvalError(
+            f"önbellek dosyası kullanılamıyor ({exc.reason}): {exc.path}. Baştan koşmak için "
+            "--fresh kullanın."
+        ) from None
+    if stored is None:
+        if resume:
+            print(f"Devam: önbellek yok ({path}); tüm sözleşmeler koşulacak.", file=sys.stderr)
+        return cache
+    usable = usable_entries(
+        stored,
+        provider=settings.llm_provider,
+        model=settings.llm_model,
+        run_digest=run_digest,
+        contract_digests=digests,
+    )
+    if not resume:
+        if usable:
+            raise EvalError(
+                f"önbellekte bugünkü kodla ve verilerle eşleşen {len(usable)} sözleşme var "
+                f"({path}). Kaldığı yerden devam için --resume, baştan koşmak için --fresh "
+                "kullanın."
+            )
+        return cache  # nothing usable: the file is rewritten with the first completed contract
+    reused = frozenset(label.id for label in selected if label.id in usable)
+    print(
+        f"Devam: {len(reused)} sözleşme önbellekten alındı, {len(selected) - len(reused)} "
+        f"sözleşme koşulacak, {len(stored.contracts) - len(usable)} kayıt özet uyuşmadığı için "
+        "atıldı.",
+        file=sys.stderr,
+    )
+    cache.entries.update(usable)
+    cache.reused = reused
+    return cache
+
+
 # --- The run --------------------------------------------------------------------------------------
 
 
@@ -336,12 +497,13 @@ def _write_results(path: Path, content: Mapping[str, Any]) -> None:
         handle.write("\n")
 
 
-def _report_rate_limit(limited: Mapping[str, list[str]]) -> None:
+def _report_rate_limit(limited: Mapping[str, list[str]], cached: int) -> None:
     total = sum(len(rule_ids) for rule_ids in limited.values())
     where = ", ".join(f"{contract_id}: {len(ids)}" for contract_id, ids in limited.items())
     print(
         f"Hız limiti: {total} kural limite takıldı ({where}). Koşu durduruldu; metrik "
-        "basılmadı, sonuç dosyası yazılmadı.",
+        f"basılmadı, sonuç dosyası yazılmadı. Önbellekte {cached} tamamlanmış sözleşme var; "
+        "kalanlar için aynı komutu --resume ile yeniden çalıştırın.",
         file=sys.stderr,
     )
 
@@ -354,18 +516,46 @@ def run_eval(
     results_dir: Path,
     started_at: datetime,
     model: BaseChatModel | None = None,
+    resume: bool = False,
+    fresh: bool = False,
+    now: Callable[[], datetime] | None = None,
+    repo_root: Path = REPO_ROOT,
 ) -> int:
     """Run the eval; returns 0, 2 (rate limited) or 3 (a hard threshold failed).
 
     A crash raises: `ContractRunError` for a contract's run (provider configuration errors and
-    unexpected code errors are never turned into findings), `EvalError` for the runner itself.
+    unexpected code errors are never turned into findings), `EvalError` for the runner itself
+    (also a usable cache without `resume` / `fresh`, and a corrupt cache).
     `model` is passed to the review graph (tests); without it the graph builds it from settings.
+    `now` stamps each contract's `completed_at` (default: `started_at`); `repo_root` is the root
+    the cache's run digest is computed from.
     """
     labels_bytes, labels = load_labels()
     if limit is not None and not 1 <= limit <= len(labels):
         raise ValueError(f"limit 1 ile {len(labels)} arasında olmalı.")
+    if resume and fresh:
+        raise ValueError("resume ve fresh birlikte verilemez.")
+    if prepare_only and (resume or fresh):
+        raise ValueError("prepare_only önbellek kullanmaz; resume / fresh verilemez.")
     selected = labels[:limit] if limit is not None else labels
     partial = len(selected) < len(labels)
+    clock: Callable[[], datetime] = now or (lambda: started_at)
+
+    # Prepare-only neither reads, writes nor removes the cache.
+    cache = (
+        None
+        if prepare_only
+        else _open_cache(
+            settings,
+            labels,
+            labels_bytes,
+            selected,
+            results_dir=results_dir,
+            repo_root=repo_root,
+            resume=resume,
+            fresh=fresh,
+        )
+    )
 
     results: dict[str, _ContractResult] = {}
     limited: dict[str, list[str]] = {}
@@ -375,6 +565,15 @@ def run_eval(
         try:
             _copy_rules(settings.data_dir, eval_settings.data_dir, [x.tenant_id for x in selected])
             for label in selected:  # sequentially; parallelism is only inside the graph
+                if cache is not None and label.id in cache.reused:
+                    entry = cache.entries[label.id]
+                    results[label.id] = _ContractResult(
+                        run=entry.run,
+                        rows=entry.rows,
+                        completed_at=entry.completed_at,
+                        from_cache=True,
+                    )
+                    continue  # no preparation, no model call
                 try:
                     result, rate_limited = _run_contract(
                         eval_settings,
@@ -382,20 +581,30 @@ def run_eval(
                         prepare_only=prepare_only,
                         model=model,
                         reviews=reviews,
+                        now=clock,
                     )
                 except Exception as exc:
                     raise ContractRunError(label.id, exc) from exc
                 if rate_limited:
                     # The limit will not lift within this run; stop instead of spending more calls.
+                    # A half-run contract never enters the cache: it runs again from the start.
                     limited[label.id] = rate_limited
                     break
                 if result is not None:
                     results[label.id] = result
+                    if cache is not None:
+                        cache.entries[label.id] = CachedContract(
+                            fingerprint=cache.contract_digests[label.id],
+                            completed_at=result.completed_at,
+                            run=result.run,
+                            rows=result.rows,
+                        )
+                        write_cache(cache.path, cache.file())
         finally:
             _close_everything(reviews)
 
     if limited:
-        _report_rate_limit(limited)
+        _report_rate_limit(limited, len(cache.entries) if cache is not None else 0)
         return EXIT_RATE_LIMITED
 
     if prepare_only:
@@ -427,12 +636,16 @@ def run_eval(
             results[label.id].rows["before"], results[label.id].rows["after"], strict=True
         )
     ]
+    selected_results = [results[label.id] for label in selected]
+    resumed = [result for result in selected_results if result.from_cache]
     _write_results(
         path,
         {
             "provider": settings.llm_provider,
             "model": settings.llm_model,
             "started_at": started_iso,
+            "resumed": bool(resumed),
+            "run_dates": run_dates(result.completed_at for result in selected_results),
             "mode": "prepare_only" if prepare_only else "full",
             "contracts_run": len(selected),
             "contracts_total": len(labels),
@@ -445,10 +658,16 @@ def run_eval(
                 "contracts": contract_metrics_json(contracts),
             },
             "thresholds": thresholds_json(thresholds),
-            "contracts": [contract_run_json(run) for run in runs],
+            "contracts": [
+                contract_run_json(result.run)
+                | {"completed_at": result.completed_at, "from_cache": result.from_cache}
+                for result in selected_results
+            ],
             "rules": rules,
         },
     )
+    if cache is not None:
+        cache.finish(selected)  # the run is complete; exit 0 or 3 (a partial `--limit` run too)
     header = TableHeader(
         provider=settings.llm_provider,
         model=settings.llm_model,
@@ -456,6 +675,8 @@ def run_eval(
         contracts_run=len(selected),
         contracts_total=len(labels),
         mode="prepare_only" if prepare_only else "full",
+        resumed_contracts=len(resumed),
+        resumed_dates=tuple(run_dates(result.completed_at for result in resumed)),
     )
     print(render_table(header, before, after, contracts, thresholds, str(path)), end="")
     return EXIT_OK if thresholds_passed(thresholds) else EXIT_THRESHOLD_FAILED
@@ -469,6 +690,10 @@ def run_or_report(
     results_dir: Path,
     started_at: datetime,
     model: BaseChatModel | None = None,
+    resume: bool = False,
+    fresh: bool = False,
+    now: Callable[[], datetime] | None = None,
+    repo_root: Path = REPO_ROOT,
 ) -> int:
     """`run_eval`, with a crash reported on stderr (class name and contract only) as exit 1."""
     try:
@@ -479,6 +704,10 @@ def run_or_report(
             results_dir=results_dir,
             started_at=started_at,
             model=model,
+            resume=resume,
+            fresh=fresh,
+            now=now,
+            repo_root=repo_root,
         )
     except ContractRunError as exc:
         kind = "sağlayıcı kimlik/yapılandırma hatası" if exc.provider_config else "koşu hatası"
@@ -538,9 +767,22 @@ def parse_args(argv: Sequence[str] | None, contracts_total: int) -> argparse.Nam
         default=DEFAULT_RESULTS_DIR,
         help="Sonuç dosyasının yazılacağı klasör (varsayılan: evals/results).",
     )
+    cache = parser.add_mutually_exclusive_group()
+    cache.add_argument(
+        "--resume",
+        action="store_true",
+        help="Önbellekte tamamlanmış sözleşmeleri yeniden koşma; kalanlardan devam et.",
+    )
+    cache.add_argument(
+        "--fresh",
+        action="store_true",
+        help="Eski önbelleği başta okumadan sil ve baştan koş.",
+    )
     args = parser.parse_args(argv)
     if args.limit is not None and args.limit > contracts_total:
         parser.error(f"--limit en fazla {contracts_total} olabilir.")
+    if args.prepare_only and (args.resume or args.fresh):
+        parser.error("--prepare-only önbellek kullanmaz; --resume ya da --fresh ile verilemez.")
     return args
 
 
@@ -554,6 +796,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         prepare_only=args.prepare_only,
         results_dir=args.results_dir,
         started_at=datetime.now(UTC),
+        resume=args.resume,
+        fresh=args.fresh,
+        now=lambda: datetime.now(UTC),
     )
 
 

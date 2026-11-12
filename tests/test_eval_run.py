@@ -1,4 +1,6 @@
+import functools
 import json
+import shutil
 import socket
 import tempfile
 import unicodedata
@@ -15,6 +17,7 @@ import requests
 from conftest import ScriptedChatModel, ScriptItem, ai, call, done
 
 import evals.run as runner
+from evals.cache import cache_path
 from evals.run import (
     EXIT_ERROR,
     EXIT_OK,
@@ -44,7 +47,7 @@ Behaviour = Callable[[str, str], list[ScriptItem]]  # (clause_id, quote) -> scri
 # --- Helpers --------------------------------------------------------------------------------------
 
 
-def _settings(data_dir: Path) -> Settings:
+def _settings(data_dir: Path, **env: str) -> Settings:
     return load_settings(
         env={
             "LLM_PROVIDER": "groq",
@@ -52,6 +55,7 @@ def _settings(data_dir: Path) -> Settings:
             "TENANT_API_KEYS": json.dumps(TENANT_KEYS),
             "DATA_DIR": str(data_dir),
         }
+        | env
     )
 
 
@@ -125,12 +129,15 @@ def _model(
     data_dir: Path,
     count: int,
     overrides: Mapping[tuple[str, str], Behaviour | list[ScriptItem]] | None = None,
+    *,
+    start: int = 0,
 ) -> ScriptedChatModel:
-    """Scripts for the first `count` contracts, in label order: every rule answers its label
-    (whole masked clause as the quote), except the (contract_id, rule_id) overrides."""
+    """Scripts for contracts `start` to `count` (0-based, end excluded), in label order: every
+    rule answers its label (whole masked clause as the quote), except the (contract_id, rule_id)
+    overrides."""
     overrides = overrides or {}
     scripts: dict[str, list[ScriptItem]] = {}
-    for label in LABELS[:count]:
+    for label in LABELS[start:count]:
         rule_text = {r.id: r.text for r in Store(data_dir, label["tenant_id"]).load_rules()}
         for expected in label["expected"]:
             override = overrides.get((label["id"], expected["rule_id"]))
@@ -156,15 +163,26 @@ def _groq_error(cls: type[groq.APIStatusError], code: int) -> groq.APIStatusErro
     return cls(f"{SECRET} {code}", response=response, body=body)
 
 
-def _run(data_dir: Path, results_dir: Path, model: ScriptedChatModel | None, **kwargs: Any) -> int:
+def _run(
+    data_dir: Path,
+    results_dir: Path,
+    model: ScriptedChatModel | None,
+    settings: Settings | None = None,
+    **kwargs: Any,
+) -> int:
     options: dict[str, Any] = {"limit": None, "prepare_only": False} | kwargs
     return run_eval(
-        _settings(data_dir),
+        settings or _settings(data_dir),
         results_dir=results_dir,
         started_at=STARTED_AT,
         model=model,
         **options,
     )
+
+
+def _result_files(results_dir: Path) -> list[Path]:
+    """Result files only (the cache lives in `.cache/`)."""
+    return [p for p in results_dir.glob("*.json")] if results_dir.exists() else []
 
 
 def _result(results_dir: Path) -> tuple[Path, dict[str, Any]]:
@@ -393,7 +411,9 @@ def test_run_evaluator_error_raises_runtime_error(
     monkeypatch.setattr(runner, "count_evaluator", broken_evaluator)
     with pytest.raises(RuntimeError, match="evaluator"):
         _run(data_dir, results_dir, _model(data_dir, 1), limit=1)
-    assert not results_dir.exists()
+    # No result file; the completed contract stays in the cache (a crash keeps it).
+    assert _result_files(results_dir) == []
+    assert _cached_ids(results_dir) == ["contract-01"]
 
 
 def test_run_target_error_raises_runtime_error(
@@ -405,7 +425,8 @@ def test_run_target_error_raises_runtime_error(
     monkeypatch.setattr(runner, "rows_to_outputs", broken_target)
     with pytest.raises(RuntimeError, match="hedef"):
         _run(data_dir, results_dir, _model(data_dir, 1), limit=1)
-    assert not results_dir.exists()
+    assert _result_files(results_dir) == []
+    assert _cached_ids(results_dir) == ["contract-01"]
 
 
 def test_run_provider_auth_error_exits_1_with_class_name_only(
@@ -514,6 +535,528 @@ def test_main_missing_tenant_keys_exits_1(
 
 
 def test_eval_run_test_source_has_no_invisible_characters() -> None:
-    for path in (Path(__file__), REPO / "evals" / "run.py"):
+    for path in (Path(__file__), REPO / "evals" / "run.py", REPO / "evals" / "cache.py"):
         text = path.read_bytes().decode("utf-8")
         assert not [ch for ch in text if unicodedata.category(ch) == "Cf"], path
+
+
+# --- Cache and --resume (docs/evals.md §6) --------------------------------------------------------
+
+LATER = datetime(2026, 1, 3, 9, 0, 0, tzinfo=UTC)
+DEFAULT_MODEL = load_settings(
+    env={"LLM_PROVIDER": "groq", "GROQ_API_KEY": "k", "TENANT_API_KEYS": json.dumps(TENANT_KEYS)}
+).llm_model
+
+
+def _cache_file(results_dir: Path, model: str = DEFAULT_MODEL) -> Path:
+    return cache_path(results_dir, "groq", model)
+
+
+def _cached_ids(results_dir: Path, model: str = DEFAULT_MODEL) -> list[str]:
+    raw: dict[str, Any] = json.loads(_cache_file(results_dir, model).read_bytes().decode("utf-8"))
+    return list(raw["contracts"])
+
+
+def _limited(index: int) -> dict[tuple[str, str], list[ScriptItem]]:
+    """The first rule of contract `index` hits the rate limit."""
+    label = LABELS[index]
+    rule_id = label["expected"][0]["rule_id"]
+    return {(label["id"], rule_id): [_groq_error(groq.RateLimitError, 429)]}
+
+
+def _rate_limited_at(
+    data_dir: Path, index: int, overrides: Mapping[tuple[str, str], Behaviour] | None = None
+) -> ScriptedChatModel:
+    """Scripts for contracts 0..index; the first rule of contract `index` is rate limited."""
+    scripts: dict[tuple[str, str], Behaviour | list[ScriptItem]] = dict(overrides or {})
+    return _model(data_dir, index + 1, scripts | _limited(index))
+
+
+def _spy_runs(monkeypatch: pytest.MonkeyPatch, forbidden: Sequence[str] = ()) -> list[str]:
+    """Record every contract that is prepared and reviewed; a forbidden one fails the run."""
+    ran: list[str] = []
+    real = runner._run_contract
+
+    def spy(settings: Settings, label: Any, **kwargs: Any) -> Any:
+        assert label.id not in forbidden, f"{label.id} önbellekten alınmalıydı"
+        ran.append(label.id)
+        return real(settings, label, **kwargs)
+
+    monkeypatch.setattr(runner, "_run_contract", spy)
+    return ran
+
+
+def _calls(start: int, end: int) -> int:
+    """Model calls the default scripts make for contracts start..end (3 turns per rule)."""
+    return 3 * sum(len(label["expected"]) for label in LABELS[start:end])
+
+
+def _without_durations(metrics: dict[str, Any]) -> dict[str, Any]:
+    durations = {"seconds_total", "seconds_mean"}
+    contracts = {k: v for k, v in metrics["contracts"].items() if k not in durations}
+    return metrics | {"contracts": contracts}
+
+
+def test_run_rate_limit_then_resume_runs_only_remaining_contracts(
+    data_dir: Path,
+    results_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    code = _run(data_dir, results_dir, _rate_limited_at(data_dir, 2), limit=4)
+    captured = capsys.readouterr()
+
+    assert code == EXIT_RATE_LIMITED
+    assert captured.out == ""
+    assert _result_files(results_dir) == []
+    assert _cached_ids(results_dir) == ["contract-01", "contract-02"]
+    assert "Önbellekte 2 tamamlanmış sözleşme" in captured.err
+    assert "--resume" in captured.err
+
+    ran = _spy_runs(monkeypatch, forbidden=["contract-01", "contract-02"])
+    model = _model(data_dir, 4, start=2)
+    code = _run(data_dir, results_dir, model, limit=4, resume=True, now=lambda: LATER)
+    captured = capsys.readouterr()
+
+    assert code == EXIT_OK
+    assert ran == ["contract-03", "contract-04"]
+    assert len(model.received()) == _calls(2, 4)
+    assert "2 sözleşme önbellekten alındı, 2 sözleşme koşulacak, 0 kayıt" in captured.err
+    _, data = _result(results_dir)  # the cache folder is gone with the cache file
+    assert data["resumed"] is True
+    assert data["started_at"] == STARTED_AT.isoformat()
+    assert data["run_dates"] == ["2026-01-02", "2026-01-03"]
+    assert [(c["contract_id"], c["from_cache"]) for c in data["contracts"]] == [
+        ("contract-01", True),
+        ("contract-02", True),
+        ("contract-03", False),
+        ("contract-04", False),
+    ]
+    stamps = [c["completed_at"] for c in data["contracts"]]
+    assert stamps == [STARTED_AT.isoformat()] * 2 + [LATER.isoformat()] * 2
+    assert {r["contract_id"] for r in data["rules"]} == {x["id"] for x in LABELS[:4]}
+    assert "Devam: 2 sözleşme önbellekten (tarihler: 2026-01-02)" in captured.out.splitlines()
+    assert not _cache_file(results_dir).exists()
+
+
+def test_run_limit_and_resume_equals_uninterrupted_run(
+    data_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    straight = tmp_path / "straight"
+    assert _run(data_dir, straight, _model(data_dir, 4), limit=4) == EXIT_OK
+    resumed = tmp_path / "resumed"
+    assert _run(data_dir, resumed, _rate_limited_at(data_dir, 2), limit=4) == EXIT_RATE_LIMITED
+    code = _run(data_dir, resumed, _model(data_dir, 4, start=2), limit=4, resume=True)
+    capsys.readouterr()
+
+    assert code == EXIT_OK
+    _, one = _result(straight)
+    _, two = _result(resumed)
+    assert one["resumed"] is False and two["resumed"] is True
+    assert _without_durations(one["metrics"]) == _without_durations(two["metrics"])
+    assert one["rules"] == two["rules"]
+    assert one["thresholds"] == two["thresholds"]
+
+
+def test_run_usable_cache_without_resume_or_fresh_exits_1_and_touches_nothing(
+    data_dir: Path, results_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _run(data_dir, results_dir, _rate_limited_at(data_dir, 1), limit=2)
+    capsys.readouterr()
+    before = _cache_file(results_dir).read_bytes()
+    model = ScriptedChatModel.keyed({})
+
+    code = run_or_report(
+        _settings(data_dir),
+        limit=2,
+        prepare_only=False,
+        results_dir=results_dir,
+        started_at=STARTED_AT,
+        model=model,
+    )
+    captured = capsys.readouterr()
+
+    assert code == EXIT_ERROR
+    assert model.received() == []
+    assert _cache_file(results_dir).read_bytes() == before
+    assert _result_files(results_dir) == []
+    assert "1 sözleşme" in captured.err
+    assert "--resume" in captured.err
+    assert "--fresh" in captured.err
+    assert captured.out == ""
+
+
+def test_run_fresh_ignores_cache_and_runs_everything(
+    data_dir: Path,
+    results_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _run(data_dir, results_dir, _rate_limited_at(data_dir, 1), limit=2)
+    assert _cached_ids(results_dir) == ["contract-01"]
+    ran = _spy_runs(monkeypatch)
+
+    code = _run(data_dir, results_dir, _model(data_dir, 2), limit=2, fresh=True)
+    capsys.readouterr()
+
+    assert code == EXIT_OK
+    assert ran == ["contract-01", "contract-02"]
+    _, data = _result(results_dir)
+    assert data["resumed"] is False
+    assert not any(c["from_cache"] for c in data["contracts"])
+
+
+def _repo_tree(root: Path) -> Path:
+    """A repository root for the run digest: a stand-in src/ plus the runner files."""
+    files = {
+        "src/agent.py": "AGENT = 1\n",
+        "src/static/index.html": "<p></p>\n",
+        "evals/cache.py": "",
+        "evals/metrics.py": "",
+        "evals/run.py": "",
+        "uv.lock": "version = 1\n",
+        "docs/evals.md": "# doküman\n",
+    }
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_bytes(text.encode("utf-8"))
+    return root
+
+
+def test_run_digest_change_discards_every_record_untracked_change_keeps_them(
+    data_dir: Path,
+    results_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = _repo_tree(tmp_path / "repo")
+    options: dict[str, Any] = {"limit": 3, "repo_root": root}
+    code = _run(data_dir, results_dir, _rate_limited_at(data_dir, 2), **options)
+    assert code == EXIT_RATE_LIMITED
+    capsys.readouterr()
+
+    # Untracked files change: the records still match; only contract-03 runs (and is limited).
+    (root / "src" / "static" / "index.html").write_bytes(b"<p>yeni</p>\n")
+    (root / "docs" / "evals.md").write_bytes(b"# yeni\n")
+    ran = _spy_runs(monkeypatch)
+    limited = _model(data_dir, 3, _limited(2), start=2)
+    assert _run(data_dir, results_dir, limited, resume=True, **options) == EXIT_RATE_LIMITED
+    assert ran == ["contract-03"]
+    err = capsys.readouterr().err
+    assert "2 sözleşme önbellekten alındı, 1 sözleşme koşulacak, 0 kayıt" in err
+
+    # One byte of a tracked file: every record is discarded and every contract runs again.
+    (root / "src" / "agent.py").write_bytes(b"AGENT = 2\n")
+    ran.clear()
+    assert _run(data_dir, results_dir, _model(data_dir, 3), resume=True, **options) == EXIT_OK
+    assert ran == ["contract-01", "contract-02", "contract-03"]
+    err = capsys.readouterr().err
+    assert "0 sözleşme önbellekten alındı, 3 sözleşme koşulacak, 2 kayıt" in err
+
+
+def test_run_contract_digest_change_reruns_only_that_contract(
+    data_dir: Path,
+    results_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    code = _run(data_dir, results_dir, _rate_limited_at(data_dir, 3), limit=4)
+    assert code == EXIT_RATE_LIMITED
+    assert _cached_ids(results_dir) == ["contract-01", "contract-02", "contract-03"]
+    capsys.readouterr()
+    # contract-03 is the only cached globex contract; a comment changes its rules.yaml's bytes.
+    rules = data_dir / "tenants" / "globex" / "rules.yaml"
+    rules.write_bytes(rules.read_bytes() + b"\n# yorum\n")
+    ran = _spy_runs(monkeypatch, forbidden=["contract-01", "contract-02"])
+
+    code = _run(data_dir, results_dir, _model(data_dir, 4, start=2), limit=4, resume=True)
+    err = capsys.readouterr().err
+
+    assert code == EXIT_OK
+    assert ran == ["contract-03", "contract-04"]
+    assert "2 sözleşme önbellekten alındı, 2 sözleşme koşulacak, 1 kayıt" in err
+
+
+def _scripts_of(*models: ScriptedChatModel) -> ScriptedChatModel:
+    """One keyed model whose per-rule scripts are the given models' scripts, in order."""
+    merged: dict[str, list[ScriptItem]] = {}
+    for model in models:
+        for key, items in model.scripts.items():
+            merged.setdefault(key, []).extend(items)
+    return ScriptedChatModel.keyed(merged)
+
+
+@pytest.mark.parametrize("change", ["text", "label"])
+def test_run_contract_text_or_label_change_reruns_only_that_contract(
+    change: str,
+    data_dir: Path,
+    results_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    dataset = tmp_path / "dataset"
+    shutil.copytree(runner.DATASET_DIR, dataset)
+    monkeypatch.setattr(runner, "DATASET_DIR", dataset)
+    # `load_labels`'s default path is bound at definition time; point the function at the copy.
+    monkeypatch.setattr(
+        runner, "load_labels", functools.partial(runner.load_labels, dataset / "labels.json")
+    )
+    code = _run(data_dir, results_dir, _rate_limited_at(data_dir, 3), limit=4)
+    assert code == EXIT_RATE_LIMITED
+    assert _cached_ids(results_dir) == ["contract-01", "contract-02", "contract-03"]
+    capsys.readouterr()
+
+    if change == "text":  # one more byte at the end; the clauses stay the same
+        contract = dataset / BY_ID["contract-02"]["contract_file"]
+        contract.write_bytes(contract.read_bytes() + b"\n")
+    else:  # one more tag in contract-02's record only; every other record stays byte-identical
+        labels = dataset / "labels.json"
+        raw = labels.read_bytes()
+        old, new = b'"tags": ["violations"]', b'"tags": ["violations", "duzeltildi"]'
+        assert raw.count(old) == 1
+        labels.write_bytes(raw.replace(old, new))
+    ran = _spy_runs(monkeypatch, forbidden=["contract-01", "contract-03"])
+    model = _scripts_of(_model(data_dir, 2, start=1), _model(data_dir, 4, start=3))
+
+    code = _run(data_dir, results_dir, model, limit=4, resume=True)
+    err = capsys.readouterr().err
+
+    assert code == EXIT_OK
+    assert ran == ["contract-02", "contract-04"]
+    assert "2 sözleşme önbellekten alındı, 2 sözleşme koşulacak, 1 kayıt" in err
+
+
+def test_run_fresh_limited_on_first_contract_discards_old_cache(
+    data_dir: Path,
+    results_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert _run(data_dir, results_dir, _rate_limited_at(data_dir, 2), limit=4) == EXIT_RATE_LIMITED
+    assert _cached_ids(results_dir) == ["contract-01", "contract-02"]
+    capsys.readouterr()
+
+    # --fresh removes the old file before any contract runs; being limited at once brings none back.
+    code = _run(data_dir, results_dir, _rate_limited_at(data_dir, 0), limit=3, fresh=True)
+    err = capsys.readouterr().err
+
+    assert code == EXIT_RATE_LIMITED
+    assert not _cache_file(results_dir).exists()
+    assert "Önbellekte 0 tamamlanmış sözleşme" in err
+
+    ran = _spy_runs(monkeypatch)
+    code = _run(data_dir, results_dir, _model(data_dir, 3), limit=3, resume=True)
+    err = capsys.readouterr().err
+
+    assert code == EXIT_OK
+    assert ran == ["contract-01", "contract-02", "contract-03"]
+    assert "önbellek yok" in err
+    _, data = _result(results_dir)
+    assert data["resumed"] is False
+    assert not any(c["from_cache"] for c in data["contracts"])
+
+
+@pytest.mark.parametrize("content", [b"{bozuk", json.dumps({"version": 99}).encode()])
+def test_run_fresh_deletes_corrupt_cache_at_start(
+    data_dir: Path, results_dir: Path, content: bytes, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = _cache_file(results_dir)
+    path.parent.mkdir(parents=True)
+    path.write_bytes(content)
+
+    # Limited on the first contract: only the deletion at the start can have removed the file.
+    code = _run(data_dir, results_dir, _rate_limited_at(data_dir, 0), limit=1, fresh=True)
+    err = capsys.readouterr().err
+
+    assert code == EXIT_RATE_LIMITED
+    assert not path.exists()
+    assert "Önbellekte 0 tamamlanmış sözleşme" in err
+
+    # The corrupt file no longer stops a plain run.
+    assert _run(data_dir, results_dir, _model(data_dir, 1), limit=1) == EXIT_OK
+    capsys.readouterr()
+
+
+def test_run_limit_resume_success_keeps_records_outside_selection(
+    data_dir: Path,
+    results_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    code = _run(data_dir, results_dir, _rate_limited_at(data_dir, 3), limit=4)
+    assert code == EXIT_RATE_LIMITED
+    original: dict[str, Any] = json.loads(_cache_file(results_dir).read_bytes().decode("utf-8"))
+    assert list(original["contracts"]) == ["contract-01", "contract-02", "contract-03"]
+    capsys.readouterr()
+
+    # A `--limit 1 --resume` smoke check: contract-01 comes from the cache, the run succeeds.
+    no_calls = ScriptedChatModel.keyed({})
+    assert _run(data_dir, results_dir, no_calls, limit=1, resume=True) == EXIT_OK
+    assert no_calls.received() == []
+    capsys.readouterr()
+
+    # Only the selected contract's record is gone; the others are kept as they were.
+    kept: dict[str, Any] = json.loads(_cache_file(results_dir).read_bytes().decode("utf-8"))
+    assert list(kept["contracts"]) == ["contract-02", "contract-03"]
+    assert {k: v for k, v in kept.items() if k != "contracts"} == {
+        k: v for k, v in original.items() if k != "contracts"
+    }
+    for contract_id in ("contract-02", "contract-03"):
+        assert kept["contracts"][contract_id] == original["contracts"][contract_id]
+    assert sorted(p.name for p in _cache_file(results_dir).parent.iterdir()) == [
+        _cache_file(results_dir).name
+    ]
+    for path in _result_files(results_dir):
+        path.unlink()
+
+    # A full --resume runs only what the cache does not hold, then the cache is gone.
+    ran = _spy_runs(monkeypatch, forbidden=["contract-02", "contract-03"])
+    model = _scripts_of(_model(data_dir, 1), _model(data_dir, len(LABELS), start=3))
+    code = _run(data_dir, results_dir, model, resume=True)
+    err = capsys.readouterr().err
+
+    assert code in (EXIT_OK, EXIT_THRESHOLD_FAILED)
+    assert ran == ["contract-01"] + [x["id"] for x in LABELS[3:]]
+    assert "2 sözleşme önbellekten alındı" in err
+    assert not _cache_file(results_dir).exists()
+    assert not (results_dir / ".cache").exists()
+
+
+def test_run_other_model_has_its_own_cache(
+    data_dir: Path, results_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _run(data_dir, results_dir, _rate_limited_at(data_dir, 1), limit=2)
+    default_cache = _cache_file(results_dir).read_bytes()
+    other = _settings(data_dir, LLM_MODEL="başka/model")
+    assert _cache_file(results_dir, "başka/model") != _cache_file(results_dir)
+
+    code = _run(data_dir, results_dir, _model(data_dir, 1), settings=other, limit=1)
+    capsys.readouterr()
+
+    assert code == EXIT_OK  # the default model's cache does not stop the other model's run
+    assert _cache_file(results_dir).read_bytes() == default_cache
+    assert not _cache_file(results_dir, "başka/model").exists()  # removed after its success
+
+
+@pytest.mark.parametrize("content", [b"{bozuk", json.dumps({"version": 99}).encode()])
+def test_run_corrupt_cache_exits_1_with_path_and_fresh_hint(
+    data_dir: Path, results_dir: Path, content: bytes, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = _cache_file(results_dir)
+    path.parent.mkdir(parents=True)
+    path.write_bytes(content)
+    model = ScriptedChatModel.keyed({})
+    for resume in (False, True):
+        code = run_or_report(
+            _settings(data_dir),
+            limit=1,
+            prepare_only=False,
+            results_dir=results_dir,
+            started_at=STARTED_AT,
+            model=model,
+            resume=resume,
+        )
+        err = capsys.readouterr().err
+        assert code == EXIT_ERROR
+        assert str(path) in err
+        assert "--fresh" in err
+    assert model.received() == []
+    assert path.read_bytes() == content
+
+
+def test_run_prepare_only_neither_writes_nor_reads_cache(
+    data_dir: Path, results_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert _run(data_dir, results_dir, None, limit=1, prepare_only=True) == EXIT_OK
+    assert not (results_dir / ".cache").exists()
+    path = _cache_file(results_dir)
+    path.parent.mkdir()
+    path.write_bytes(b"{bozuk")  # would stop a full run
+    assert _run(data_dir, results_dir, None, limit=1, prepare_only=True) == EXIT_OK
+    capsys.readouterr()
+    assert path.read_bytes() == b"{bozuk"
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [["--resume", "--fresh"], ["--prepare-only", "--resume"], ["--prepare-only", "--fresh"]],
+)
+def test_main_conflicting_cache_flags_exit_1(
+    argv: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as info:
+        main(argv)
+    assert info.value.code == EXIT_ERROR
+    err = capsys.readouterr().err
+    assert "--resume" in err or "--fresh" in err
+
+
+def test_run_cache_is_valid_json_after_every_contract_without_temp_files(
+    data_dir: Path,
+    results_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    seen: list[tuple[list[str], list[str]]] = []
+    real = runner.write_cache
+
+    def spy(path: Path, cache: Any) -> None:
+        real(path, cache)
+        raw = json.loads(path.read_bytes().decode("utf-8"))
+        seen.append((list(raw["contracts"]), sorted(p.name for p in path.parent.iterdir())))
+
+    monkeypatch.setattr(runner, "write_cache", spy)
+    code = _run(data_dir, results_dir, _rate_limited_at(data_dir, 2), limit=3)
+    capsys.readouterr()
+
+    assert code == EXIT_RATE_LIMITED
+    name = _cache_file(results_dir).name
+    assert seen == [(["contract-01"], [name]), (["contract-01", "contract-02"], [name])]
+    assert sorted(p.name for p in _cache_file(results_dir).parent.iterdir()) == [name]
+
+
+def test_run_cache_carries_no_raw_pii_quote_or_draft(
+    data_dir: Path, results_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    draft: dict[tuple[str, str], Behaviour] = {
+        ("contract-01", "liability_cap"): _wrong_noncompliant_with_draft
+    }
+    code = _run(data_dir, results_dir, _rate_limited_at(data_dir, 5, draft), limit=6)
+    capsys.readouterr()
+    written = _cache_file(results_dir).read_bytes().decode("utf-8")
+
+    assert code == EXIT_RATE_LIMITED
+    assert _cached_ids(results_dir) == [x["id"] for x in LABELS[:5]]
+    assert "Yeni metin." not in written
+    assert "Gerekçe." not in written
+    for label in LABELS[:5]:
+        for value in label["pii_values"] + label["pii_best_effort"]:
+            assert value not in written, label["id"]
+        for expected in label["expected"]:
+            if expected["clause_no"] is not None:
+                quote = _masked_clauses(label["id"])[expected["clause_no"]][1]
+                assert quote not in written, (label["id"], expected["rule_id"])
+
+
+def test_run_crash_keeps_completed_contracts_in_cache(
+    data_dir: Path, results_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    error = _groq_error(groq.AuthenticationError, 401)
+    rule_id = LABELS[1]["expected"][0]["rule_id"]
+    code = run_or_report(
+        _settings(data_dir),
+        limit=3,
+        prepare_only=False,
+        results_dir=results_dir,
+        started_at=STARTED_AT,
+        model=_model(data_dir, 2, {("contract-02", rule_id): [error]}),
+    )
+    err = capsys.readouterr().err
+
+    assert code == EXIT_ERROR
+    assert "contract-02" in err
+    assert "AuthenticationError" in err
+    assert _result_files(results_dir) == []
+    assert _cached_ids(results_dir) == ["contract-01"]

@@ -1,5 +1,5 @@
 import json
-from dataclasses import replace
+from dataclasses import fields, replace
 from datetime import UTC, datetime, timedelta, timezone
 from typing import Any
 
@@ -19,7 +19,9 @@ from evals.metrics import (
     contract_counts,
     contract_metrics,
     contract_metrics_json,
+    contract_run_from_json,
     contract_run_json,
+    contract_run_to_json,
     count_evaluator,
     counts_from_scores,
     estimate_cost,
@@ -34,6 +36,9 @@ from evals.metrics import (
     rows_from_outputs,
     rows_to_outputs,
     rule_json,
+    rule_row_from_json,
+    rule_row_to_json,
+    run_dates,
     search_hit,
     sum_counts,
     thresholds_json,
@@ -641,3 +646,85 @@ def test_render_table_prepare_only_everything_but_pii_and_scan_not_measured() ->
     assert "evet" in line["Enjeksiyon: tarama"]
     assert NOT_MEASURED in line["Tahmini maliyet"]
     assert NOT_MEASURED in line["Etiket doğruluğu"]
+
+
+def test_render_table_resumed_run_has_resume_line_only_when_resumed() -> None:
+    m = _metrics(_mixed_rows())
+    c = contract_metrics([_run()], provider="groq", model="m")
+    base = TableHeader(
+        provider="groq", model="m", started_at="t", contracts_run=7, contracts_total=7,
+        mode="full",
+    )  # fmt: skip
+    plain = render_table(base, m, m, c, evaluate_thresholds(m, c), "out.json")
+    assert "Devam:" not in plain
+    resumed = replace(base, resumed_contracts=2, resumed_dates=("2026-11-11", "2026-11-12"))
+    lines = render_table(resumed, m, m, c, evaluate_thresholds(m, c), "out.json").splitlines()
+    assert lines[3] == "Devam: 2 sözleşme önbellekten (tarihler: 2026-11-11, 2026-11-12)"
+    assert lines[4:] == plain.splitlines()[3:]
+
+
+# --- Exact JSON round trip (the eval cache) -------------------------------------------------------
+
+
+def test_rule_row_json_round_trip_is_exact() -> None:
+    rows = [
+        *_mixed_rows(),
+        _row(tags=(), review_reasons=(), quote_valid=None, search_hit=None, clause_no=None,
+             expected_clause_no=None, code_check="passed", interrupted_by="rate_limited"),
+        _row(tags=("injection_pattern", "pii"), review_reasons=("quote_not_found", "x")),
+    ]  # fmt: skip
+    for row in rows:
+        back = rule_row_from_json(json.loads(json.dumps(rule_row_to_json(row))))
+        assert back == row
+        assert isinstance(back.tags, tuple)
+        assert isinstance(back.review_reasons, tuple)
+
+
+def test_contract_run_json_round_trip_is_exact() -> None:
+    runs = [
+        _run(),
+        _run(seconds=12.345678901234567, pii_leaked=(0, 3), best_effort_leaked=(1,),
+             tags=("pii", "injection_pattern"), injection_flagged=True),
+        _run(seconds=None, input_tokens=None, output_tokens=None, tags=()),
+    ]  # fmt: skip
+    for run in runs:
+        back = contract_run_from_json(json.loads(json.dumps(contract_run_to_json(run))))
+        assert back == run
+        assert isinstance(back.pii_leaked, tuple)
+        assert isinstance(back.best_effort_leaked, tuple)
+
+
+def test_round_trip_json_covers_every_field() -> None:
+    assert set(rule_row_to_json(_row())) == {f.name for f in fields(RuleRow)}
+    assert set(contract_run_to_json(_run())) == {f.name for f in fields(ContractRun)}
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"tags": "pii"},  # not a list
+        {"search_calls": True},  # bool is not an int
+        {"needs_review": 1},
+        {"status": None},  # not optional
+        {"extra": 1},
+    ],
+)
+def test_rule_row_from_json_malformed_raises(change: dict[str, Any]) -> None:
+    raw = rule_row_to_json(_row()) | change
+    with pytest.raises(ValueError):
+        rule_row_from_json(raw)
+
+
+def test_contract_run_from_json_malformed_raises() -> None:
+    raw = contract_run_to_json(_run())
+    for bad in ({"pii_leaked": ["0"]}, {"seconds": "1"}, {"pii_total": None}):
+        with pytest.raises(ValueError):
+            contract_run_from_json(raw | bad)
+    with pytest.raises(ValueError):
+        contract_run_from_json({k: v for k, v in raw.items() if k != "tags"})
+
+
+def test_run_dates_are_unique_sorted_days() -> None:
+    stamps = ["2026-11-12T23:59:59+00:00", "2026-11-11T00:00:00+00:00", "2026-11-12T01:00:00+00:00"]
+    assert run_dates(stamps) == ["2026-11-11", "2026-11-12"]
+    assert run_dates([]) == []

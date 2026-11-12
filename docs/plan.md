@@ -294,6 +294,20 @@
   Adım 18 için not: sözleşme 1 ihlalsiz (taslak çağrısı yok) ve 25,1K token tuttu; 7 sözleşmenin
   tabanı ≈ 175K, 13 beklenen ihlalin taslak çağrıları buna eklenir; 200K günlük sınır aşılabilir
   (aşılırsa koşu çıkış kodu 2 ile durur ve dosya yazmaz).
+  Adım 17 sonrası (kaldığı yerden devam): koşucu, tamamlanan her sözleşmenin satırlarını
+  `evals/results/.cache/` altına yazar (commit edilmez); `--resume` eşleşen kayıtları yeniden
+  koşmaz, `--fresh` eski önbelleği koşu başlarken siler. Sebep: tam koşu 200K günlük sınıra
+  takılırsa önceki sözleşmelerin sonucu (≈150K token) kayboluyordu. Önbellek commit numarasına
+  değil içerik özetine bağlıdır (`src/` — `src/static/` hariç —, `evals/*.py`, `uv.lock`, sağlayıcı,
+  model; sözleşme başına metin, etiket kaydı ve `rules.yaml`): doküman ve test commit'leri bozmaz,
+  `src/` altındaki her değişiklik (commit edilmemiş olsa da) bozar. Geçerli önbellek varken
+  `--resume` ya da `--fresh` verilmezse koşu model çağırmadan durur. Başarılı koşu yalnızca kendi
+  seçtiği sözleşmelerin kaydını siler. İlk tasarımdaki iki karar (başarıda tüm dosyayı silmek;
+  `--fresh`'te eski dosyayı ilk tamamlanan sözleşmede ezmek) bağımsız incelemede kota kaybettiren
+  kusur olarak doğrulandı ve değiştirildi. Ayrıntı `evals.md` §6.
+  **Sıra için sonuç:** Adım 17b `src/prepare/pii.py`'yi değiştirir ve önbelleği geçersiz kılar;
+  tam koşudan önce bitmeli, iki koşu günü arasına `src/` değişikliği girmemelidir. Docker'da özet
+  imajdaki `src/` kopyasından hesaplanır; `src/` değişince imaj yeniden kurulmalıdır.
 - **Sıradaki:** Adım 17b — Maskeleyici düzeltmesi (önce `--prepare-only` ile 5 / 5 kaydedilir),
   sonra Adım 18.
 - Bu bölüm her adımın commit'inde güncellenir; sıradaki adım, aşağıdaki ilk işaretsiz kutudur.

@@ -21,7 +21,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import asdict, dataclass, fields
 from datetime import datetime, timedelta
 from fractions import Fraction
-from typing import Any, Literal, get_args
+from typing import Any, Literal, cast, get_args
 
 from src.config import PROVIDER_DEFAULTS, Provider
 from src.models import AuditRecord, Clause, Finding, FindingStatus, Rule
@@ -147,9 +147,18 @@ def result_filename(
     if started_at.utcoffset() != timedelta(0):
         raise ValueError("started_at UTC olmalı.")
     stamp = started_at.strftime("%Y%m%d-%H%M%S")
-    safe_model = _UNSAFE_NAME.sub("-", model).strip("-") or "model"
     suffix = "_prepare-only" if prepare_only else "_partial" if partial else ""
-    return f"{stamp}_{provider}_{safe_model}{suffix}.json"
+    return f"{stamp}_{provider}_{safe_model_name(model)}{suffix}.json"
+
+
+def safe_model_name(model: str) -> str:
+    """The model name as it appears in file names (result file and cache file)."""
+    return _UNSAFE_NAME.sub("-", model).strip("-") or "model"
+
+
+def run_dates(completed_at: Iterable[str]) -> list[str]:
+    """Unique, sorted `YYYY-MM-DD` days of UTC ISO timestamps."""
+    return sorted({datetime.fromisoformat(stamp).date().isoformat() for stamp in completed_at})
 
 
 # --- Findings -------------------------------------------------------------------------------------
@@ -783,6 +792,102 @@ def rule_json(before: RuleRow, after: RuleRow) -> dict[str, Any]:
     }
 
 
+# --- Exact JSON round trip (the eval cache) -------------------------------------------------------
+#
+# Unlike `contract_run_json` (the result file's form), these keep every field as it is, so that
+# `*_from_json(*_to_json(x)) == x`. Validation is strict: a cache written by another version of
+# the code must fail loudly, never be half-read.
+
+_FieldKind = Literal["str", "str?", "bool", "bool?", "int", "int?", "float?", "strs", "ints"]
+
+_RULE_ROW_KINDS: dict[str, _FieldKind] = {
+    "contract_id": "str",
+    "tags": "strs",
+    "rule_id": "str",
+    "severity": "str",
+    "rule_has_check": "bool",
+    "expected_status": "str",
+    "expected_clause_no": "str?",
+    "status": "str",
+    "clause_no": "str?",
+    "has_quote": "bool",
+    "quote_valid": "bool?",
+    "needs_review": "bool",
+    "review_reasons": "strs",
+    "has_proposal": "bool",
+    "code_check": "str?",
+    "no_finding_reason": "str?",
+    "interrupted_by": "str?",
+    "search_hit": "bool?",
+    "search_calls": "int",
+}
+
+_CONTRACT_RUN_KINDS: dict[str, _FieldKind] = {
+    "contract_id": "str",
+    "tags": "strs",
+    "seconds": "float?",
+    "input_tokens": "int?",
+    "output_tokens": "int?",
+    "injection_flagged": "bool",
+    "pii_leaked": "ints",
+    "pii_total": "int",
+    "best_effort_leaked": "ints",
+    "best_effort_total": "int",
+}
+
+
+def _is_int(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _field_value(value: object, kind: _FieldKind, what: str) -> object:
+    """`value` checked against `kind`; lists become tuples. `ValueError` on a mismatch."""
+    if value is None and kind.endswith("?"):
+        return None
+    base = kind.rstrip("?")
+    if base == "str" and isinstance(value, str):
+        return value
+    if base == "bool" and isinstance(value, bool):
+        return value
+    if base == "int" and _is_int(value):
+        return value
+    if base == "float" and (isinstance(value, float) or _is_int(value)):
+        return float(cast(float, value))
+    if base == "strs" and isinstance(value, list) and all(isinstance(v, str) for v in value):
+        return tuple(value)
+    if base == "ints" and isinstance(value, list) and all(_is_int(v) for v in value):
+        return tuple(value)
+    raise ValueError(f"{what} alanı beklenen türde değil.")
+
+
+def _record(raw: object, kinds: Mapping[str, _FieldKind], what: str) -> dict[str, object]:
+    if not isinstance(raw, dict) or set(raw) != set(kinds):
+        raise ValueError(f"{what} kaydının alanları beklenenle eşleşmiyor.")
+    return {name: _field_value(raw[name], kind, f"{what}.{name}") for name, kind in kinds.items()}
+
+
+def _plain(value: object) -> object:
+    return list(value) if isinstance(value, tuple) else value
+
+
+def rule_row_to_json(row: RuleRow) -> dict[str, Any]:
+    return {name: _plain(getattr(row, name)) for name in _ROW_FIELDS}
+
+
+def rule_row_from_json(raw: object) -> RuleRow:
+    """Inverse of `rule_row_to_json`; `ValueError` on a malformed record."""
+    return RuleRow(**_record(raw, _RULE_ROW_KINDS, "RuleRow"))  # type: ignore[arg-type]
+
+
+def contract_run_to_json(run: ContractRun) -> dict[str, Any]:
+    return {f.name: _plain(getattr(run, f.name)) for f in fields(ContractRun)}
+
+
+def contract_run_from_json(raw: object) -> ContractRun:
+    """Inverse of `contract_run_to_json`; `ValueError` on a malformed record."""
+    return ContractRun(**_record(raw, _CONTRACT_RUN_KINDS, "ContractRun"))  # type: ignore[arg-type]
+
+
 # --- Table ----------------------------------------------------------------------------------------
 
 
@@ -794,6 +899,8 @@ class TableHeader:
     contracts_run: int
     contracts_total: int
     mode: RunMode
+    resumed_contracts: int = 0  # contracts taken from the cache (`--resume`)
+    resumed_dates: tuple[str, ...] = ()  # their `YYYY-MM-DD` completion days
 
 
 def _decimal(value: float, digits: int) -> str:
@@ -848,9 +955,13 @@ def render_table(
         "Eval sonucu",
         f"Sağlayıcı: {header.provider}  Model: {header.model}  Tarih: {header.started_at}",
         f"{header.contracts_run}/{header.contracts_total} sözleşme  Kip: {mode}",
-        "",
-        "Önce/sonra (doğrulama kapalı / açık)",
     ]
+    if header.resumed_contracts:
+        lines.append(
+            f"Devam: {header.resumed_contracts} sözleşme önbellekten "
+            f"(tarihler: {', '.join(header.resumed_dates)})"
+        )
+    lines += ["", "Önce/sonra (doğrulama kapalı / açık)"]
     lines += _rows_text(
         [
             ("Metrik", "Önce", "Sonra"),

@@ -330,13 +330,17 @@ Sonuç `evals/results/` altına ve README'ye yazılır.
 
 - **Sonuç dosyası:** `evals/results/<UTC YYYYMMDD-HHMMSS>_<sağlayıcı>_<model adı, dosya adına
   uygun>[_partial|_prepare-only].json`; UTF-8, LF, girintili, `ensure_ascii=False`. İçerik:
-  `provider`, `model`, `started_at` (UTC ISO), `mode`, `contracts_run`, `contracts_total`,
-  `partial`, `max_concurrency`, `langsmith` (`uploaded` / `local` / `skipped`), `metrics`
-  (`before` ve `after`; her oran `{num, den, value}`, ölçülmediyse `null`), `thresholds` (her sert
-  eşik için değer, sınır, `passed` ya da ölçülmediyse `null`), `contracts` (sözleşme başına süre,
-  token, bayraklar, PII sayımları) ve `rules` (kural başına beklenen ve gelen status/madde, iki
-  modda `needs_review` ve sebepleri, alıntı geçerliliği, arama isabeti ve arama sayısı, taslak var
-  mı, `code_check`).
+  `provider`, `model`, `started_at` (UTC ISO; bu çalıştırmanın zamanı), `resumed` (en az bir
+  sözleşme `--resume` ile önbellekten alındı mı), `run_dates` (sözleşmelerin `completed_at`
+  tarihlerinin benzersiz, sıralı günleri, `YYYY-MM-DD`), `mode`, `contracts_run`,
+  `contracts_total`, `partial`, `max_concurrency`, `langsmith` (`uploaded` / `local` / `skipped`),
+  `metrics` (`before` ve `after`; her oran `{num, den, value}`, ölçülmediyse `null`), `thresholds`
+  (her sert eşik için değer, sınır, `passed` ya da ölçülmediyse `null`), `contracts` (sözleşme
+  başına süre, token, bayraklar, PII sayımları, `completed_at` (UTC ISO; sözleşmenin tamamlandığı
+  an) ve `from_cache`) ve `rules` (kural başına beklenen ve gelen status/madde, iki modda
+  `needs_review` ve sebepleri, alıntı geçerliliği, arama isabeti ve arama sayısı, taslak var mı,
+  `code_check`). Önbellekten sözleşme alındıysa tablo başlığına bir satır eklenir:
+  "Devam: N sözleşme önbellekten (tarihler: …)".
 - **Dosyada ve tabloda metin yok:** alıntı, taslak, gerekçe metni ve ham PII sonuç dosyasına ve
   stdout'a yazılmaz. PII ölçümünde bir değer, hazırlanan maskeli maddelerden birinde ya da o
   incelemenin `model_call` audit kayıtlarından birinin JSON metninde geçiyorsa "sızdı" sayılır;
@@ -371,19 +375,68 @@ Sonuç `evals/results/` altına ve README'ye yazılır.
   duman denemeleri geçici bir klasör verir; `evals/results/` altına yalnızca gerçek koşular yazar.
 - **`rate_limited` koşuyu geçersiz kılar:** herhangi bir kural `no_finding` (sebep `rate_limited`)
   dönerse eval metrik basmaz; kaç kuralın limite takıldığını söyleyen açık bir hatayla, sıfır olmayan
-  çıkış koduyla durur. Limite takılan bir kural "modelin hatası" gibi sayılmaz.
+  çıkış koduyla durur. Limite takılan bir kural "modelin hatası" gibi sayılmaz. Tamamlanan
+  sözleşmeler önbellekte kalır; limite takılan sözleşme `--resume` ile baştan koşar.
+- **Önbellek:** tam kipte her sözleşme tamamlanınca (satırları kurulunca) satırları
+  `<results-dir>/.cache/<sağlayıcı>_<model adı, dosya adına uygun>.json` dosyasına yazılır
+  (`--resume` verilsin verilmesin; UTF-8, LF, `ensure_ascii=False`; commit edilmez). Yazma
+  atomiktir (aynı klasörde geçici dosya, sonra `os.replace`). Kayıt sözleşme başına `ContractRun`,
+  iki kipin kural satırları, sözleşme özeti ve `completed_at`'tir; üstte `version: 1`, sağlayıcı,
+  model ve koşu özeti. Alıntı, taslak, gerekçe metni, ham bulgu, audit ya da ham PII yazılmaz.
+  Limite takılan sözleşme önbelleğe girmez (yarım sonuç kullanılmaz). Koşu çökse de (çıkış `1`) o
+  ana kadar tamamlananlar kalır. Koşu başarıyla bitince (sonuç dosyası yazıldıktan sonra, çıkış `0`
+  ya da `3`; `--limit N` ile kısmi koşu dahil) önbellekten yalnızca bu koşuda seçilen sözleşmelerin
+  kayıtları çıkarılır. Seçim dışında kalıp bugünkü özetlerle eşleşen kayıtlar varsa (ör. 01–06
+  önbellekteyken `--limit 1 --resume` ile yapılan duman denemesi) dosya yalnızca bu kayıtlarla
+  atomik olarak yeniden yazılır; bugünkü özetlerle eşleşmeyen kayıtlar geri yazılmaz. Hiç kayıt
+  kalmazsa dosya (ve boşalan `.cache` klasörü) silinir. Çıkış `2` ve `1`'de dosya kalır.
+- **Önbellek özeti (sha256):** önbellek commit numarasına değil içeriğe bağlıdır. Koşu özeti:
+  `src/` altındaki tüm dosyalar (`__pycache__` ve `src/static/` hariç), `evals/metrics.py`,
+  `evals/run.py`, `evals/cache.py` ve `uv.lock` (depo köküne göre yol + içerik özeti, yola göre
+  sıralı), ayrıca sağlayıcı, model ve `LLM_NUM_CTX`; `MAX_CONCURRENCY`, anahtarlar ve `DATA_DIR`
+  girmez. `uv.lock` yoksa açık hata. Sözleşme özeti: sözleşme dosyasının baytları, `labels.json`
+  kaydının kanonik JSON'u (`sort_keys`) ve tenant'ın `rules.yaml` baytları. Dosyalar bayt olarak
+  okunur; özet commit'e, tarihe, çalışma dizinine ya da dosya zamanına bağlı değildir: doküman,
+  test ya da README değişikliği önbelleği bozmaz, `src/` altında commit edilmemiş bir değişiklik
+  bozar.
+- **`--resume`:** önbellekteki bir sözleşme, koşu özeti, kendi özeti, sağlayıcı ve model bugünküyle
+  aynıysa yeniden koşulmaz: satırları önbellekten alınır, ne hazırlık ne model çağrısı yapılır.
+  Eşleşmeyen kayıtlar yok sayılır, o sözleşmeler baştan koşar. stderr'e tek satır: kaç sözleşmenin
+  önbellekten alındığı, kaçının koşulacağı ve kaç kaydın özet uyuşmadığı için atıldığı. Önbellek
+  dosyası yoksa normal koşu gibi davranır (stderr'e "önbellek yok" notu). `evaluate()` (§7)
+  önbellekten gelen ve yeni koşulan tüm sözleşmelerin satırlarıyla, her zamanki yükleme kuralıyla
+  çalışır.
+- **`--resume` unutulursa koşu başlamaz:** bugünkü özetlerle eşleşen en az bir sözleşme
+  önbellekteyse ve ne `--resume` ne `--fresh` verilmişse koşu `1` ile durur; stderr kaç sözleşmenin
+  önbellekte olduğunu, devam için `--resume`, baştan koşmak için `--fresh` kullanılacağını söyler.
+  Model çağrılmaz, hiçbir şey yazılmaz ya da silinmez (unutulan bir `--resume` bir günün kotasını
+  yakar). Eşleşen kayıt yoksa koşu normal başlar ve önbellek dosyası ilk tamamlanan sözleşmeyle
+  yeniden yazılır.
+- **`--fresh`:** bu sağlayıcı ve modelin önbellek dosyasını koşu başlarken, hiçbir sözleşme
+  koşulmadan önce okumadan siler (bozuk dosya da böyle silinir) ve baştan koşar. Kullanıcının attığı
+  kayıtlar geri gelmez: ilk sözleşme tamamlanmadan limite takılan bir `--fresh` koşusundan sonra
+  önbellekte 0 sözleşme vardır ve sonraki `--resume` her şeyi baştan koşar. `--resume` ile `--fresh`
+  birlikte verilemez; `--prepare-only` önbelleği ne okur ne yazar ne siler ve `--resume` ya da
+  `--fresh` ile birlikte verilemez (argüman hatası, `1`).
+- **Bozuk önbellek:** dosya JSON değilse, `version` tanınmıyorsa ya da kayıt şeması bozuksa koşu `1`
+  ile durur; stderr'de dosyanın yolu ve `--fresh` önerisi. Sessizce atılmaz.
 - **Çıkış kodları:** `0` koşu tamam, sert eşikler (§4: güvensiz hata ≤ %5, kaçırılan uygunsuzluk
   ≤ %20, yanlış bulgu ≤ %20, alıntı geçerliliği %100, enjeksiyon taraması "evet", enjeksiyon sonucu
   0, PII sızıntısı 0; hepsi "sonra" modunda) sağlandı ya da ölçülmedi. `1` yapılandırma hatası ya
   da koşunun kendisi çöktü (sağlayıcı kimlik/yapılandırma hatası ve beklenmeyen kod hataları bulguya
-  çevrilmez; stderr'e yalnızca hata sınıfının adı ve sözleşme yazılır, hata metni yazılmaz).
+  çevrilmez; stderr'e yalnızca hata sınıfının adı ve sözleşme yazılır, hata metni yazılmaz);
+  kullanılabilir önbellek varken `--resume` ya da `--fresh` verilmemesi ve bozuk önbellek de `1`'dir.
   `2` en az bir kural `rate_limited`: tablo basılmaz, sonuç dosyası yazılmaz, stderr'e kaç kuralın
-  hangi sözleşmelerde limite takıldığı yazılır; koşu limite takılan ilk sözleşmeden sonra durur
+  hangi sözleşmelerde limite takıldığı, kaç sözleşmenin önbelleğe kaydedildiği ve aynı komutun
+  `--resume` ile yeniden çalıştırılabileceği yazılır; koşu limite takılan ilk sözleşmeden sonra durur
   (sonraki sözleşmeler aynı limite çarpar, çağrı harcanmaz). Argüman hatası da `1`'dir (argparse'ın
   varsayılan `2`'si `rate_limited` ile karışmasın). `3` koşu tamam ama bir sert eşik tutmadı: tablo
   basılır ve sonuç dosyası yazılır.
 - `temperature=0` olsa da sağlayıcı çıktısı koşudan koşuya değişebilir. Önce/sonra karşılaştırması
   bundan etkilenmez (aynı agent çıktısı kullanılır); farklı günlerin koşuları karşılaştırılırken dikkate alınır.
+  `--resume` ile devam edilen koşuda sözleşmeler farklı günlerde koşmuş olabilir: önce/sonra
+  karşılaştırması etkilenmez (her sözleşmede iki sütun aynı ham bulgulardan), sözleşmeler arası
+  karşılaştırmada dikkate alınır; sonuç dosyası tarihleri (`run_dates`, `completed_at`) yazar.
 
 ## 7. LangSmith kullanımı
 - **Örnek = sözleşme.** `inputs` yalnızca `contract_id` ve `tenant_id`; `outputs` etiketin
