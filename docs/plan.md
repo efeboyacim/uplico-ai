@@ -269,7 +269,8 @@
   `verify` iki kez kodla hesaplanır; Adım 17'de düzeltilir. (3) Model hiç hata yapmazsa önce/sonra
   tablosunda fayda satırları 0 → 0 kalır, yalnızca yönlendirme oranı artar; README bunu olduğu gibi
   yazar, dataset buna göre değiştirilmez.
-- **Sıradaki:** Adım 17 — Eval metrikleri ve koşucu.
+- **Sıradaki:** Adım 17 — Eval metrikleri ve koşucu. Ardından Adım 17b (maskeleyici düzeltmesi),
+  sonra Adım 18.
 - Bu bölüm her adımın commit'inde güncellenir; sıradaki adım, aşağıdaki ilk işaretsiz kutudur.
 
 ## Bağlam
@@ -949,6 +950,35 @@ gereksiz yönlendirme satırları bunu gösterir.
   `docker compose run --rm app python -m evals.run` önce/sonra tablosunu basar. Anahtarsız
   `evaluate()` çalışmazsa `spec.md` §10'daki yedek (aynı evaluator'larla düz döngü) kullanılır.
 - **Commit:** `feat: add one-command eval with before/after verification table`
+
+### [ ] Adım 17b — Maskeleyici: boşluklu TCKN, düzensiz IBAN, öneksiz cep telefonu
+- **Karar (2026-11-12, kullanıcı):** Adım 16'da sözleşme 5'te maskelenmediği görülen beş
+  `pii_best_effort` değerinden üçünün biçimi maskeleyiciye eklenir. Adım 17'den **sonra**, Adım
+  18'den **önce** yapılır: "önce" sayısını (5 / 5) gerçek koşucu ölçmüş olmalıdır.
+- **Sıra:**
+  1. Adım 17'nin koşucusuyla "garanti edilmeyen PII sızıntısı" ölçülür ve sonuç dosyası olarak
+     kaydedilir (model çağrısı gerekmez; ölçüm maskeli maddelerden yapılır). Beklenen 5 / 5.
+  2. Önce dokümanlar: `agent_design.md` maskeleme sınırları ve `evals.md` §3'teki garanti tanımı
+     güncellenir (üç biçim "garanti edilen"e geçer).
+  3. `src/prepare/pii.py`: boşluklu TCKN (haneler arasında isteğe bağlı boşluk, mevcut checksum);
+     düzensiz gruplanmış IBAN (`TR` + 24 hane, serbest boşluk, mevcut mod-97); öneksiz cep telefonu
+     (`5` ile başlayan, ayraçları zorunlu 3-3-2-2; genel rakam grubu kalıbı **yazılmaz**).
+  4. Aynı koşucuyla yeniden ölçülür. Beklenen 2 / 5 (gövdedeki ad ve etiketsiz imza satırındaki ad
+     kalır; ad tanıma kapsam dışı).
+- **Değişmeyenler:** `labels.json`'da üç değer `pii_best_effort` listesinde kalır (taşınırsa
+  düzeltme tabloda görünmez). Eski maskeleyici bir bayrakla kodda tutulmaz; karşılaştırma iki
+  commit'in sonuç dosyasıdır. Sözleşme 5'in metni değişmez.
+- **Dosyalar:** `src/prepare/pii.py`, `tests/test_pii.py` (ya da maskeleme testlerinin bulunduğu
+  dosya), `docs/agent_design.md`, `docs/evals.md`, `evals/results/*`
+- **Doğrulama:** Her biçim için pozitif testler, dataset'te **olmayan** yazımlarla da (farklı
+  gruplanmış TCKN, nokta ya da tireyle ayrılmış cep numarası, farklı gruplanmış IBAN); checksum'ı
+  tutmayan boşluklu 11 hane ve mod-97'si tutmayan IBAN maskelenmez; mevcut "tutar, süre ve tarih
+  maskelenmez" testi yeni kalıplara karşı genişletilir ve geçer; `tests/test_dataset.py` geçer.
+- **README (Adım 19):** asıl önce/sonra tablosunun (doğrulama kapalı → açık) altında ikincil bir
+  tablo: 5 / 5 → 2 / 5, şu notla: sonuç deterministiktir, düzeltme dataset'teki bilinen boşluklara
+  bakılarak yazıldı (3 örnek); gösterdiği şey eval → test → düzeltme döngüsüdür, maskelemenin genel
+  kapsamı değil.
+- **Commit:** `fix: mask spaced TCKN, irregularly grouped IBAN and unprefixed mobile numbers`
 
 ### [ ] Adım 18 — İlk eval koşusu ve kalibrasyon
 - **Ne:** Eval Groq üzerinde koşulur; sonuçlar kaydedilir; eşikler gerçek sonuca göre `evals.md`'de,
