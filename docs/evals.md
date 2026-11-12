@@ -250,8 +250,8 @@ Sonuç `evals/results/` altına ve README'ye yazılır.
 - Eval sözleşmeleri sentetiktir; Groq'a giden metinde gerçek kişi ya da şirket verisi yoktur.
 - Her sonuç dosyası sağlayıcıyı, modeli ve tarihi içerir; farklı modellerin sonuçları karıştırılmaz.
 - **Limit:** tam eval hesabın yüksek limitlere (250K TPM) sahip olmasını gerektirir; geliştirme
-  hesabında bu teyit edildi. Düşük limitlerde
-  (8K TPM / 200K TPD) günlük token sınırı 7 sözleşmeye yetmez; eval `MAX_CONCURRENCY=1` ve
+  hesabı ücretsiz katmandadır ve bu limitlere sahip değildir. Düşük limitlerde
+  (8K TPM / 200K TPD) günlük token sınırı iki geçişli (önce/sonra) 7 sözleşmeye yetmez; eval `MAX_CONCURRENCY=1` ve
   `--limit N` ile kısmi koşulur ya da çevrimdışı modda koşulur (`tech_stack.md` "Hangi plan?").
 - **`--limit N`:** Düşük limitli hesaplar için koşucu `--limit N` ile yalnızca ilk N sözleşmeyi
   koşar. Sonuç dosyası ve tablo kaç sözleşmenin koşulduğunu yazar; koşulmayan sözleşmelere bağlı

@@ -163,7 +163,10 @@
   döndürdü. **Planlanandan sapanlar:** (1) çevrimdışı deneme varsayılan `qwen3.5:9b` ile değil
   yedek `qwen3.5:4b` ile yapıldı (4 GB ekran kartı); (2) `.env`'deki Groq anahtarında ölçülen limit
   250K değil 8K TPM; varsayılan `MAX_CONCURRENCY=4` ile 5 kuraldan 3'ü `rate_limited` oldu.
-  Adım 17–18 için notlar: tam eval bu anahtarda günlük limite büyük olasılıkla sığmaz;
+  Limit sonradan konsoldan da doğrulandı (ücretsiz katman: 30 RPM, 1K RPD, 8K TPM, 200K TPD);
+  dokümanlardaki "250K TPM teyit edildi" ifadeleri düzeltildi.
+  Adım 17–18 için notlar: önce/sonra tablolu tam eval (iki geçiş ≈ 350K token) bu anahtarda bir
+  güne sığmaz; iki güne bölünür, `--limit N` ile kısmi koşulur ya da çevrimdışı modda koşulur;
   `gpt-oss-120b` `get_clause` ve `propose_change`'i atlıyor (prompt). Adım 12 sonrası karar:
   `MAX_CONCURRENCY`'nin Groq varsayılanı 4'ten 1'e indirildi (`tech_stack.md`, `spec.md` §10).
 - **Sıradaki:** Adım 13 — Avukat kararı ve finalize.

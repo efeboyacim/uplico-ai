@@ -209,9 +209,9 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
 - Sözleşmeler "Madde N" başlıklarıyla yazılmış, 5–30 sayfa arası.
 - Kişi adı maskeleme en iyi çabadır (taraf/imza blokları); gövdede geçen adlar, öneksiz telefon ve
   boşluklu yazılmış TCKN ile düzensiz gruplanmış ya da satıra bölünmüş IBAN kaçabilir.
-- Varsayılan mod bir Groq hesabı ve `GROQ_API_KEY` gerektirir. Geliştirme hesabında 250K TPM
-  geçerlidir (teyit edildi); tam eval buna göre tasarlandı. Düşük limitli bir hesapta (8K TPM /
-  200K TPD) tam eval bir güne sığmaz (`tech_stack.md` "Hangi plan?").
+- Varsayılan mod bir Groq hesabı ve `GROQ_API_KEY` gerektirir. Geliştirme hesabı ücretsiz
+  katmandadır (8K TPM / 200K TPD); önce/sonra tablolu tam eval bu limitlerle bir güne sığmaz
+  (`tech_stack.md` "Hangi plan?").
 - Değerlendiricinin makinesinde GPU olmayabilir; varsayılan mod GPU gerektirmez.
 - Varsayılan modda model indirilmez; Ollama çalışmaz. Çevrimdışı modda ilk çalıştırmada sohbet
   modeli indirilir (internet gerekir, ~7 GB); indirme bittikten sonra internet gerekmez.
@@ -227,13 +227,13 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
 - [x] Sözleşme başına token tahmini (~40K) doğru mu? Örnek sözleşmede (15 madde, 5 kural)
       ölçülen: `gpt-oss-120b` 25,1K token, `qwen3.5:4b` 42,0K token (2026-11-12, tek koşu). Eval
       sözleşmeleri daha uzunsa artar; kesin sayı Adım 18'de ölçülür.
-- [x] **Hesapta hangi Groq limiti geçerli?** `.env`'deki anahtarla `gpt-oss-120b` için yanıt
-      başlıklarında ölçülen limit **8.000 TPM** ve günde 1.000 istektir (2026-11-12,
-      `x-ratelimit-limit-tokens` / `-requests`). Daha önce buraya Limits sayfasından "250K TPM"
-      yazılmıştı (2026-11-10); gerçek çağrıda bu limit görülmedi. Sonuçları: o günkü varsayılan
+- [x] **Hesapta hangi Groq limiti geçerli?** Ücretsiz katman: `gpt-oss-120b` için
+      **30 RPM, 1K RPD, 8K TPM, 200K TPD** (2026-11-12; hem konsolun Limits sayfası hem yanıt
+      başlıkları). Daha önce buraya "250K TPM teyit edildi" yazılmıştı (2026-11-10); bu anahtar
+      için yanlıştı. Sonuçları: o günkü varsayılan
       `MAX_CONCURRENCY=4` ile örnek sözleşmede 5 kuraldan 3'ü `rate_limited` oldu;
-      `MAX_CONCURRENCY=1` ile hepsi tamamlandı (112 sn). Sözleşme başına ~25K token ile tam eval
-      bu anahtarda dakikalık limite ancak sırayla, günlük limite ise büyük olasılıkla sığmaz;
+      `MAX_CONCURRENCY=1` ile hepsi tamamlandı (112 sn). Sözleşme başına ~25K token ile 7 sözleşmelik
+      tek geçiş ≈ 175K token (günlük sınıra ancak sığar), önce/sonra için iki geçiş ≈ 350K (sığmaz);
       README çözümü (`MAX_CONCURRENCY=1` ve `--limit N` ile kısmi koşu, ya da çevrimdışı mod) yazmalı.
 - [x] Groq SDK'sı 429'da `retry-after`'a uyuyor mu? Evet, 60 sn'ye kadar; daha uzunsa en fazla 8 sn'lik
       üstel beklemeye düşer (SDK kaynak kodundan doğrulandı, `tech_stack.md`). Ek sarmalayıcı yazılmaz.

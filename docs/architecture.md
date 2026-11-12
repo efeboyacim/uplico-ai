@@ -423,9 +423,9 @@ Groq'un beyanıdır, sistemin garantisi değildir.
     "Veri makineden çıkmaz" yalnızca çevrimdışı mod için söylenebilir.
   - Bir dış bağımlılık ve hız limiti gelir: anahtar yoksa uygulama açık hatayla durur; 429'da sınırlı
     yeniden deneme yapılır, sonra kural avukat kuyruğuna düşer.
-  - Geliştirme hesabında 250K TPM geçerli (teyit edildi); tam eval sığar. Düşük limitli bir hesapta
-    (8K TPM / 200K TPD) sığmaz; Groq belgeleri hangi planın hangi limiti aldığında çelişkili olduğu
-    için README düşük limit durumunu da anlatır.
+  - Geliştirme hesabı ücretsiz katmandadır (8K TPM / 200K TPD); önce/sonra tablolu tam eval aynı
+    gün içinde sığmaz (`tech_stack.md` "Hangi plan?"). Yüksek limitli (250K TPM) hesapta sığar;
+    README düşük limit durumunu ve çözümünü anlatır.
   - İnternetsiz kurulumda değişen: `LLM_PROVIDER=ollama`, LangSmith kapalı. Docker imajları ve Ollama
     sohbet modeli (`qwen3.5:9b`) internet olan bir makinede hazırlanıp içeri taşınır
     (`ollama-pull` çalıştırılmaz; yalnızca `app` ve `ollama` başlatılır); sohbet modeli için ~8 GB VRAM'li GPU gerekir. Kod değişmez.

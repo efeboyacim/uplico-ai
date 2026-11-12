@@ -33,7 +33,7 @@
 | Fiyat | `gpt-oss-120b`: 1M token başına $0.15 girdi / $0.60 çıktı. `gpt-oss-20b`: $0.075 / $0.30. | console.groq.com/docs/models |
 | Hız limiti — düşük tablo | `gpt-oss-120b` ve `gpt-oss-20b`: 30 RPM, 1K RPD, **8K TPM, 200K TPD** | console.groq.com/docs/rate-limits |
 | Hız limiti — yüksek tablo | `gpt-oss-120b` ve `gpt-oss-20b`: 1K RPM, 250K TPM ("Developer Plan" başlığı altında) | console.groq.com/docs/models |
-| **Hangi tablo hangi plan?** | **Kaynaklar çelişiyor.** Hız limitleri sayfasında "Free Plan" ve "Developer Plan" sekmeleri var, ama düşük tablonun üstündeki cümle onu "Developer plan'ın temel limitleri" diye tanımlıyor; models sayfası ise Developer plan için yüksek değerleri veriyor. En olası okuma: düşük tablo Free plan. Kesin değer hesabın Limits sayfasından okunur; geliştirme hesabında 250K TPM teyit edildi. | iki sayfa birlikte |
+| **Hangi tablo hangi plan?** | **Kaynaklar çelişiyor.** Hız limitleri sayfasında "Free Plan" ve "Developer Plan" sekmeleri var, ama düşük tablonun üstündeki cümle onu "Developer plan'ın temel limitleri" diye tanımlıyor; models sayfası ise Developer plan için yüksek değerleri veriyor. En olası okuma: düşük tablo Free plan. Bu okuma doğrulandı: geliştirme hesabı ücretsiz katmandadır ve Limits sayfası düşük tabloyu gösterir (2026-11-12). Kesin değer hesabın Limits sayfasından okunur. | iki sayfa birlikte |
 | Limit aşımı | HTTP **429**; `retry-after` başlığı saniye cinsinden bekleme süresini verir. Limitler anahtar başına değil **organizasyon** başınadır. | console.groq.com/docs/rate-limits |
 | SDK yeniden denemesi | `groq` Python SDK'sı 408 / 409 / 429 / 5xx'i yeniden dener. `retry-after` başlığına **60 sn'ye kadar** uyar; daha uzunsa en fazla 8 sn'lik üstel beklemeye düşer. Varsayılan 2 deneme, 60 sn zaman aşımı. | github.com/groq/groq-python (`_base_client.py`, `_constants.py`) |
 | Veri saklama | "Varsayılan olarak çıkarım isteklerinde müşteri verisi saklanmaz." İstisna: güvenilirlik ve kötüye kullanım incelemesi için girdi/çıktı **30 güne kadar** loglanabilir. | console.groq.com/docs/your-data |
@@ -47,17 +47,17 @@
 Doğrulanamayan `spec.md` §10'da açık sorudur: `gpt-oss-120b`'nin Türkçe kalitesi.
 
 ### Hangi plan?
-- **Geliştirme hesabı:** Limits sayfasında `gpt-oss-120b` için **250K TPM** görünüyor (2026-11-10'da
-  teyit edildi). Tasarım başta buna göreydi (varsayılan `MAX_CONCURRENCY=4`); varsayılan Adım 12'den
-  sonra 1 yapıldı.
-  **Gerçek çağrıda ölçülen farklı** (2026-11-12, Adım 12): `.env`'deki anahtarla yanıt başlıkları
-  8.000 TPM ve günde 1.000 istek gösterdi; varsayılan eşzamanlılıkla 5 kuraldan 3'ü `rate_limited`
-  oldu, `MAX_CONCURRENCY=1` ile hepsi tamamlandı. Hangisinin geçerli olduğu açık (`spec.md` §10).
-- **Tahmin** (ilk koşuda ölçülecek): sözleşme başına ~40K token; 7 sözleşmelik eval ≈ 280K token.
-  250K TPM ile eval birkaç dakikada biter; tahmini maliyet koşu başına $0.10'un altı.
-- **Başka bir hesapta düşük limitler geçerliyse** (8K TPM / 200K TPD; değerlendiricinin anahtarı
-  böyle olabilir): tek bir sözleşme denenebilir, ama tam eval günlük sınıra sığmaz.
-  `MAX_CONCURRENCY=1` ve `--limit N` ile kısmi koşulmalı ya da eval çevrimdışı modda koşulmalı.
+- **Geliştirme hesabı ücretsiz katmandadır:** `gpt-oss-120b` için **30 RPM, 1K RPD, 8K TPM, 200K
+  TPD** (Limits sayfası ve yanıt başlıkları, 2026-11-12). Burada daha önce "250K TPM teyit edildi"
+  yazıyordu (2026-11-10); bu anahtar için yanlıştı. Tasarım başta ona göreydi (varsayılan
+  `MAX_CONCURRENCY=4`): gerçek çağrıda 5 kuraldan 3'ü `rate_limited` oldu, varsayılan 1 yapıldı.
+- **Ölçülen** (Adım 12, örnek sözleşme, tek koşu): sözleşme başına ~25K token ve 15 model çağrısı,
+  112 sn. Buna göre 7 sözleşmelik tek eval geçişi ≈ 175K token ve dakikalık limit yüzünden en az
+  ~22 dakika sürer; günlük 200K sınırına ancak sığar. Önce/sonra tablosu iki geçiş ister (≈ 350K):
+  **aynı gün içinde bu anahtara sığmaz.** Eval sözleşmeleri örnekten uzunsa tek geçiş de sığmaz;
+  kesin sayı Adım 18'de ölçülür. Tahmini maliyet (ücretli hesapta) koşu başına $0.10'un altı.
+- **Bu yüzden eval** `MAX_CONCURRENCY=1` ve `--limit N` ile kısmi koşulur, iki güne bölünür ya da
+  çevrimdışı modda koşulur. Yüksek limitli (250K TPM) bir hesapta tam eval birkaç dakikada biter.
   README bunu yazar.
 
 ## Uygulama katmanı
