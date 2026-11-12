@@ -39,7 +39,9 @@ Adım 18: Groq ile iki tam eval koşusu (2026-11-12); ilki iki hata gösterdi, i
 commit'iyle düzeltildi (`verify`'da cümle sınırını aşan birim; taslak yönlendirmesi, 1 / 11 →
 11 / 11). İkinci koşuda bütün sert eşikler tuttu (değiştirilmedi); iki yanlış sözleşme 4'teki
 arama kaçışı (BM25 sınırı), sonuçlar `docs/evals.md` §4–§5'te.
-Sıradaki: Adım 19 — README ve karar dokümanı.
+Adım 18b (görülmemiş iki sözleşmede tek koşu): veri ve koşucu seçeneği commit edildi; model koşusu
+ikinci sözleşmede Groq limitine takıldı (çıkış kodu 2), `--resume` kota yenilenince yapılacak.
+Bu sırada Adım 19 (README ve karar dokümanı) yazılıyor; ayrıntı `docs/plan.md` "Durum".
 
 ## Komutlar
 ```bash

@@ -48,21 +48,32 @@ Doğrulanamayan `spec.md` §10'da açık sorudur: `gpt-oss-120b`'nin Türkçe ka
 
 ### Hangi plan?
 - **Geliştirme hesabı ücretsiz katmandadır:** `gpt-oss-120b` için **30 RPM, 1K RPD, 8K TPM, 200K
-  TPD** (Limits sayfası ve yanıt başlıkları, 2026-11-12). Burada daha önce "250K TPM teyit edildi"
-  yazıyordu (2026-11-10); bu anahtar için yanlıştı. Tasarım başta ona göreydi (varsayılan
+  TPD** (konsolun Limits sayfası, 2026-11-12; yanıt başlıkları yalnızca 1K RPD ve 8K TPM
+  değerlerini verir, günlük token sınırı başlıklarda yoktur). Burada daha önce "250K TPM teyit
+  edildi" yazıyordu (2026-11-10); bu anahtar için yanlıştı. Tasarım başta ona göreydi (varsayılan
   `MAX_CONCURRENCY=4`): gerçek çağrıda 5 kuraldan 3'ü `rate_limited` oldu, varsayılan 1 yapıldı.
 - **Ölçülen** (Adım 12, örnek sözleşme, tek koşu): sözleşme başına ~25K token ve 15 model çağrısı,
   112 sn. Önce/sonra tablosu ikinci bir geçiş istemez: model sözleşme başına bir kez çalışır, iki
   satır aynı ham bulgulardan kodla hesaplanır (`evals.md` §5).
 - **Ölçülen** (Adım 18, 7 sözleşmelik tam eval, iki koşu, 2026-11-12, `MAX_CONCURRENCY=1`):
   206.387 token / 576 sn (taslak 1 / 11) ve 241.576 token / 813 sn (taslak 11 / 11); sözleşme
-  başına 23,5K–39,5K, ilk üç sözleşme ≈ 105K. Taslaklarla **günlük 200K sınırı aşıldı**. Maliyet
+  başına 23,5K–39,5K, ilk üç sözleşme ≈ 105K. Taslaklarla **koşunun ham token toplamı belgelenen 200K'yı geçti (206K ve 242K); iki koşu yine de
+  429 almadan bitti**. Maliyet
   koşu başına $0,035–0,041 (birim fiyatla hesaplanan).
-- **Limit gözlemi (Adım 18):** 2026-11-12'de bu anahtarla toplam ≈ 473K token harcandı (≈ 25K
-  tek sözleşmelik deneme + 206K + 242K); koşular dakikada ≈ 18–21K token hızla gitti, hiç 429
-  gelmedi. Yukarıdaki 8K TPM / 200K TPD bu anahtarda o gün uygulanmadı; sebebi bilinmiyor (limit
-  ya da hesap katmanı değişmiş olabilir; Limits sayfası bu oturumda kontrol edilmedi). **Geçerli
-  limit bilinmiyor**; aşağıdaki ücretsiz katman rehberi koşullu olarak kalır.
+- **Limit gözlemi (2026-11-12):** Gün içinde bu anahtarla sırasıyla tek sözleşmelik deneme
+  (≈ 25K token), 1. tam koşu (206.387 token, 576 sn) ve 2. tam koşu (241.576 token, 813 sn) 429
+  almadan bitti (ham hız ≈ 18–21K token/dakika; toplam ≈ 473K). Ardından holdout koşusu (2
+  sözleşme, `plan.md` "Adım 18b") limite takıldı: 1. sözleşme tamamlandı, 2. sözleşmenin 5
+  kuralının 5'i `rate_limited` oldu (≈ 22:04 UTC); koşucu çıkış kodu 2 ile durdu, tablo ve sonuç
+  dosyası yazmadı, tamamlanan sözleşme önbellekte kaldı. 22:51 UTC'de yanıt başlıkları
+  `x-ratelimit-limit-requests` 1000 (günlük istek) ve `x-ratelimit-limit-tokens` 8000 (dakikalık
+  token) verdi; günlük token sınırı başlıklarda yer almıyor. O anda küçük istekler 200 dönüyordu;
+  istek sayacı sürekli dolan bir kova gibi davrandı (kalan 919 / 1000, tam dolum ≈ 1 sa 56 dk).
+  **Bilinmeyenler:** limite hangi sınırın (dakikalık ya da günlük token) yol açtığı; ham token
+  toplamının belgelenen 8K TPM / 200K TPD'yi neden aşabildiği (olası açıklama: önbelleğe alınan
+  girdi token'larının limite sayılmaması, doğrulanmadı); günlük sınırın geçerli değeri ve ne zaman
+  dolduğu. Konsolun Limits / Usage sayfası bu oturumda kontrol edilmedi. **Sonuç:** ücretsiz
+  katmanda tam eval limite takılabilir; aşağıdaki rehber geçerlidir.
 - **Maliyet hesabı:** eval'in birim fiyatları `src/config.py`'de `PROVIDER_DEFAULTS` içinde,
   sağlayıcının varsayılan modelinin yanında durur (`groq`: 1M token başına $0.15 girdi / $0.60
   çıktı; `ollama`: 0). Model `LLM_MODEL` ile ezilirse maliyet "bilinmiyor" yazılır; başka modelin

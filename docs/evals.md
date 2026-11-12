@@ -565,15 +565,25 @@ Sonuç `evals/results/` altına ve README'ye yazılır.
 - **Limit:** tam eval hesabın yüksek limitlere (250K TPM) sahip olmasını gerektirir; geliştirme
   hesabı ücretsiz katmandadır ve bu limitlere sahip değildir. 7 sözleşmelik tek geçiş (önce/sonra
   aynı geçişten, §5) Adım 18'de ölçüldü: 206.387 token (1. koşu, taslak 1 / 11) ve 241.576 token
-  (2. koşu, taslak 11 / 11); taslaklarla 200K günlük sınır aşıldı. Sözleşme başına 23,5K–39,5K;
-  ilk üç sözleşme 2. koşuda ≈ 105K. **Limit gözlemi (2026-11-12):** o gün bu anahtarla toplam
-  ≈ 473K token harcandı (≈ 25K tek sözleşmelik deneme + 206K + 242K), koşular dakikada ≈ 18–21K
-  token hızla gitti; hiç 429 gelmedi, çıkış kodu 2 görülmedi. Dokümandaki 8K TPM / 200K TPD bu
-  anahtarda o gün uygulanmadı; sebebi bilinmiyor (limit ya da hesap katmanı değişmiş olabilir;
-  konsolun Limits sayfası kontrol edilmedi), geçerli limit bilinmiyor. Bu yüzden düşük limitli
-  hesap için rehber koşullu olarak kalır: eval `MAX_CONCURRENCY=1` ve `--limit N` (README'de N=3)
-  ile kısmi, `--resume` ile günlere bölünerek ya da çevrimdışı modda koşulur (`tech_stack.md`
-  "Hangi plan?"). Gerçek limitte çıkış kodu 2 ve `--resume` denenmedi.
+  (2. koşu, taslak 11 / 11); taslaklarla koşunun ham token toplamı belgelenen 200K'yı geçti (206K ve 242K); iki koşu yine de
+  429 almadan bitti. Sözleşme başına 23,5K–39,5K;
+  ilk üç sözleşme 2. koşuda ≈ 105K. **Limit gözlemi (2026-11-12):** o gün bu anahtarla sırasıyla
+  tek sözleşmelik deneme (≈ 25K token), 1. tam koşu (206.387 token, 576 sn) ve 2. tam koşu
+  (241.576 token, 813 sn) 429 almadan bitti (ham hız ≈ 18–21K token/dakika; toplam ≈ 473K).
+  Ardından holdout koşusu (2 sözleşme, `plan.md` "Adım 18b") limite takıldı: 1. sözleşme
+  tamamlandı, 2. sözleşmenin 5 kuralının 5'i `rate_limited` oldu (≈ 22:04 UTC); koşucu çıkış
+  kodu 2 ile durdu, tablo ve sonuç dosyası yazmadı. 22:51 UTC'de yanıt başlıkları
+  `x-ratelimit-limit-requests` 1000 (günlük istek) ve `x-ratelimit-limit-tokens` 8000
+  (dakikalık token) verdi; günlük token sınırı başlıklarda yok, istek sayacı sürekli dolan bir
+  kova gibi davrandı (kalan 919 / 1000, tam dolum ≈ 1 sa 56 dk). Bilinmeyenler: limite hangi
+  sınırın (dakikalık ya da günlük token) yol açtığı; ham token toplamının belgelenen 8K TPM /
+  200K TPD'yi neden aşabildiği (olası açıklama: önbelleğe alınan girdi token'larının limite
+  sayılmaması, doğrulanmadı); günlük sınırın geçerli değeri ve ne zaman dolduğu. Konsolun
+  Limits / Usage sayfası kontrol edilmedi. Sonuç: ücretsiz katmanda tam eval limite takılabilir;
+  rehber geçerlidir: eval `MAX_CONCURRENCY=1` ve `--limit N` (README'de N=3) ile kısmi, `--resume`
+  ile günlere bölünerek ya da çevrimdışı modda koşulur (`tech_stack.md` "Hangi plan?"). Çıkış
+  kodu 2 gerçek limitte görüldü (holdout koşusu, 2026-11-12; tamamlanan sözleşme önbellekte
+  kaldı); gerçek limitte `--resume` ile devam henüz denenmedi.
 - **`--limit N`:** Düşük limitli hesaplar için koşucu `--limit N` ile yalnızca `labels.json`
   sırasındaki ilk N sözleşmeyi koşar (N < 1 ya da N > veri kümesinin sözleşme sayısı, varsayılan
   kümede 7, argüman hatasıdır). Tablo başlığı "N/M sözleşme" yazar (M veri kümesinin sözleşme

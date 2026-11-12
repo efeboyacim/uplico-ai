@@ -245,9 +245,10 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   (`500 000 00 00`) telefon sayar; tek boşlukla ayrılmış ayrı sayılar birlikte 11 hane edip
   checksum'ı tutarsa (`10 30 120 10 20`, yaklaşık yüzde bir) TCKN sayılır.
 - Varsayılan mod bir Groq hesabı ve `GROQ_API_KEY` gerektirir. Geliştirme hesabı ücretsiz
-  katmandadır (8K TPM / 200K TPD); önce/sonra tablolu tam eval (tek geçiş) Adım 18'de 206K ve
-  242K token tuttu, yani bu limitlerle bir güne sığmaz (2026-11-12'de bu limitler o anahtarda
-  uygulanmadı; geçerli limit bilinmiyor, `tech_stack.md` "Hangi plan?").
+  katmandadır (belgelenen sınırlar: 8K TPM / 200K TPD); önce/sonra tablolu tam eval (tek geçiş) Adım 18'de 206K ve
+  242K token tuttu, yani bu limitlerle bir güne sığmaz (2026-11-12'de iki tam koşu 429 almadan
+  bitti, ardından holdout koşusu limite takıldı; geçerli limit bilinmiyor, `tech_stack.md`
+  "Hangi plan?").
 - Değerlendiricinin makinesinde GPU olmayabilir; varsayılan mod GPU gerektirmez.
 - Varsayılan modda model indirilmez; Ollama çalışmaz. Çevrimdışı modda ilk çalıştırmada sohbet
   modeli indirilir (internet gerekir, ~7 GB); indirme bittikten sonra internet gerekmez.
@@ -272,20 +273,31 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
       sözleşmelerinde (Adım 18, `gpt-oss-120b`) sözleşme başına 23,5K–37,8K (taslak 1 / 11) ve
       28,6K–39,5K (taslak 11 / 11); 7 sözleşme 206K ve 242K.
 - [x] **Hesapta hangi Groq limiti geçerli?** Ücretsiz katman: `gpt-oss-120b` için
-      **30 RPM, 1K RPD, 8K TPM, 200K TPD** (2026-11-12; hem konsolun Limits sayfası hem yanıt
-      başlıkları). Daha önce buraya "250K TPM teyit edildi" yazılmıştı (2026-11-10); bu anahtar
+      **30 RPM, 1K RPD, 8K TPM, 200K TPD** (2026-11-12; konsolun Limits sayfası. Yanıt başlıkları
+      yalnızca 1K RPD ve 8K TPM verir). Bunlar belgelenen değerlerdir; anahtarda fiilen geçerli
+      günlük token sınırı bilinmiyor (aşağıda Adım 18 gözlemi). Daha önce buraya "250K TPM teyit edildi" yazılmıştı (2026-11-10); bu anahtar
       için yanlıştı. Sonuçları: o günkü varsayılan
       `MAX_CONCURRENCY=4` ile örnek sözleşmede 5 kuraldan 3'ü `rate_limited` oldu;
       `MAX_CONCURRENCY=1` ile hepsi tamamlandı (112 sn). 7 sözleşmelik tek geçiş Adım 18'de
-      206K ve 242K token tuttu (taslaklarla 200K aşıldı). Önce/sonra ikinci bir geçiş istemez:
+      206K ve 242K token tuttu (taslaklarla koşunun ham token toplamı belgelenen 200K'yı geçti; iki koşu yine de 429 almadan
+      bitti). Önce/sonra ikinci bir geçiş istemez:
       model sözleşme başına bir kez çalışır, `verify` aynı ham bulgular üzerinde iki kez kodla
       hesaplanır (`evals.md` §5).
-      **Adım 18 gözlemi (2026-11-12):** o gün bu anahtarla toplam ≈ 473K token harcandı, koşular
-      dakikada ≈ 18–21K token hızla gitti; hiç 429 gelmedi. 8K TPM / 200K TPD bu anahtarda o gün
-      uygulanmadı; sebebi bilinmiyor (limit ya da hesap katmanı değişmiş olabilir; Limits sayfası
-      kontrol edilmedi). Geçerli limit bilinmiyor; düşük limitli hesap için rehber koşullu kalır.
-      README çözümü (`MAX_CONCURRENCY=1` ve `--limit N` ile kısmi koşu, `--resume`, ya da
-      çevrimdışı mod) yazmalı.
+      **Adım 18 gözlemi (2026-11-12):** o gün bu anahtarla sırasıyla tek sözleşmelik deneme
+      (≈ 25K token), 1. tam koşu (206.387 token, 576 sn) ve 2. tam koşu (241.576 token, 813 sn)
+      429 almadan bitti (ham hız ≈ 18–21K token/dakika; toplam ≈ 473K). Ardından holdout koşusu
+      (2 sözleşme, `plan.md` "Adım 18b") limite takıldı: 1. sözleşme tamamlandı, 2. sözleşmenin
+      5 kuralının 5'i `rate_limited` oldu (≈ 22:04 UTC); koşucu çıkış kodu 2 ile durdu, tablo ve
+      sonuç dosyası yazmadı, tamamlanan sözleşme önbellekte kaldı. 22:51 UTC'de yanıt başlıkları
+      `x-ratelimit-limit-requests` 1000 (günlük istek) ve `x-ratelimit-limit-tokens` 8000
+      (dakikalık token) verdi; günlük token sınırı başlıklarda yok. İstek sayacı sürekli dolan
+      bir kova gibi davrandı (kalan 919 / 1000, tam dolum ≈ 1 sa 56 dk). Bilinmeyenler: limite
+      hangi sınırın (dakikalık ya da günlük token) yol açtığı; ham token toplamının belgelenen
+      8K TPM / 200K TPD'yi neden aşabildiği (olası açıklama: önbelleğe alınan girdi token'larının
+      limite sayılmaması, doğrulanmadı); günlük sınırın geçerli değeri ve ne zaman dolduğu.
+      Konsolun Limits / Usage sayfası kontrol edilmedi. Sonuç: ücretsiz katmanda tam eval limite
+      takılabilir; README çözümü (`MAX_CONCURRENCY=1` ve `--limit N` ile kısmi koşu, `--resume`,
+      ya da çevrimdışı mod) yazmalı.
 - [x] Groq SDK'sı 429'da `retry-after`'a uyuyor mu? Evet, 60 sn'ye kadar; daha uzunsa en fazla 8 sn'lik
       üstel beklemeye düşer (SDK kaynak kodundan doğrulandı, `tech_stack.md`). Ek sarmalayıcı yazılmaz.
 - [x] `max_concurrency` `Send` dallarını gerçekten sınırlıyor mu? Evet: langgraph 1.2.20'de 8 dal,

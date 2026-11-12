@@ -250,7 +250,7 @@
   satır sonu çevirmeden okur (`read_bytes().decode("utf-8")`, testlerdeki `_sample()` gibi);
   `labels.json` ofset değil `clause_no` tutar, satır sonundan etkilenmez.
   Adım 16: `evals/dataset/` yazıldı (7 sözleşme, `labels.json`, `tests/test_dataset.py`). 35 karar:
-  19 `compliant`, 13 `non_compliant`, 3 `not_found`. Etiketi taşıyan 32 cümleyi ve 35 etiketi
+  20 `compliant`, 12 `non_compliant`, 3 `not_found`. Etiketi taşıyan 32 cümleyi ve 35 etiketi
   kullanıcı yazımdan önce tablo halinde, yazımdan sonra dosyalardan okuyarak onayladı; her cümle
   doğru maddede ve dosyada tam bir kez geçer (kodla doğrulandı). Sözleşmeleri alt-agent'lar
   `src/prepare/pii.py` ve `src/prepare/index.py` okunmadan yazdı; matrisi görmeyen bağımsız bir
@@ -368,16 +368,38 @@
   metinde sıfır fark) ve `verify` düzeyinde 64.000 üçlüde sınır içermeyen metinde "eskiden kuyruk,
   şimdi değil" sıfır çıktı. Kabul edilen kayıp ve kalan sınırlar `agent_design.md` §5'te.
   **Tahmin tutmadı:** "iki güne yayılır" denmişti; iki koşu da limitsiz, aynı gün bitti (o gün
-  ≈ 473K token, hiç 429 yok; 8K TPM / 200K TPD bu anahtarda uygulanmadı, sebebi bilinmiyor).
+  ≈ 473K ham token, iki tam koşuda 429 yok). Aynı günün devamında limit geldi: Adım 18b'nin
+  koşusu ikinci sözleşmede durdu (aşağıda "Adım 18b durumu").
   "`verify` düzeltmesi tek tur" beklentisi de tutmadı: üç tasarım turu gerekti.
   **Denenmeyenler:** LangSmith'e yükleme (iki koşuda da `langsmith: "local"`, konteynerde anahtar
-  yoktu); gerçek limitte çıkış kodu 2 ve `--resume`; çıkış kodu 3; Ollama ile eval; taslak
+  yoktu); gerçek limitte `--resume` ile devam (çıkış kodu 2 Adım 18b'de görüldü); çıkış kodu 3; Ollama ile eval; taslak
   yönlendirmesinin başka modelde etkisi; 1 / 11 → 11 / 11 farkının ne kadarının tool yanıtından,
   ne kadarının prompt / açıklama değişikliğinden geldiği (ayrı ölçülmedi, tek koşu).
   İnceleme yan bulgusu (önceden de vardı, düzeltilmedi): `verify` taslağın `clause_id`'sini
   bulgununkiyle karşılaştırmıyor; model fikir değiştirip başka madde için bulgu bildirirse eski
   taslak yeni bulguya ekli kalır.
-- **Sıradaki:** Adım 19 — README ve karar dokümanı.
+- **Adım 18b durumu (2026-11-12):** koşucu seçeneği (`7166fd1`) ve sözleşmeler + etiketler
+  (`aa1e40e`) commit edildi; depodaki blob'ların sha256'sı kaynakla aynı. Modelsiz ön kontrol
+  (`--prepare-only`, sonuç `evals/results/holdout/` altında): garanti edilen PII 0 / 18, garanti
+  edilmeyen 4 / 4 (Bildirimler maddesindeki dört irtibat adı; bilinen sınır), tarama işareti yok.
+  **Tek koşu yarıda:** `holdout-01` tamamlandı ve önbelleğe yazıldı; `holdout-02`'nin 5 kuralı
+  `rate_limited` oldu (≈ 22:04 UTC), koşucu çıkış kodu 2 ile durdu, sonuç dosyası yazılmadı.
+  Çıkış kodu 2 gerçek limitte ilk kez görüldü. Önbellekteki yarım sonuca bakılmadı. Devam:
+  aynı komut + `--resume`, aynı imajla, commit `aa1e40e…` ile; o zamana kadar `src/`,
+  `evals/*.py` ve `uv.lock` değişmez (önbellek özeti bunlara bağlı). Plandaki "limit gelirse
+  yeniden denenmez, kullanıcıya bildirilir" kuralı uygulandı.
+  **Limit hakkında bilinen (22:51 UTC, yanıt başlıkları):** günlük istek sınırı 1.000, dakikalık
+  token sınırı 8.000; günlük token sınırı başlıklarda yok. İstek sayacı sürekli dolan bir kova
+  gibi davranıyor. Hangi sınırın tetiklendiği ve ham toplamın (iki tam koşu ve denemeyle ≈ 473K, artı holdout koşusunun ölçülmeyen token'ı)
+  belgelenen 8K TPM /
+  200K TPD'yi neden aşabildiği bilinmiyor (olası: önbelleğe alınan girdi token'ları limite
+  sayılmıyor; doğrulanmadı).
+- **Sıra değişikliği (2026-11-13, kullanıcı):** plan 18b → 19'du; kota beklenirken Adım 19'un
+  model gerektirmeyen kısmı (README ve karar dokümanı) öne alındı. README'nin holdout bölümü ve
+  temiz klonda model çağıran eval doğrulaması açık kalır; Adım 19 kutusu 18b tamamlanıp bu ikisi
+  kapanınca işaretlenir. README yazılırken holdout önbelleğine bakılmaz.
+- **Sıradaki:** Adım 18b'nin `--resume` koşusu (kota yenilenince, kullanıcı onayıyla); bu sırada
+  Adım 19 — README ve karar dokümanı.
 - **Adım 19'a başlarken (Adım 18'in devri):** README'ye taşınacaklar:
   1. Asıl önce/sonra tablosu 2. koşudan (`evals.md` §5), altında dürüst not: farkın tamamı
      sözleşme 4'teki iki `not_found` satırından; tablo bu koşuda alıntı / sayı kontrolünün değerini
@@ -391,8 +413,9 @@
   4. Arama sınırı: arama isabeti 30 / 32; sözleşme 4 madde 9 ve 11 kaçtı (`evals.md` §3 "Sonuç");
      embedding "daha fazla vaktim olsaydı"ya.
   5. LangSmith'e yükleme gerçek sunucuya karşı denenmedi.
-  6. Limit gözlemi ve N=3: 8K TPM / 200K TPD 2026-11-12'de uygulanmadı, geçerli limit bilinmiyor;
-     ücretsiz katman komutu `--limit 3` (ilk üç sözleşme ≈ 105K) koşullu olarak yazılır.
+  6. Limit gözlemi ve N=3: iki tam koşu 429 almadan bitti, ardından holdout koşusu limite
+     takıldı (yukarıda "Adım 18b durumu"); geçerli günlük token sınırı bilinmiyor. Ücretsiz
+     katman komutu `--limit 3` (ilk üç sözleşme ≈ 105K), çıkış kodu 2 ve `--resume` yazılır.
   7. Denenmeyenler (yukarıdaki Adım 18 listesi ve önceki adımlarınkiler) ve aşağıdaki "Adım 18
      devri"nin 7. maddesindeki sınırlar (hâlâ geçerli; "iki güne yayılabilen koşu" yerine limit
      gözlemi yazılır).
@@ -1233,8 +1256,9 @@ gereksiz yönlendirme satırları bunu gösterir.
 - **README — ücretsiz Groq anahtarıyla:** tam eval'in günlük limite sığmadığı ve çalışacak komut
   açıkça yazılır: `docker compose run --rm -e MAX_CONCURRENCY=1 app python -m evals.run --limit 3`.
   N=3: Adım 18'de ilk üç sözleşme ≈ 105K token tuttu (2. koşu), 200K günlük sınır uygulanıyorsa
-  sığar; tam koşu 206–242K ile sığmaz. Adım 18'de 200K sınırı o anahtarda uygulanmadı (geçerli
-  limit bilinmiyor); README bunu koşullu yazar. Yanında iki seçenek daha:
+  sığar; tam koşu 206–242K ile sığmaz. Adım 18'in iki tam koşusu limitsiz bitti, aynı gün
+  holdout koşusu limite takıldı (geçerli günlük sınır bilinmiyor); README bunu koşullu yazar.
+  Yanında iki seçenek daha:
   limitsiz tam koşu için `LLM_PROVIDER=ollama`, koşmadan görmek için `evals/results/`.
 - **README — ilk çalıştırmada inen toplam:** her iki mod için ayrı yazılır. Adım 12'de ölçülen:
   varsayılan mod (Groq) yalnızca uygulama imajı, diskte 611 MB (sıkıştırılmış 140 MB). Çevrimdışı
