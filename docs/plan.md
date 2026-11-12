@@ -347,6 +347,24 @@
   değişti).
 - **Sıradaki:** Adım 18 — İlk eval koşusu ve kalibrasyon. `src/` değiştiği için imaj yeniden
   kurulmalı; önbellek özeti de değişti.
+- **Adım 18'e başlarken (2026-11-12 oturumunun devri):**
+  1. Depo temiz; son commit `9b6ca9a`. `origin/main`'e push yapılmadı (push Adım 20'dir).
+  2. Koşudan önce: Docker Desktop açık olmalı; `docker compose build app` (imajdaki `src/` Adım 17b
+     ve `masked_value_in_clause` öncesinden kalmış olabilir).
+  3. Tam koşu: `docker compose run --rm app python -m evals.run`. Kullanıcının Groq kotasını
+     harcar (tahmin 190–210K; günlük sınır 200K); **kullanıcıya sormadan başlatılmaz**.
+     2026-11-12'de ≈25K harcandı (tek sözleşmelik deneme).
+  4. Çıkış kodu 2 (limit) gelirse: tamamlanan sözleşmeler `evals/results/.cache/` altındadır;
+     ertesi gün aynı komut `--resume` ile, aynı imajla (araya `src/` değişikliği ve yeniden kurulum
+     girmeden) çalıştırılır. Bayraksız çalıştırma koşuyu başlatmaz; `--fresh` önbelleği siler.
+  5. İlk kez Adım 18'de çalışacak yollar: LangSmith'e yükleme (anahtar varsa; kısmi koşuda
+     atlanır), gerçek limitte `--resume`, çıkış kodu 3 (eşik tutmadı).
+  6. `evals/results/` altındaki iki `…_prepare-only.json` dosyası Adım 17b'nin önce/sonra kaydıdır
+     (5 / 5 → 2 / 5); silinmez. Adım 19'da README'ye ikincil tablo olarak girer.
+  7. README'ye (Adım 19) taşınacak sınırlar bu bölümde dağınık durur: model hiç hata yapmazsa
+     önce/sonra tablosunun yalnızca bedeli göstermesi (Adım 16 notu); iki güne yayılabilen koşu;
+     Adım 17b'nin bilinen yanlış yakalama sınıfları ve `masked_value_in_clause`'un kapatmadığı
+     durum; maskelenmeyen iki ad; denenmeyenler listeleri.
 - Bu bölüm her adımın commit'inde güncellenir; sıradaki adım, aşağıdaki ilk işaretsiz kutudur.
 
 ## Bağlam
