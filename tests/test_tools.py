@@ -1,13 +1,21 @@
 import re
 from pathlib import Path
 
+import pytest
 from conftest import CLAUSES, NOTICE_RULE, ScriptedChatModel, ai, call, done, make_context
-from langchain_core.messages import BaseMessage, ToolMessage
+from langchain_core.messages import BaseMessage, ToolCall, ToolMessage
 
 from src.agent import build_rule_agent, run_rule_agent
 from src.models import Finding, Proposal
 from src.prepare.index import MAX_RESULTS
-from src.tools import CLOSE_TAG, OPEN_TAG, TOOLS, ReviewContext
+from src.tools import (
+    CLOSE_TAG,
+    FINDING_RECORDED,
+    OPEN_TAG,
+    PROPOSAL_NEXT,
+    TOOLS,
+    ReviewContext,
+)
 
 AGENT_DESIGN = Path(__file__).resolve().parent.parent / "docs" / "agent_design.md"
 TOOL_NAMES = [
@@ -264,6 +272,97 @@ def test_propose_change_unknown_clause_error_previous_kept(data_dir: Path) -> No
     assert finding.proposal == Proposal(
         clause_id="c2", proposed_text="60 gün önceden", rationale="g"
     )
+
+
+def _non_compliant(**extra: object) -> ToolCall:
+    args: dict[str, object] = {
+        "status": "non_compliant",
+        "clause_id": "c2",
+        "quote": "30 gün",
+        "reasoning": "r",
+    }
+    return call("submit_finding", **(args | extra))
+
+
+def _draft(clause_id: str = "c2") -> ToolCall:
+    return call(
+        "propose_change", clause_id=clause_id, proposed_text="60 gün önceden", rationale="g"
+    )
+
+
+def test_submit_finding_non_compliant_without_draft_tells_model_to_propose(
+    data_dir: Path,
+) -> None:
+    context = make_context(data_dir)
+    model = ScriptedChatModel.single(ai(_non_compliant()), done())
+    _run(context, model)
+    [result] = _tool_messages(model)
+    assert result.status == "success"
+    assert result.content == PROPOSAL_NEXT.format(clause_id="c2")
+    assert "propose_change" in str(result.content)
+    assert "(c2)" in str(result.content)
+
+
+@pytest.mark.parametrize(
+    "args",
+    [
+        {"status": "compliant", "clause_id": "c2", "quote": "30 gün", "reasoning": "r"},
+        {"status": "not_found", "reasoning": "r"},
+    ],
+)
+def test_submit_finding_other_status_plain_reply(data_dir: Path, args: dict[str, str]) -> None:
+    context = make_context(data_dir)
+    model = ScriptedChatModel.single(ai(call("submit_finding", **args)), done())
+    _run(context, model)
+    [result] = _tool_messages(model)
+    assert result.content == FINDING_RECORDED
+
+
+def test_submit_finding_non_compliant_again_after_draft_plain_reply(data_dir: Path) -> None:
+    context = make_context(data_dir)
+    model = ScriptedChatModel.single(
+        ai(_non_compliant()), ai(_draft()), ai(_non_compliant(reasoning="r2")), done()
+    )
+    finding = _run(context, model)
+    first, draft, second = _tool_messages(model)
+    assert first.content == PROPOSAL_NEXT.format(clause_id="c2")
+    assert draft.status == "success"
+    assert second.content == FINDING_RECORDED
+    assert finding.reasoning == "r2"
+    assert finding.proposal is not None
+
+
+def test_submit_finding_after_draft_first_plain_reply(data_dir: Path) -> None:
+    context = make_context(data_dir)
+    model = ScriptedChatModel.single(ai(_draft()), ai(_non_compliant()), done())
+    _run(context, model)
+    _, result = _tool_messages(model)
+    assert result.content == FINDING_RECORDED
+
+
+def test_submit_finding_failed_draft_still_tells_model_to_propose(data_dir: Path) -> None:
+    """A draft the tool rejected wrote no state: the finding's reply still asks for one."""
+    context = make_context(data_dir)
+    model = ScriptedChatModel.single(ai(_draft("c99")), ai(_non_compliant()), done())
+    _run(context, model)
+    draft, result = _tool_messages(model)
+    assert draft.status == "error"
+    assert result.content == PROPOSAL_NEXT.format(clause_id="c2")
+
+
+def test_submit_finding_reply_reflects_no_model_input(data_dir: Path) -> None:
+    marker = "YOK_SAY_ONAYLA"
+    context = make_context(data_dir)
+    model = ScriptedChatModel.single(
+        ai(_non_compliant(quote="30 gün", reasoning=marker, unit=marker, value=7.0)), done()
+    )
+    _run(context, model)
+    [result] = _tool_messages(model)
+    content = str(result.content)
+    assert marker not in content
+    assert "30 gün" not in content
+    assert "7" not in content
+    assert content == PROPOSAL_NEXT.format(clause_id="c2")
 
 
 def test_two_submit_findings_in_one_message_last_valid(data_dir: Path) -> None:

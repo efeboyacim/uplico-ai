@@ -64,6 +64,7 @@ def _row(contract_id: str = "contract-01") -> RuleRow:
         status="compliant", clause_no="1", has_quote=True, quote_valid=True,
         needs_review=False, review_reasons=(), has_proposal=False, code_check=None,
         no_finding_reason=None, interrupted_by=None, search_hit=True, search_calls=1,
+        proposal_calls=2, proposal_errors=1,
     )  # fmt: skip
 
 
@@ -233,6 +234,36 @@ def test_load_cache_corrupt_raises_with_path(tmp_path: Path, content: bytes) -> 
     with pytest.raises(CorruptCacheError) as info:
         load_cache(path)
     assert info.value.path == path
+
+
+def test_load_cache_version_1_without_proposal_counts_is_corrupt(tmp_path: Path) -> None:
+    """A cache written before rows carried `proposal_calls` / `proposal_errors` is not half-read."""
+    assert CACHE_VERSION == 2
+    raw = _valid_raw(tmp_path)
+    raw["version"] = 1
+    contracts = raw["contracts"]
+    assert isinstance(contracts, dict)
+    for rows in contracts["contract-01"]["rows"].values():
+        for row in rows:
+            del row["proposal_calls"], row["proposal_errors"]
+    path = tmp_path / "v1.json"
+    path.write_bytes(json.dumps(raw).encode("utf-8"))
+    with pytest.raises(CorruptCacheError) as info:
+        load_cache(path)
+    assert info.value.path == path
+    assert "1" in str(info.value)
+
+
+@pytest.mark.parametrize("field", ["proposal_calls", "proposal_errors"])
+def test_load_cache_row_without_proposal_count_is_corrupt(tmp_path: Path, field: str) -> None:
+    raw = _valid_raw(tmp_path)
+    contracts = raw["contracts"]
+    assert isinstance(contracts, dict)
+    del contracts["contract-01"]["rows"]["after"][0][field]
+    path = tmp_path / "broken.json"
+    path.write_bytes(json.dumps(raw).encode("utf-8"))
+    with pytest.raises(CorruptCacheError):
+        load_cache(path)
 
 
 def _valid_raw(tmp_path: Path) -> dict[str, object]:

@@ -32,6 +32,12 @@ from src.store import Store
 OPEN_TAG = "<sozlesme_maddesi>"
 CLOSE_TAG = "</sozlesme_maddesi>"
 NO_CLAUSE_NO = "-"
+FINDING_RECORDED = "Bulgu kaydedildi."
+# A fixed template: only a clause id that exists in the index is put into it (agent_design §2).
+PROPOSAL_NEXT = (
+    "Bulgu kaydedildi. Sonuç non_compliant: şimdi propose_change ile bu madde ({clause_id}) için "
+    "kuralı karşılayan değişiklik taslağını yaz. Taslak yazmadan bitirme."
+)
 
 
 @dataclass(frozen=True)
@@ -119,7 +125,7 @@ def submit_finding(
     value: float | None = None,
     unit: str | None = None,
 ) -> Command[Any] | ToolMessage:
-    """Kural için sonucunu bildir. Görev başına bir kez."""
+    """Kural için sonucunu bildir. Sonuç `non_compliant` ise ardından `propose_change` çağır."""
     try:
         finding = Finding(
             rule_id=runtime.context.rule.id,
@@ -134,14 +140,19 @@ def submit_finding(
         return _error(runtime, _validation_message(exc))
     if clause_id is not None and _lookup(runtime, clause_id) is None:
         return _unknown_clause(runtime, clause_id)
-    return _recorded(runtime, "finding", finding, "Bulgu kaydedildi.")
+    if status == "non_compliant" and runtime.state.get("proposal") is None:
+        # Only the clause id (checked against the index above) goes into the fixed template.
+        text = PROPOSAL_NEXT.format(clause_id=finding.clause_id)
+    else:
+        text = FINDING_RECORDED
+    return _recorded(runtime, "finding", finding, text)
 
 
 @tool
 def propose_change(
     clause_id: str, proposed_text: str, rationale: str, runtime: ToolRuntime[ReviewContext]
 ) -> Command[Any] | ToolMessage:
-    """Uygun olmayan madde için yeni metin taslağı öner."""
+    """Uygun olmayan madde için yeni metin taslağı öner. `non_compliant` sonuçta zorunludur; `submit_finding`'den sonra çağır."""  # noqa: E501
     try:
         proposal = Proposal(clause_id=clause_id, proposed_text=proposed_text, rationale=rationale)
     except ValidationError as exc:

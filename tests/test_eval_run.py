@@ -940,7 +940,12 @@ def test_run_other_model_has_its_own_cache(
     assert not _cache_file(results_dir, "başka/model").exists()  # removed after its success
 
 
-@pytest.mark.parametrize("content", [b"{bozuk", json.dumps({"version": 99}).encode()])
+_V1_CACHE = json.dumps(  # before rows carried proposal_calls / proposal_errors
+    {"version": 1, "provider": "groq", "model": "m", "run_fingerprint": "x", "contracts": {}}
+).encode()
+
+
+@pytest.mark.parametrize("content", [b"{bozuk", json.dumps({"version": 99}).encode(), _V1_CACHE])
 def test_run_corrupt_cache_exits_1_with_path_and_fresh_hint(
     data_dir: Path, results_dir: Path, content: bytes, capsys: pytest.CaptureFixture[str]
 ) -> None:

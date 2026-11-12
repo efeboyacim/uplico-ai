@@ -35,7 +35,8 @@ from evals.metrics import (
     safe_model_name,
 )
 
-CACHE_VERSION = 1
+# 2: rule rows carry `proposal_calls` and `proposal_errors`; a version 1 file is a corrupt cache.
+CACHE_VERSION = 2
 CACHE_DIR_NAME = ".cache"
 # Files besides `src/` whose content decides the rows (repo-relative, posix).
 FINGERPRINT_FILES: tuple[str, ...] = (

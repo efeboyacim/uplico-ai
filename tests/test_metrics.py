@@ -31,6 +31,7 @@ from evals.metrics import (
     mode_metrics_json,
     parse_labels,
     pii_leaks,
+    proposal_calls,
     render_table,
     result_filename,
     rows_from_outputs,
@@ -72,6 +73,8 @@ def _row(**overrides: Any) -> RuleRow:
         "interrupted_by": None,
         "search_hit": True,
         "search_calls": 1,
+        "proposal_calls": 0,
+        "proposal_errors": 0,
     }
     base.update(overrides)
     return RuleRow(**base)
@@ -385,6 +388,66 @@ def test_build_rule_rows_search_hit_from_tool_call_records() -> None:
     _, after = _both_modes([_search("notice", ["c1"]), _search("law", ["c1"], 2)])
     assert [(r.search_hit, r.search_calls) for r in after] == [(True, 1), (False, 1)]
     assert _metrics(after).search_hit == Ratio(1, 2)
+
+
+def _proposal(rule_id: str, status: str, record_id: int = 1) -> AuditRecord:
+    return _audit(
+        "tool_call",
+        {
+            "rule_id": rule_id, "name": "propose_change",
+            "args": {"clause_id": "c2", "proposed_text": "x", "rationale": "y"},
+            "status": status, "result": "",
+        },
+        record_id,
+    )  # fmt: skip
+
+
+def test_proposal_calls_counts_calls_and_errors_of_one_rule() -> None:
+    audit = [
+        _proposal("notice", "error", 1),
+        _proposal("notice", "success", 2),
+        _proposal("law", "error", 3),  # another rule
+        _search("notice", ["c2"], 4),  # another tool
+        _audit("model_call", {"rule_id": "notice", "name": "propose_change", "status": "error"}),
+    ]
+    assert proposal_calls("notice", audit) == (2, 1)
+    assert proposal_calls("law", audit) == (1, 1)
+    assert proposal_calls("other", audit) == (0, 0)
+
+
+def test_build_rule_rows_proposal_counts_from_tool_call_records() -> None:
+    audit = [_proposal("notice", "error", 1), _proposal("notice", "error", 2)]
+    before, after = _both_modes(audit)
+    for rows in (before, after):
+        assert [(r.proposal_calls, r.proposal_errors) for r in rows] == [(2, 2), (0, 0)]
+    data = rule_json(before[0], after[0])
+    assert (data["proposal_calls"], data["proposal_errors"]) == (2, 2)
+    assert not after[0].has_proposal  # called twice, both errors: no draft
+    m = _metrics(after)
+    assert (m.proposal_calls, m.proposal_errors) == (2, 2)
+    assert mode_metrics_json(m)["proposal_calls"] == 2
+
+
+def test_proposal_counts_not_measured_without_rows() -> None:
+    m = _metrics([])
+    assert (m.proposal_calls, m.proposal_errors) == (None, None)
+
+
+def test_render_table_proposal_note_beside_draft_rate() -> None:
+    rows = [_row(rule_id="a", proposal_calls=3, proposal_errors=1), _row(rule_id="b")]
+    m = _metrics(rows)
+    c = contract_metrics([_run()], provider="groq", model="m")
+    header = TableHeader(
+        provider="groq", model="m", started_at="t", contracts_run=7, contracts_total=7,
+        mode="full",
+    )  # fmt: skip
+    text = render_table(header, m, m, c, evaluate_thresholds(m, c), "out.json")
+    [line] = [x for x in text.splitlines() if x.startswith("Taslak oranı")]
+    assert line.rstrip().endswith("propose_change çağrısı: 3, hata: 1")
+    assert "propose_change" not in text.split("Metrikler (sonra)")[0]  # before/after table
+    empty = _metrics([])
+    text = render_table(header, empty, empty, c, evaluate_thresholds(empty, c), "out.json")
+    assert "propose_change" not in text
 
 
 def test_search_hit_expected_clause_missing_from_clauses_raises() -> None:

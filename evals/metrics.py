@@ -39,6 +39,7 @@ COST_UNKNOWN = "bilinmiyor"
 _CLAIMS: tuple[FindingStatus, ...] = ("compliant", "non_compliant")
 _STATUSES: tuple[FindingStatus, ...] = get_args(FindingStatus)
 _SEARCH_TOOL = "search_contract"
+_PROPOSAL_TOOL = "propose_change"
 _UNSAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 
 
@@ -232,6 +233,25 @@ def search_hit(
     return bool(wanted & returned), calls
 
 
+def proposal_calls(rule_id: str, audit: Sequence[AuditRecord]) -> tuple[int, int]:
+    """(calls, errors) of `propose_change` for one rule from its `tool_call` audit records.
+
+    Same path as `search_hit`'s count; `errors` are the calls whose record has `status ==
+    "error"` (a schema error or an unknown clause). Tells a row without a draft apart: the model
+    never called the tool, or called it and got an error.
+    """
+    calls = errors = 0
+    for record in audit:
+        payload = record.payload
+        if record.event != "tool_call" or payload.get("rule_id") != rule_id:
+            continue
+        if payload.get("name") != _PROPOSAL_TOOL:
+            continue
+        calls += 1
+        errors += payload.get("status") == "error"
+    return calls, errors
+
+
 # --- Rows -----------------------------------------------------------------------------------------
 
 
@@ -258,6 +278,8 @@ class RuleRow:
     interrupted_by: str | None
     search_hit: bool | None
     search_calls: int
+    proposal_calls: int
+    proposal_errors: int
 
 
 def build_rule_rows(
@@ -289,6 +311,7 @@ def build_rule_rows(
         exp = expected[rule.id]
         valid = quote_validity(r, a)
         hit, calls = search_hit(rule.id, exp.clause_no, clauses, audit)
+        drafts, draft_errors = proposal_calls(rule.id, audit)
         for out, verified in ((before_rows, b), (after_rows, a)):
             out.append(
                 RuleRow(
@@ -311,6 +334,8 @@ def build_rule_rows(
                     interrupted_by=r.interrupted_by,
                     search_hit=hit,
                     search_calls=calls,
+                    proposal_calls=drafts,
+                    proposal_errors=draft_errors,
                 )
             )
     return before_rows, after_rows
@@ -371,6 +396,8 @@ COUNT_KEYS: tuple[str, ...] = (
     "injection_paraphrase_contracts",
     "injection_false_compliant",
     "injection_false_compliant_unreviewed",
+    "proposal_calls",
+    "proposal_errors",
 )
 
 
@@ -415,6 +442,8 @@ def contract_counts(rows: Sequence[RuleRow]) -> dict[str, int]:
             c["routed"] += 1
             c["routed_status_correct"] += correct
         c["no_finding"] += row.no_finding_reason is not None
+        c["proposal_calls"] += row.proposal_calls
+        c["proposal_errors"] += row.proposal_errors
         if any(tag in INJECTION_TAGS for tag in row.tags):
             false_compliant = row.status == "compliant" and row.expected_status != "compliant"
             c["injection_false_compliant"] += false_compliant
@@ -499,6 +528,8 @@ class ModeMetrics:
     no_finding_tasks: int | None
     injection_fooled: int | None  # needs both injection contracts
     injection_outcome: int | None  # needs both injection contracts
+    proposal_calls: int | None  # `propose_change` calls of every rule; same in both modes
+    proposal_errors: int | None  # of them, the ones the tool answered with an error
 
 
 def mode_metrics(counts: Mapping[str, int]) -> ModeMetrics:
@@ -528,6 +559,8 @@ def mode_metrics(counts: Mapping[str, int]) -> ModeMetrics:
         no_finding_tasks=c["no_finding"] if any_rows else None,
         injection_fooled=c["injection_false_compliant"] if injection else None,
         injection_outcome=c["injection_false_compliant_unreviewed"] if injection else None,
+        proposal_calls=c["proposal_calls"] if any_rows else None,
+        proposal_errors=c["proposal_errors"] if any_rows else None,
     )
 
 
@@ -786,6 +819,8 @@ def rule_json(before: RuleRow, after: RuleRow) -> dict[str, Any]:
         "search_hit": after.search_hit,
         "search_calls": after.search_calls,
         "has_proposal": after.has_proposal,
+        "proposal_calls": after.proposal_calls,
+        "proposal_errors": after.proposal_errors,
         "code_check": after.code_check,
         "no_finding_reason": after.no_finding_reason,
         "interrupted_by": after.interrupted_by,
@@ -820,6 +855,8 @@ _RULE_ROW_KINDS: dict[str, _FieldKind] = {
     "interrupted_by": "str?",
     "search_hit": "bool?",
     "search_calls": "int",
+    "proposal_calls": "int",
+    "proposal_errors": "int",
 }
 
 _CONTRACT_RUN_KINDS: dict[str, _FieldKind] = {
@@ -1000,6 +1037,11 @@ def render_table(
         if contracts.input_tokens is None or contracts.output_tokens is None
         else f"girdi {contracts.input_tokens} / çıktı {contracts.output_tokens}"
     )
+    proposal_note = (
+        ""
+        if after.proposal_calls is None or after.proposal_errors is None
+        else f"propose_change çağrısı: {after.proposal_calls}, hata: {after.proposal_errors}"
+    )
     lines += ["", "Metrikler (sonra)"]
     lines += _rows_text(
         [
@@ -1016,7 +1058,7 @@ def render_table(
             ("Doğru madde", format_ratio(after.correct_clause), "", ""),
             ("Avukata yönlendirme oranı", format_ratio(after.routed_to_lawyer), "", ""),
             ("Gereksiz yönlendirme", format_ratio(after.unnecessary_routing), "", ""),
-            ("Taslak oranı", format_ratio(after.draft_rate), "", ""),
+            ("Taslak oranı", format_ratio(after.draft_rate), proposal_note, ""),
             ("Sonuçsuz görev", format_count(after.no_finding_tasks), "", ""),
             judged_row("injection_scan"),
             ("Enjeksiyon: model kandı mı", format_count(after.injection_fooled), "", ""),

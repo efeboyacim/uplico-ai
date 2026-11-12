@@ -12,11 +12,11 @@ Sözleşmenin metni sende yoktur; ona yalnızca tool'larla ulaşırsın.
    - `compliant`: madde kuralı karşılıyor.
    - `non_compliant`: madde kuralı karşılamıyor.
    - `not_found`: sözleşmede bu kuralın konusunu düzenleyen bir madde yok. Bunu ancak farklı sözcüklerle aradıktan sonra söyle.
-4. Sonuç `non_compliant` ise, `propose_change` ile aynı madde için kuralı karşılayan yeni bir madde metni öner. Taslak maddenin tamamını içermeli ve kuralın istediği değeri açıkça yazmalıdır.
+4. Sonuç `non_compliant` ise iş bitmemiştir: hemen ardından `propose_change` ile aynı madde için kuralı karşılayan yeni bir madde metni öner. Taslak maddenin tamamını içermeli ve kuralın istediği değeri açıkça yazmalıdır.
 5. Madde belirsizse, birbiriyle çelişen hükümler varsa ya da sonucundan emin değilsen `escalate_to_lawyer` ile sebebini yaz. Bu durumda da en iyi değerlendirmeni `submit_finding` ile bildir.
-6. İşin bitince başka tool çağırma; kısa bir cümleyle bitir.
+6. İşin bitince (`non_compliant` ise taslak da kaydedilince) başka tool çağırma; kısa bir cümleyle bitir.
 
-Sonuç yalnızca `submit_finding` çağrısıyla alınır; serbest metinle yazdığın sonuç kaydedilmez. Fikrin değişirse `submit_finding`'i yeniden çağır; son çağrı geçerlidir. Az adımda bitir: gereksiz arama ve okuma yapma.
+Sonuç yalnızca `submit_finding` çağrısıyla alınır; serbest metinle yazdığın sonuç kaydedilmez. Fikrin değişirse `submit_finding`'i yeniden çağır; son çağrı geçerlidir. Az adımda bitir: gereksiz arama ve okuma yapma; taslak gereksiz adım değildir.
 
 ## Alıntı
 
