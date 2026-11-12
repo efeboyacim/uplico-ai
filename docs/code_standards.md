@@ -3,7 +3,8 @@
 > Somut, kontrol edilebilir kurallar. Amaç: küçük, okunur, test edilebilir bir kod tabanı.
 
 ## Genel
-- Tüm fonksiyonlarda type hint zorunlu (`mypy src` temiz).
+- Tüm fonksiyonlarda type hint zorunlu (`mypy src evals` temiz; `pyproject.toml`'da mypy kapsamı
+  `src` ve `evals`).
 - Kod ve tanımlayıcılar İngilizce; kullanıcıya dönük metinler ve prompt Türkçe.
 - `tech_stack.md`'deki "KULLANMA" listesindeki kütüphaneler eklenmez.
 - ruff'ta `RUF` kuralları açıktır; Türkçe metinler için yalnızca `ı` harfi serbest bırakılır
@@ -127,7 +128,8 @@
 - Testler paylaşılan bağlantıları `close_all()` ile, derlenmiş graph'ları ve checkpoint
   bağlantılarını `close_graphs()` ile kapatır (`tests/conftest.py`, her testten sonra, autouse
   fixture); Windows'ta açık bağlantı `tmp_path` dosyalarını kilitler. Uygulama kodu ikisini de
-  çağırmaz.
+  çağırmaz. Tek istisna eval koşucusudur (`evals/run.py`): kendi geçici veri dizinini silmeden
+  önce, hata durumunda da (`finally`), `close_graphs()` ve `close_all()`'u çağırır.
 - `interrupt`'tan önce hata fırlatan bir graph thread'i (`POST /reviews`, `failed` inceleme) bir
   daha çağrılmaz: checkpoint'i biten dalların bulgularını ve bekleyen dalı tutar, ama `failed`
   inceleme sondur (`agent_design.md` §1). Resume'da (`finalize`) hata fırlatan thread ise
@@ -209,7 +211,7 @@
 ## Komutlar
 - Format: `uv run ruff format .`
 - Lint: `uv run ruff check .`
-- Typecheck: `uv run mypy src`
+- Typecheck: `uv run mypy src evals`
 - Test: `uv run pytest`
 - Çalıştır: `docker compose up`
 - Eval: `docker compose run --rm app python -m evals.run`

@@ -23,12 +23,26 @@ _ENTRY_FIELDS = frozenset({"tenant_id", "role", "name"})
 class ProviderDefaults:
     model: str
     max_concurrency: int
+    # Unit prices of the default model, USD per million tokens (docs/tech_stack.md). The eval's
+    # cost estimate uses them only when LLM_MODEL is the default model; otherwise it is unknown.
+    input_usd_per_mtok: float
+    output_usd_per_mtok: float
 
 
 PROVIDER_DEFAULTS: Mapping[Provider, ProviderDefaults] = MappingProxyType(
     {
-        "groq": ProviderDefaults(model="openai/gpt-oss-120b", max_concurrency=1),
-        "ollama": ProviderDefaults(model="qwen3.5:9b", max_concurrency=1),
+        "groq": ProviderDefaults(
+            model="openai/gpt-oss-120b",
+            max_concurrency=1,
+            input_usd_per_mtok=0.15,
+            output_usd_per_mtok=0.60,
+        ),
+        "ollama": ProviderDefaults(
+            model="qwen3.5:9b",
+            max_concurrency=1,
+            input_usd_per_mtok=0.0,
+            output_usd_per_mtok=0.0,
+        ),
     }
 )
 

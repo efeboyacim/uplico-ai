@@ -29,9 +29,10 @@ Uygulama `docs/plan.md`'deki adımlarla, sırayla yazılır. Hangi adımda olund
 bölümünde ve adım kutularında yazar; bir oturuma başlarken önce oraya bak. Bir adım doğrulanıp
 commit edilince dur ve sıradaki adıma geçmeden önce kullanıcıdan onay al.
 
-**Şu an:** Adım 0–16 bitti (Adım 16: `evals/dataset/` — 7 sentetik sözleşme, `labels.json` ile 35
-beklenen karar, `tests/test_dataset.py` tutarlılık testi; etiketleri kullanıcı onayladı).
-Sıradaki: Adım 17 — Eval metrikleri ve koşucu.
+**Şu an:** Adım 0–17 bitti (Adım 17: `evals/metrics.py` ve `evals/run.py`; tek komut önce/sonra
+tablosunu basar, `--limit N` ve `--prepare-only` seçenekleri var; Docker'da Groq ile tek
+sözleşmelik koşu denendi, tam koşu Adım 18'de).
+Sıradaki: Adım 17b — Maskeleyici düzeltmesi (`docs/plan.md`), sonra Adım 18.
 
 ## Komutlar
 ```bash
@@ -39,7 +40,7 @@ docker compose up                                        # çalıştır
 uv run pytest                                            # test
 docker compose run --rm app python -m evals.run          # eval (önce/sonra tablosu dahil)
 uv run ruff check . && uv run ruff format --check .      # lint + format kontrolü
-uv run mypy src                                          # type-check
+uv run mypy src evals                                    # type-check
 ```
 
 ## Commit mesajları

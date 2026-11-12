@@ -222,8 +222,8 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
 - Kişi adı maskeleme en iyi çabadır (taraf/imza blokları); gövdede geçen adlar, öneksiz telefon ve
   boşluklu yazılmış TCKN ile düzensiz gruplanmış ya da satıra bölünmüş IBAN kaçabilir.
 - Varsayılan mod bir Groq hesabı ve `GROQ_API_KEY` gerektirir. Geliştirme hesabı ücretsiz
-  katmandadır (8K TPM / 200K TPD); önce/sonra tablolu tam eval bu limitlerle bir güne sığmaz
-  (`tech_stack.md` "Hangi plan?").
+  katmandadır (8K TPM / 200K TPD); önce/sonra tablolu tam eval (tek geçiş, tahmini ≈ 175K token)
+  bu limitlerle bir güne ancak sığar, taslaklarla aşılabilir (`tech_stack.md` "Hangi plan?").
 - Değerlendiricinin makinesinde GPU olmayabilir; varsayılan mod GPU gerektirmez.
 - Varsayılan modda model indirilmez; Ollama çalışmaz. Çevrimdışı modda ilk çalıştırmada sohbet
   modeli indirilir (internet gerekir, ~7 GB); indirme bittikten sonra internet gerekmez.
@@ -245,7 +245,10 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
       için yanlıştı. Sonuçları: o günkü varsayılan
       `MAX_CONCURRENCY=4` ile örnek sözleşmede 5 kuraldan 3'ü `rate_limited` oldu;
       `MAX_CONCURRENCY=1` ile hepsi tamamlandı (112 sn). Sözleşme başına ~25K token ile 7 sözleşmelik
-      tek geçiş ≈ 175K token (günlük sınıra ancak sığar), önce/sonra için iki geçiş ≈ 350K (sığmaz);
+      tek geçiş ≈ 175K token (günlük sınıra ancak sığar). Önce/sonra ikinci bir geçiş istemez:
+      model sözleşme başına bir kez çalışır, `verify` aynı ham bulgular üzerinde iki kez kodla
+      hesaplanır (`evals.md` §5). Tahmin tek ölçüme dayanır ve o koşuda `propose_change`
+      çağrılmamıştı; taslaklarla 200K aşılabilir (ölçülmedi).
       README çözümü (`MAX_CONCURRENCY=1` ve `--limit N` ile kısmi koşu, ya da çevrimdışı mod) yazmalı.
 - [x] Groq SDK'sı 429'da `retry-after`'a uyuyor mu? Evet, 60 sn'ye kadar; daha uzunsa en fazla 8 sn'lik
       üstel beklemeye düşer (SDK kaynak kodundan doğrulandı, `tech_stack.md`). Ek sarmalayıcı yazılmaz.
@@ -300,5 +303,10 @@ kuralı, her yapılandırmada tek koşu. Eval değildir; yön gösterir, oran ve
   sırasında inen paketler). Çevrimdışı modda üstüne `ollama/ollama:0.40.16` 3,40 GB indirme
   (diskte 8,52 GB) ve `qwen3.5:4b` 3,3 GB. İlk `docker compose up` çevrimdışı modda 7 dk 17 sn
   sürdü. `qwen3.5:9b`'nin boyutu ölçülmedi (~7 GB tahmin olarak kalır).
-- [ ] LangSmith anahtarı yokken `evaluate(upload_results=False)` tamamen çevrimdışı çalışıyor mu?
+- [x] LangSmith anahtarı yokken `evaluate(upload_results=False)` tamamen çevrimdışı çalışıyor mu?
       Çalışmazsa aynı evaluator'ları çağıran düz Python döngüsü kullanılır.
+      **Evet** (langsmith 0.14.17, kaynak kod ve script ile, Adım 17). Varsayılan client arka planda
+      veri taşımayan bir `GET /info` isteği atıyor (hata yalnızca WARNING logu);
+      `Client(auto_batch_tracing=False)` verilince istek sayısı sıfır. Yerelde `experiment_name`
+      rastgele bir ad dönüyor; "before" / "after" etiketini koşucu kendisi tutar. Yedek düz döngüye
+      gerek kalmadı. Anahtarlı yükleme yolu denenmedi.

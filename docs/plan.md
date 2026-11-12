@@ -165,8 +165,9 @@
   250K değil 8K TPM; varsayılan `MAX_CONCURRENCY=4` ile 5 kuraldan 3'ü `rate_limited` oldu.
   Limit sonradan konsoldan da doğrulandı (ücretsiz katman: 30 RPM, 1K RPD, 8K TPM, 200K TPD);
   dokümanlardaki "250K TPM teyit edildi" ifadeleri düzeltildi.
-  Adım 17–18 için notlar: önce/sonra tablolu tam eval (iki geçiş ≈ 350K token) bu anahtarda bir
-  güne sığmaz; iki güne bölünür, `--limit N` ile kısmi koşulur ya da çevrimdışı modda koşulur;
+  Adım 17–18 için notlar: önce/sonra tablolu tam eval (tek geçiş ≈ 175K token; önce/sonra aynı
+  ham bulgulardan hesaplanır) bu anahtarda bir güne ancak sığar, aşılabilir; iki güne bölünür,
+  `--limit N` ile kısmi koşulur ya da çevrimdışı modda koşulur;
   `gpt-oss-120b` `get_clause` ve `propose_change`'i atlıyor (prompt). Adım 12 sonrası karar:
   `MAX_CONCURRENCY`'nin Groq varsayılanı 4'ten 1'e indirildi (`tech_stack.md`, `spec.md` §10).
   Adım 13 için notlar (Adım 12'den): (1) `create_app`'te artık bir `RequestValidationError`
@@ -269,7 +270,31 @@
   `verify` iki kez kodla hesaplanır; Adım 17'de düzeltilir. (3) Model hiç hata yapmazsa önce/sonra
   tablosunda fayda satırları 0 → 0 kalır, yalnızca yönlendirme oranı artar; README bunu olduğu gibi
   yazar, dataset buna göre değiştirilmez.
-- **Sıradaki:** Adım 17 — Eval metrikleri ve koşucu. Ardından Adım 17b (maskeleyici düzeltmesi),
+  Adım 17: `evals/metrics.py` (saf metrikler, sert eşikler, tablo), `evals/run.py` (koşucu) ve
+  testleri yazıldı; `src/` altında yalnızca `src/config.py`'ye birim fiyatlar eklendi. Koşucu her
+  sözleşmeyi geçici bir veri dizininde bir kez `interrupt`'a kadar çalıştırır, ham bulguları
+  `verify` kapalı ve açık iki kez hesaplar, satırları LangSmith `evaluate()`'ten geçirir ve
+  tabloyu evaluator'ların döndürdüğü sayımlardan toplar. Alınan kararlar (`evals.md` §5–§7'de):
+  çıkış kodları 0 / 1 / 2 / 3; hız limitine takılan ilk sözleşmede koşu durur; `--prepare-only`
+  (model çağırmadan PII ve tarama) ve `--results-dir`; sonuç dosyası alıntı, taslak metni ve ham PII
+  içermez; koşucu yeniden hesapladığı doğrulamayı graph'ınkiyle karşılaştırır, farklıysa durur;
+  `evaluate()`'in yuttuğu hedef ve evaluator hataları satır satır kontrol edilir; type-check
+  `uv run mypy src evals`. `spec.md` §10'daki `evaluate(upload_results=False)` sorusu kapandı:
+  langsmith 0.14.17'de anahtarsız çalışıyor, `Client(auto_batch_tracing=False)` ile sıfır istek.
+  Kodu alt-agent'lar yazdı; üç bağımsız inceleme dört bulgu verdi, üçü çürütme denemesinden sonra
+  doğrulanıp düzeltildi ("doğru madde" etiketi `not_found` olan kuralda maddesiz alıntıyı doğru
+  sayıyordu; iki test kanıtsızdı).
+  Gerçek deneme (2026-11-12): `docker compose run --rm app python -m evals.run --limit 1`, Groq
+  `openai/gpt-oss-120b`, sözleşme 1: çıkış 0; 5 / 5 doğru status, madde ve alıntı; arama isabeti
+  5 / 5 (kural başına tek arama); 23.746 girdi + 1.322 çıktı = 25.068 token; 101,9 sn; $0,0044.
+  Sonuç dosyası bind mount ile host'a yazıldı; kısmi dosya commit edilmedi. `--prepare-only`
+  (yerel, model yok): tarama "evet", PII 0, garanti edilmeyen PII 5 / 5.
+  **Denenmeyenler:** LangSmith'e yükleme yolu (kısmi koşuda atlanır; ilk kez Adım 18'de çalışır);
+  çıkış kodu 2 ve 3 yalnızca sahte modelle sınandı; Ollama ile koşu.
+  Adım 18 için not: sözleşme 1 ihlalsiz (taslak çağrısı yok) ve 25,1K token tuttu; 7 sözleşmenin
+  tabanı ≈ 175K, 13 beklenen ihlalin taslak çağrıları buna eklenir; 200K günlük sınır aşılabilir
+  (aşılırsa koşu çıkış kodu 2 ile durur ve dosya yazmaz).
+- **Sıradaki:** Adım 17b — Maskeleyici düzeltmesi (önce `--prepare-only` ile 5 / 5 kaydedilir),
   sonra Adım 18.
 - Bu bölüm her adımın commit'inde güncellenir; sıradaki adım, aşağıdaki ilk işaretsiz kutudur.
 
@@ -300,7 +325,7 @@ gereksiz yönlendirme satırları bunu gösterir.
 
 ## Her adım için ortak kurallar
 - Adım 2'den itibaren adım "bitti" sayılmadan önce üçü de temiz olmalı (`docs/evals.md` §1):
-  `uv run pytest` · `uv run ruff check . && uv run ruff format --check .` · `uv run mypy src`
+  `uv run pytest` · `uv run ruff check . && uv run ruff format --check .` · `uv run mypy src evals`
 - Adım 17'den itibaren agent ya da doğrulama davranışını değiştiren her commit'ten önce eval de
   koşulur (`docker compose run --rm app python -m evals.run`) ve `evals.md` §8 eşikleri korunur.
 - Doğrulama geçince **tek commit** (İngilizce, conventional commits); aynı commit'te `docs/plan.md`
@@ -919,7 +944,7 @@ gereksiz yönlendirme satırları bunu gösterir.
   sözleşme 6 taramada işaretlenir, 7 işaretlenmez; sözleşme 3'te beklenen `not_found` kurallar var (en az biri `critical`, en az biri `normal`).
 - **Commit:** `test: add synthetic contract dataset with expected findings`
 
-### [ ] Adım 17 — Eval metrikleri ve koşucu
+### [x] Adım 17 — Eval metrikleri ve koşucu
 - **Ne:** `evals/metrics.py` (`evals.md` §4 metrikleri ve §5 tablosunun satırları, saf fonksiyonlar).
   `evals/run.py`: geçici bir `DATA_DIR`'de her sözleşme için hazırlık + graph'ı **bir kez**
   `interrupt`'a kadar çalıştırır; ham bulgularla `verify`'ı kapalı ve açık hesaplar; önce/sonra
@@ -1057,7 +1082,7 @@ gereksiz yönlendirme satırları bunu gösterir.
 | GitHub reposu | 20 (push) |
 
 ## Uçtan uca doğrulama (plan bitince)
-1. `uv run pytest` · `uv run ruff check . && uv run ruff format --check .` · `uv run mypy src`
+1. `uv run pytest` · `uv run ruff check . && uv run ruff format --check .` · `uv run mypy src evals`
 2. `docker compose up` → `POST /reviews` (lawyer) → `POST /reviews/{id}/decision` →
    `GET /reviews/{id}/report` ve `/audit`; aynı okuma uçları `viewer` anahtarıyla maskeli, karar ucu 403.
 3. `docker compose run --rm app python -m evals.run` → önce/sonra tablosu.

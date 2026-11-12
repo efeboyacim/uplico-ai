@@ -53,9 +53,15 @@ Doğrulanamayan `spec.md` §10'da açık sorudur: `gpt-oss-120b`'nin Türkçe ka
   `MAX_CONCURRENCY=4`): gerçek çağrıda 5 kuraldan 3'ü `rate_limited` oldu, varsayılan 1 yapıldı.
 - **Ölçülen** (Adım 12, örnek sözleşme, tek koşu): sözleşme başına ~25K token ve 15 model çağrısı,
   112 sn. Buna göre 7 sözleşmelik tek eval geçişi ≈ 175K token ve dakikalık limit yüzünden en az
-  ~22 dakika sürer; günlük 200K sınırına ancak sığar. Önce/sonra tablosu iki geçiş ister (≈ 350K):
-  **aynı gün içinde bu anahtara sığmaz.** Eval sözleşmeleri örnekten uzunsa tek geçiş de sığmaz;
-  kesin sayı Adım 18'de ölçülür. Tahmini maliyet (ücretli hesapta) koşu başına $0.10'un altı.
+  ~22 dakika sürer; günlük 200K sınırına ancak sığar. Önce/sonra tablosu ikinci bir geçiş istemez:
+  model sözleşme başına bir kez çalışır, iki satır aynı ham bulgulardan kodla hesaplanır
+  (`evals.md` §5). Tahmin tek ölçüme dayanır ve o koşuda model `propose_change`'i çağırmamıştı;
+  taslaklar yazılınca ya da eval sözleşmeleri örnekten uzunsa **günlük sınır aşılabilir**; kesin
+  sayı Adım 18'de ölçülür. Tahmini maliyet (ücretli hesapta) koşu başına $0.10'un altı.
+- **Maliyet hesabı:** eval'in birim fiyatları `src/config.py`'de `PROVIDER_DEFAULTS` içinde,
+  sağlayıcının varsayılan modelinin yanında durur (`groq`: 1M token başına $0.15 girdi / $0.60
+  çıktı; `ollama`: 0). Model `LLM_MODEL` ile ezilirse maliyet "bilinmiyor" yazılır; başka modelin
+  fiyatı tahmin edilmez.
 - **Bu yüzden eval** `MAX_CONCURRENCY=1` ve `--limit N` ile kısmi koşulur, iki güne bölünür ya da
   çevrimdışı modda koşulur. Yüksek limitli (250K TPM) bir hesapta tam eval birkaç dakikada biter.
   README bunu yazar.
@@ -100,7 +106,7 @@ Doğrulanamayan `spec.md` §10'da açık sorudur: `gpt-oss-120b`'nin Türkçe ka
 - Tracing: LangSmith — isteğe bağlı, yalnızca `LANGSMITH_API_KEY` varsa açılır
 - Eval aracı: LangSmith `evaluate()` + kod tabanlı evaluator'lar; anahtar yoksa `upload_results=False`
 - Lint/format: ruff
-- Typecheck: mypy (`mypy src`)
+- Typecheck: mypy (`mypy src evals`)
 - Test: pytest
 
 ## Deploy

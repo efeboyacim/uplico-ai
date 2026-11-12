@@ -39,7 +39,7 @@ allowed-confusables = ["ı"]
 
 [tool.mypy]
 strict = true
-files = ["src"]
+files = ["src", "evals"]
 
 [[tool.mypy.overrides]]
 module = ["rank_bm25.*"]
