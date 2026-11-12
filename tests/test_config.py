@@ -12,6 +12,7 @@ from src.config import (
     Principal,
     load_settings,
     load_settings_or_exit,
+    main,
 )
 
 GROQ_KEY = "gsk-test"
@@ -200,6 +201,47 @@ def test_load_settings_or_exit_bad_env_exits_with_one_stderr_line(
     assert len(lines) == 1
     assert lines[0].strip()
     assert "GROQ_API_KEY" in lines[0]
+
+
+def test_main_ollama_empty_model_prints_provider_default(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    env = _valid_env()
+    env["LLM_PROVIDER"] = "ollama"
+    env["LLM_MODEL"] = ""
+    main(env)
+    assert capsys.readouterr().out == PROVIDER_DEFAULTS["ollama"].model + "\n"
+
+
+def test_main_ollama_given_model_prints_it(capsys: pytest.CaptureFixture[str]) -> None:
+    env = _valid_env()
+    env["LLM_PROVIDER"] = "ollama"
+    env["LLM_MODEL"] = "x"
+    main(env)
+    assert capsys.readouterr().out == "x\n"
+
+
+def test_main_groq_exits_with_one_and_prints_nothing_on_stdout(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as info:
+        main(_valid_env())
+    assert info.value.code == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "LLM_PROVIDER" in captured.err
+
+
+def test_main_broken_config_exits_with_one(capsys: pytest.CaptureFixture[str]) -> None:
+    env = _valid_env()
+    env["LLM_PROVIDER"] = "ollama"
+    del env["TENANT_API_KEYS"]
+    with pytest.raises(SystemExit) as info:
+        main(env)
+    assert info.value.code == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "TENANT_API_KEYS" in captured.err
 
 
 def test_load_settings_valid_tenant_api_keys_map_to_principals() -> None:

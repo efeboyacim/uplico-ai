@@ -171,3 +171,18 @@ def load_settings_or_exit(env: Mapping[str, str] | None = None) -> Settings:
     except ConfigError as exc:
         print(f"Yapılandırma hatası: {exc}", file=sys.stderr)
         raise SystemExit(1) from None
+
+
+def main(env: Mapping[str, str] | None = None) -> None:
+    settings = load_settings_or_exit(env)
+    if settings.llm_provider != "ollama":
+        print(
+            "Bu giriş yalnızca çevrimdışı (ollama) mod içindir; LLM_PROVIDER=ollama olmalı.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1)
+    print(settings.llm_model)
+
+
+if __name__ == "__main__":
+    main()

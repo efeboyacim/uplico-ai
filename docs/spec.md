@@ -221,18 +221,71 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
 
 ## 10. Açık sorular
 - [ ] `openai/gpt-oss-120b` Türkçe sözleşmede tool çağrılarını ve birebir alıntıyı güvenilir yapıyor
-      mu? Türkçe için yayımlanmış bir ölçüm bulunamadı; ilk eval koşusu gösterecek.
-- [ ] Sözleşme başına token tahmini (~40K) doğru mu? İlk koşuda ölçülür; plan ve `MAX_CONCURRENCY`
-      buna göre ayarlanır.
-- [x] **Hesapta hangi Groq limiti geçerli?** Geliştirme hesabının Limits sayfasında `gpt-oss-120b`
-      için 250K TPM görünüyor (2026-11-10'da teyit edildi); tam eval sığar. Groq belgeleri bu konuda
-      çelişkili olduğu için değerlendiricinin kendi anahtarında düşük limit (8K TPM / 200K TPD)
-      çıkabilir; README bunu ve çözümünü (`MAX_CONCURRENCY=1` ve `--limit N` ile kısmi koşu, ya da çevrimdışı mod) yazmalı.
+      mu? Türkçe için yayımlanmış bir ölçüm bulunamadı; ilk eval koşusu gösterecek. İlk gözlem
+      aşağıda ("Adım 12 gözlemleri"): tek sözleşmede tool çağrıları ve alıntılar hatasızdı, ama
+      model `get_clause` ve `propose_change`'i atladı.
+- [x] Sözleşme başına token tahmini (~40K) doğru mu? Örnek sözleşmede (15 madde, 5 kural)
+      ölçülen: `gpt-oss-120b` 25,1K token, `qwen3.5:4b` 42,0K token (2026-11-12, tek koşu). Eval
+      sözleşmeleri daha uzunsa artar; kesin sayı Adım 18'de ölçülür.
+- [x] **Hesapta hangi Groq limiti geçerli?** `.env`'deki anahtarla `gpt-oss-120b` için yanıt
+      başlıklarında ölçülen limit **8.000 TPM** ve günde 1.000 istektir (2026-11-12,
+      `x-ratelimit-limit-tokens` / `-requests`). Daha önce buraya Limits sayfasından "250K TPM"
+      yazılmıştı (2026-11-10); gerçek çağrıda bu limit görülmedi. Sonuçları: varsayılan
+      `MAX_CONCURRENCY=4` ile örnek sözleşmede 5 kuraldan 3'ü `rate_limited` oldu;
+      `MAX_CONCURRENCY=1` ile hepsi tamamlandı (112 sn). Sözleşme başına ~25K token ile tam eval
+      bu anahtarda dakikalık limite ancak sırayla, günlük limite ise büyük olasılıkla sığmaz;
+      README çözümü (`MAX_CONCURRENCY=1` ve `--limit N` ile kısmi koşu, ya da çevrimdışı mod) yazmalı.
 - [x] Groq SDK'sı 429'da `retry-after`'a uyuyor mu? Evet, 60 sn'ye kadar; daha uzunsa en fazla 8 sn'lik
       üstel beklemeye düşer (SDK kaynak kodundan doğrulandı, `tech_stack.md`). Ek sarmalayıcı yazılmaz.
 - [x] `max_concurrency` `Send` dallarını gerçekten sınırlıyor mu? Evet: langgraph 1.2.20'de 8 dal,
       sınır 1 / 2 / 4 ile en fazla 1 / 2 / 4 dal aynı anda koştu; anahtar yokken 8'i birden
       (2026-11-11, script ile). Semafor kullanılmaz.
 - [ ] (Çevrimdışı mod) `qwen3.5:9b` Türkçe sözleşmede tool çağrılarını güvenilir yapıyor mu?
+      **Denenmedi:** geliştirme makinesinin ekran kartı 4 GB; Adım 12'de yedek model `qwen3.5:4b`
+      denendi (aşağıda). Varsayılan çevrimdışı model ölçülmemiş durumda.
+- [ ] `MAX_CONCURRENCY`'nin Groq varsayılanı 4 kalmalı mı? 8K TPM'li anahtarda ilk istek 5 kuraldan
+      3'ünü `rate_limited` yapıyor (bulgular avukat kuyruğuna düşer, inceleme çökmez). Varsayılanı 1
+      yapmak düşük limitli anahtarda doğru sonucu verir, yüksek limitli hesapta incelemeyi yavaşlatır.
+
+### Adım 12 gözlemleri (2026-11-12, ilk gerçek model denemesi)
+Tek sözleşme (`tests/fixtures/sample_contract.md`: 15 madde, 7 enjeksiyon işareti), `acme`'nin 5
+kuralı, her yapılandırmada tek koşu. Eval değildir; yön gösterir, oran vermez.
+
+| | Groq `gpt-oss-120b`, eşzamanlılık 4 | Groq, eşzamanlılık 1 | `qwen3.5:4b`, host Ollama (GPU) | `qwen3.5:4b`, compose `offline` (CPU) |
+|---|---|---|---|---|
+| Süre | 49 sn | 112 sn | 443 sn | 903 sn |
+| Model çağrısı / token | 13 / 15,3K | 15 / 25,1K | 19 / 42,0K | 22 / 49,9K |
+| Kural başına en çok çağrı (limit 8) | 3 | 3 | 4 | 5 |
+| Model hatası | 3 × 429 | yok | yok | yok |
+| Bozuk tool çağrısı | yok | yok | yok | yok |
+| Modelin yanlış sonucu | — | yok | 1 | 2 |
+
+- **Türkçe tool çağrısı ve alıntı:** dört koşuda da bozuk (`invalid_tool_calls`) ya da başarısız
+  tool çağrısı olmadı; her alıntı birebir doğrulamadan geçti. Groq'un bozuk tool çağrısında
+  döndürdüğü hata gövdesi bu yüzden görülemedi (Adım 9 notu açık kalır).
+- **8 çağrı limiti:** hiçbir kural takılmadı (en çok 5).
+- **`reasoning_effort="low"`:** `gpt-oss-120b` kabul etti (400 yok; yanıtlarda `reasoning` token'ı
+  raporlanıyor).
+- **`gpt-oss-120b` adım atlıyor:** hiçbir kuralda `get_clause` çağırmadı, alıntıyı arama
+  sonucundan yaptı (kısa maddelerde arama sonucu maddenin tamamını içeriyor). `non_compliant`
+  bulduğu tek kuralda `propose_change`'i çağırmadı; bulgu `missing_proposal` ile kuyruğa düştü.
+  Bulgu bildirildikten sonraki kapanış metnini İngilizce yazdı. Prompt Adım 17–18'de eval ile
+  birlikte ele alınır.
+- **`qwen3.5:4b` sayısal sonuçta güvenilmez, kod yakalıyor:** "45 gün ≥ 30 gün" için
+  `non_compliant` dedi; `value` alanına sözleşmedeki değeri değil kuraldaki eşiği yazdı (500.000
+  yerine 1.000.000 TL; %8 yerine 10). Üçünde de `numeric_mismatch` bulguyu kuyruğa soktu. `check`'i
+  olmayan `liability_cap` için iki koşuda farklı sonuç verdi (`compliant` / `non_compliant`); bu
+  kuralda kodun karşılaştıracağı bir değer yok.
+- **Örnek sözleşme her bulguyu kuyruğa sokuyor:** 7 enjeksiyon işareti olduğu için bütün bulgular
+  `injection_suspected` taşıyor; "avukatsız geçen bulgu" bu sözleşmeyle gözlenemez.
+- **Çevrimdışı mod, CPU:** model 16K bağlamla 3,7 GB yer tuttu; host'ta %40 CPU / %60 GPU'ya
+  bölündü, kapsayıcıda tamamı CPU'da koştu. 120 sn'lik çağrı zaman aşımına takılan olmadı.
+- **`checkpoints.db` WAL, Windows bind mount:** sorunsuz. `-wal` / `-shm` dosyaları `./data`'da
+  oluştu; bir kapsayıcının yazdığı iki incelemenin durumunu yeni kapsayıcı okudu
+  (`next == ("human_review",)`), `integrity_check` temiz. Yedek ayarlara gerek kalmadı.
+- **İnen boyutlar:** uygulama imajı diskte 611 MB (sıkıştırılmış 140 MB; temel imaj 43 MB + derleme
+  sırasında inen paketler). Çevrimdışı modda üstüne `ollama/ollama:0.40.16` 3,40 GB indirme
+  (diskte 8,52 GB) ve `qwen3.5:4b` 3,3 GB. İlk `docker compose up` çevrimdışı modda 7 dk 17 sn
+  sürdü. `qwen3.5:9b`'nin boyutu ölçülmedi (~7 GB tahmin olarak kalır).
 - [ ] LangSmith anahtarı yokken `evaluate(upload_results=False)` tamamen çevrimdışı çalışıyor mu?
       Çalışmazsa aynı evaluator'ları çağıran düz Python döngüsü kullanılır.

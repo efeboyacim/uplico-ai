@@ -150,7 +150,23 @@
   ile `Mount` edilirse testlerin kapsamı dışında kalır, sayfa `GET /` rotası olarak eklenmelidir.
   Açık gözlemler: FastAPI'nin 422 gövdesi çağıranın kendi girdisini yansıtıyordu (Adım 12'de
   kapandı: 422 yanıtı yalnızca `type`, `loc`, `msg` taşır); değiştirilmeyen: anahtar araması düz sözlük aramasıdır (sabit zamanlı karşılaştırma yok).
-- **Sıradaki:** Adım 12 — Docker Compose ve ilk gerçek model denemesi.
+  Adım 12: `Dockerfile`, `.dockerignore`, `docker-compose.yml` ve `python -m src.config` girişi
+  yazıldı; ayrı commit'te (`a9f4ecd`) `POST /reviews` metnine 2.000.000 karakter sınırı (413) ve
+  girdiyi geri yansıtmayan 422 yanıtı eklendi. Bu sırada alınan kararlar `tech_stack.md`,
+  `architecture.md` §3 ve `spec.md`'ye işlendi: `ollama-pull` uygulama imajıyla çalışır ve modeli
+  `ollama` Python istemcisiyle çeker; compose `OLLAMA_BASE_URL`'i boşsa `http://ollama:11434` yapar;
+  `app` çevrimdışı modda `ollama-pull`'u bekler (`required: false`); port yalnızca `127.0.0.1`'de;
+  enjeksiyon işareti sayısına sınır konmadı (bilinen sınır). Elle doğrulananlar ve ölçümler
+  `spec.md` §10 "Adım 12 gözlemleri"nde: varsayılan modda yalnızca `app` başlar; anahtar boşken
+  tek satır hata, çıkış kodu 1, yeniden başlama yok; `checkpoints.db` WAL bind mount'ta sorunsuz;
+  örnek sözleşme Groq'ta ve `qwen3.5:4b`'de (host Ollama ve compose `offline` profili) bulgu
+  döndürdü. **Planlanandan sapanlar:** (1) çevrimdışı deneme varsayılan `qwen3.5:9b` ile değil
+  yedek `qwen3.5:4b` ile yapıldı (4 GB ekran kartı); (2) `.env`'deki Groq anahtarında ölçülen limit
+  250K değil 8K TPM; varsayılan `MAX_CONCURRENCY=4` ile 5 kuraldan 3'ü `rate_limited` oldu.
+  Adım 17–18 için notlar: tam eval bu anahtarda günlük limite büyük olasılıkla sığmaz;
+  `gpt-oss-120b` `get_clause` ve `propose_change`'i atlıyor (prompt); `MAX_CONCURRENCY`
+  varsayılanı açık soru.
+- **Sıradaki:** Adım 13 — Avukat kararı ve finalize.
 - Bu bölüm her adımın commit'inde güncellenir; sıradaki adım, aşağıdaki ilk işaretsiz kutudur.
 
 ## Bağlam
@@ -599,7 +615,7 @@ gereksiz yönlendirme satırları bunu gösterir.
   yanıtında işaret, ifade, konumlar).
 - **Commit:** `feat: add review API with key-based tenant and role resolution`
 
-### [ ] Adım 12 — Docker Compose ve ilk gerçek model denemesi
+### [x] Adım 12 — Docker Compose ve ilk gerçek model denemesi
 - **Ön koşul (kullanıcı):** `.env.example`'dan `.env` oluşturulur; `GROQ_API_KEY` ve
   `TENANT_API_KEYS` dolu olmalı.
 - **Ne:** `Dockerfile` (`python:3.12-slim` + uv), `docker-compose.yml` (`app`; `app`'te `restart`
@@ -735,9 +751,10 @@ gereksiz yönlendirme satırları bunu gösterir.
   açıkça yazılır: `docker compose run --rm -e MAX_CONCURRENCY=1 app python -m evals.run --limit 3`.
   N değeri Adım 18'de ölçülen sözleşme başına token'a göre kesinleşir. Yanında iki seçenek daha:
   limitsiz tam koşu için `LLM_PROVIDER=ollama`, koşmadan görmek için `evals/results/`.
-- **README — ilk çalıştırmada inen toplam:** her iki mod için ayrı yazılır. Varsayılan mod (Groq)
-  ≈ 0,25 GB: yalnızca uygulama imajı (tahmin). Çevrimdışı mod ≈ 10,7 GB: üstüne Ollama imajı 3,4 GB
-  + sohbet modeli ~7 GB. Sayılar Adım 12'de ölçülenle güncellenir. Çevrimdışı moda geçişin iki
+- **README — ilk çalıştırmada inen toplam:** her iki mod için ayrı yazılır. Adım 12'de ölçülen:
+  varsayılan mod (Groq) yalnızca uygulama imajı, diskte 611 MB (sıkıştırılmış 140 MB). Çevrimdışı
+  mod üstüne Ollama imajı 3,40 GB indirme (diskte 8,52 GB) + sohbet modeli: `qwen3.5:4b` 3,3 GB
+  (ölçüldü), varsayılan `qwen3.5:9b` ~7 GB (tahmin, ölçülmedi). Çevrimdışı moda geçişin iki
   değişken istediği (`LLM_PROVIDER=ollama`, `COMPOSE_PROFILES=offline`) açıkça yazılır.
 - **Karar dokümanı — 300 sayfa sorusu:** cevap "ilk kırılan arama olur; ilk eklenecek şey
   embedding'dir, ama tek başına yetmez" olacak. Yetmemesinin sebepleri de yazılır: kural başına tek

@@ -49,6 +49,9 @@ Doğrulanamayan `spec.md` §10'da açık sorudur: `gpt-oss-120b`'nin Türkçe ka
 ### Hangi plan?
 - **Geliştirme hesabı:** Limits sayfasında `gpt-oss-120b` için **250K TPM** görünüyor (2026-11-10'da
   teyit edildi). Tasarım ve varsayılan `MAX_CONCURRENCY=4` buna göredir.
+  **Gerçek çağrıda ölçülen farklı** (2026-11-12, Adım 12): `.env`'deki anahtarla yanıt başlıkları
+  8.000 TPM ve günde 1.000 istek gösterdi; varsayılan eşzamanlılıkla 5 kuraldan 3'ü `rate_limited`
+  oldu, `MAX_CONCURRENCY=1` ile hepsi tamamlandı. Hangisinin geçerli olduğu açık (`spec.md` §10).
 - **Tahmin** (ilk koşuda ölçülecek): sözleşme başına ~40K token; 7 sözleşmelik eval ≈ 280K token.
   250K TPM ile eval birkaç dakikada biter; tahmini maliyet koşu başına $0.10'un altı.
 - **Başka bir hesapta düşük limitler geçerliyse** (8K TPM / 200K TPD; değerlendiricinin anahtarı
@@ -105,7 +108,10 @@ Doğrulanamayan `spec.md` §10'da açık sorudur: `gpt-oss-120b`'nin Türkçe ka
   - `app` — her iki modda çalışır.
   - `ollama` — yalnızca çevrimdışı modda çalışır (`offline` compose profili); sohbet modelini sunar.
   - `ollama-pull` — yalnızca çevrimdışı modda çalışır (`offline` compose profili); sohbet modelini
-    indirir (~7 GB).
+    indirir (~7 GB). `app` imajıyla çalışır (Ollama imajında Python yok); indirilecek model adını
+    `python -m src.config` basar ve indirme `ollama` Python istemcisiyle yapılır.
+- Çevrimdışı modda `app`, `ollama-pull` bitene kadar bekler (`depends_on`, `required: false`;
+  varsayılan modda yok sayılır). Port yalnızca `127.0.0.1`'de yayınlanır.
 - Varsayılan modda yalnızca `app` başlar; Ollama kapsayıcısı çalışmaz, imajı ve modeli inmez.
 - Çevrimdışı moda geçiş `.env`'de iki değişkendir: `LLM_PROVIDER=ollama` ve
   `COMPOSE_PROFILES=offline`; komut yine `docker compose up`.
@@ -123,7 +129,9 @@ Tanımsız, boş ve yalnızca boşluk içeren değer aynıdır ("boş").
 - `GROQ_API_KEY` — `LLM_PROVIDER=groq` iken zorunlu
 - `COMPOSE_PROFILES` — çevrimdışı modda `offline` (`ollama` ve `ollama-pull` servislerini açar);
   varsayılan modda boş
-- `OLLAMA_BASE_URL` — yalnızca Ollama; boşsa `http://localhost:11434`
+- `OLLAMA_BASE_URL` — yalnızca Ollama; boşsa Compose dışında `http://localhost:11434`, Compose
+  içinde `http://ollama:11434` (`docker-compose.yml` ayarlar). Host'taki Ollama için:
+  `http://host.docker.internal:11434`
 - `LLM_NUM_CTX` — yalnızca Ollama: bağlam uzunluğu (varsayılan 4096 çok küçük; 16384 kullanılır)
 - `MAX_CONCURRENCY` — aynı anda çalışan kural agent'ı sayısı. Varsayılan: Groq 4, Ollama 1.
   Groq hesabında düşük limitler (8K TPM) geçerliyse 1 yapılmalı. Verilmişse 1 ya da daha büyük

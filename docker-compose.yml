@@ -1,0 +1,44 @@
+services:
+  app:
+    build: .
+    env_file: .env
+    environment:
+      # Kapsayıcının içinde localhost yanlış adrestir; .env'de verilen değer bunu ezer.
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+    ports: ["127.0.0.1:8000:8000"]
+    volumes: ["./data:/app/data", "./evals:/app/evals"]
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    # Varsayılan modda ollama-pull profilde değildir; required: false bu bağımlılığı yok sayar.
+    depends_on:
+      ollama-pull: { condition: service_completed_successfully, required: false }
+    # restart yok: anahtar eksikse app hatayla çıkar, döngüye girmez.
+
+  ollama:
+    image: ollama/ollama:0.40.16
+    profiles: ["offline"]
+    volumes: ["ollama:/root/.ollama"]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+
+  ollama-pull:
+    build: .
+    profiles: ["offline"]
+    env_file: .env
+    environment:
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
+    depends_on:
+      ollama: { condition: service_healthy }
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - >-
+        MODEL="$$(python -m src.config)" &&
+        python -c "import sys, ollama; ollama.Client(host=sys.argv[1]).pull(sys.argv[2]); print('pulled', sys.argv[2])"
+        "$$OLLAMA_BASE_URL" "$$MODEL"
+
+volumes:
+  ollama: {}
