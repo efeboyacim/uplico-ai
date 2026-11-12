@@ -1065,3 +1065,321 @@ def test_run_crash_keeps_completed_contracts_in_cache(
     assert "AuthenticationError" in err
     assert _result_files(results_dir) == []
     assert _cached_ids(results_dir) == ["contract-01"]
+
+
+# --- Another dataset: --dataset-dir and --commit (docs/evals.md §6) ------------------------------
+
+COMMIT = "4ccc03d"
+
+
+def _small_dataset(root: Path) -> Path:
+    """Contracts 01 and 02 under their own ids, with no tags and no best-effort PII.
+
+    The label records differ from the default set's (same ids, other content), so a record of
+    one set can never match the other's digest.
+    """
+    for label in LABELS[:2]:
+        target = root / label["contract_file"]
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(DATASET / label["contract_file"], target)
+    records = [label | {"tags": [], "pii_best_effort": []} for label in LABELS[:2]]
+    text = json.dumps(records, ensure_ascii=False, indent=2) + "\n"
+    (root / "labels.json").write_bytes(text.encode("utf-8"))
+    return root
+
+
+def _files(root: Path) -> set[tuple[str, int]]:
+    if not root.exists():
+        return set()
+    return {
+        (p.relative_to(root).as_posix(), p.stat().st_size) for p in root.rglob("*") if p.is_file()
+    }
+
+
+def _dataset_cache(results_dir: Path, dataset: Path) -> Path:
+    return cache_path(results_dir, "groq", DEFAULT_MODEL, dataset=dataset.as_posix())
+
+
+def test_run_dataset_dir_runs_its_contracts_and_leaves_default_dirs_untouched(
+    data_dir: Path, results_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dataset = _small_dataset(tmp_path / "kume")
+    model = _model(data_dir, 2)
+    default_data = _files(DATASET)
+    default_results = _files(runner.DEFAULT_RESULTS_DIR)
+
+    code = _run(data_dir, results_dir, model, dataset_dir=dataset, commit=COMMIT)
+    out = capsys.readouterr().out
+
+    assert code == EXIT_OK
+    assert len(model.received()) == _calls(0, 2)
+    path, data = _result(results_dir)  # the cache is gone after the successful run
+    assert path.name == "20260102-030405_groq_openai-gpt-oss-120b.json"
+    assert data["dataset_dir"] == dataset.as_posix()
+    assert data["commit"] == COMMIT
+    assert (data["contracts_run"], data["contracts_total"], data["partial"]) == (2, 2, False)
+    assert data["langsmith"] == "local"
+    assert [c["contract_id"] for c in data["contracts"]] == ["contract-01", "contract-02"]
+    lines = out.splitlines()
+    assert "2/2 sözleşme  Kip: tam" in lines
+    assert f"Veri kümesi: {dataset.as_posix()}" in lines
+    assert f"Commit: {COMMIT}" in lines
+    # No injection tags: the injection metrics are not measured and do not fail the run.
+    assert "ölçülmedi" in _line(out, "Enjeksiyon: tarama")
+    assert "ölçülmedi" in _line(out, "Enjeksiyon: model kandı mı")
+    assert "ölçülmedi" in _line(out, "Enjeksiyon: sonuç")
+    assert data["thresholds"]["injection_scan"]["passed"] is None
+    assert data["thresholds"]["injection_outcome"]["passed"] is None
+    # Empty pii_best_effort lists: "ölçülmedi", not "0 / 0" (current behaviour, pinned).
+    assert "ölçülmedi" in _line(out, "Garanti edilmeyen PII sızıntısı")
+    assert data["metrics"]["contracts"]["best_effort"] is None
+    assert data["thresholds"]["pii_leak"]["passed"] is True
+    assert _files(DATASET) == default_data
+    assert _files(runner.DEFAULT_RESULTS_DIR) == default_results
+
+
+def test_run_default_dataset_writes_default_dir_and_null_commit(
+    data_dir: Path, results_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert _run(data_dir, results_dir, None, limit=1, prepare_only=True) == EXIT_OK
+    out = capsys.readouterr().out
+
+    _, data = _result(results_dir)
+    assert data["dataset_dir"] == "evals/dataset"
+    assert data["commit"] is None
+    assert out.splitlines()[2] == "1/7 sözleşme  Kip: yalnızca hazırlık"
+    assert out.splitlines()[3] == ""  # no "Veri kümesi" / "Commit" line
+    assert "Veri kümesi:" not in out
+    assert "Commit:" not in out
+
+
+def test_run_dataset_dir_never_uploads_even_with_langsmith_key(
+    data_dir: Path,
+    results_dir: Path,
+    tmp_path: Path,
+    network: list[str],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    dataset = _small_dataset(tmp_path / "kume")
+    real_evaluate, real_client = runner.evaluate, runner.Client
+    evaluate_calls: list[dict[str, Any]] = []
+    client_calls: list[dict[str, Any]] = []
+
+    def evaluate_spy(*args: Any, **kwargs: Any) -> Any:
+        evaluate_calls.append(kwargs)
+        return real_evaluate(*args, **kwargs)
+
+    def client_spy(*args: Any, **kwargs: Any) -> Any:
+        client_calls.append(kwargs)
+        return real_client(*args, **kwargs)
+
+    def no_upload(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("dataset yüklenmemeli")
+
+    monkeypatch.setattr(runner, "evaluate", evaluate_spy)
+    monkeypatch.setattr(runner, "Client", client_spy)
+    monkeypatch.setattr(runner, "_uploaded_dataset", no_upload)
+    settings = _settings(data_dir, LANGSMITH_API_KEY="lsv2-test-anahtar")
+    assert settings.langsmith_api_key == "lsv2-test-anahtar"
+
+    code = _run(data_dir, results_dir, _model(data_dir, 2), settings=settings, dataset_dir=dataset)
+    capsys.readouterr()
+
+    assert code == EXIT_OK
+    assert [c["experiment_prefix"] for c in evaluate_calls] == ["before", "after"]
+    assert all(c["upload_results"] is False for c in evaluate_calls)
+    assert client_calls == [{"auto_batch_tracing": False}]
+    assert network == []
+    _, data = _result(results_dir)
+    assert data["langsmith"] == "local"
+
+
+def test_main_dataset_dir_prepare_only_with_commit(
+    data_dir: Path,
+    results_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    dataset = _small_dataset(tmp_path / "kume")
+    monkeypatch.setenv("LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("TENANT_API_KEYS", json.dumps(TENANT_KEYS))
+    monkeypatch.setenv("DATA_DIR", str(data_dir))
+    argv = ["--prepare-only", "--dataset-dir", str(dataset), "--results-dir", str(results_dir)]
+    code = main([*argv, "--limit", "2", "--commit", "4CCC03D0"])
+    out = capsys.readouterr().out
+
+    assert code == EXIT_OK
+    _, data = _result(results_dir)
+    assert data["commit"] == "4ccc03d0"
+    assert data["dataset_dir"] == Path(str(dataset)).as_posix()
+    assert data["mode"] == "prepare_only"
+    assert "2/2 sözleşme  Kip: yalnızca hazırlık" in out.splitlines()
+    assert "Commit: 4ccc03d0" in out.splitlines()
+
+
+def test_main_dataset_dir_reads_its_own_contract_files(
+    data_dir: Path, results_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The text comes from DIR, not from the default folder: contract 01 lies under a file name
+    the default folder does not have, contract 02 under the default set's file name with other
+    bytes (a line with a name that only this copy holds)."""
+    dataset = _small_dataset(tmp_path / "kume")
+    own_name = "contracts/kendi_01.md"
+    assert not (DATASET / own_name).exists()
+    (dataset / LABELS[0]["contract_file"]).rename(dataset / own_name)
+    second = dataset / LABELS[1]["contract_file"]
+    extra = "\nİrtibat kişisi Deniz Akarsu ile kurulur.\n"
+    second.write_bytes(second.read_bytes() + extra.encode("utf-8"))
+    records = [
+        LABELS[0] | {"tags": [], "pii_best_effort": [], "contract_file": own_name},
+        LABELS[1] | {"tags": [], "pii_best_effort": ["Deniz Akarsu"]},
+    ]
+    text = json.dumps(records, ensure_ascii=False, indent=2) + "\n"
+    (dataset / "labels.json").write_bytes(text.encode("utf-8"))
+    monkeypatch.setenv("LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("TENANT_API_KEYS", json.dumps(TENANT_KEYS))
+    monkeypatch.setenv("DATA_DIR", str(data_dir))
+
+    code = main(
+        ["--prepare-only", "--dataset-dir", str(dataset), "--results-dir", str(results_dir)]
+    )
+
+    assert code == EXIT_OK
+    _, data = _result(results_dir)
+    assert [c["contract_id"] for c in data["contracts"]] == ["contract-01", "contract-02"]
+    # The name is in this copy only: read from the default folder, it would not have leaked.
+    assert data["contracts"][1]["best_effort_leaked_count"] == 1
+    assert data["contracts"][1]["best_effort_total"] == 1
+
+
+def test_main_dataset_dir_limit_above_its_size_exits_1(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dataset = _small_dataset(tmp_path / "kume")
+    with pytest.raises(SystemExit) as info:
+        main(["--dataset-dir", str(dataset), "--limit", "3"])
+    assert info.value.code == EXIT_ERROR
+    err = capsys.readouterr().err
+    assert "--limit en fazla 2" in err
+
+
+def test_run_dataset_dir_limit_above_its_size_raises(
+    data_dir: Path, results_dir: Path, tmp_path: Path
+) -> None:
+    dataset = _small_dataset(tmp_path / "kume")
+    with pytest.raises(ValueError, match="1 ile 2"):
+        _run(data_dir, results_dir, None, limit=3, prepare_only=True, dataset_dir=dataset)
+
+
+@pytest.mark.parametrize("value", ["4ccc03", "4ccc03g", "a" * 41, "4ccc 03d", ""])
+def test_main_invalid_commit_exits_1(value: str, capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit) as info:
+        main(["--prepare-only", "--commit", value])
+    assert info.value.code == EXIT_ERROR
+    assert "--commit" in capsys.readouterr().err
+
+
+def test_run_invalid_commit_raises(data_dir: Path, results_dir: Path) -> None:
+    with pytest.raises(ValueError, match="commit"):
+        _run(data_dir, results_dir, None, limit=1, prepare_only=True, commit="HEAD")
+    assert not results_dir.exists()
+
+
+@pytest.mark.parametrize("missing", ["folder", "labels"])
+def test_main_missing_dataset_dir_or_labels_exits_1_with_path(
+    missing: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    if missing == "folder":
+        dataset = tmp_path / "yok"
+        expected = str(dataset)
+    else:
+        dataset = tmp_path / "kume"
+        dataset.mkdir()
+        expected = str(dataset / "labels.json")
+    with pytest.raises(SystemExit) as info:
+        main(["--prepare-only", "--dataset-dir", str(dataset)])
+    assert info.value.code == EXIT_ERROR
+    assert expected in capsys.readouterr().err
+
+
+def test_run_or_report_missing_dataset_dir_exits_1_with_path(
+    data_dir: Path, results_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dataset = tmp_path / "yok"
+    code = run_or_report(
+        _settings(data_dir),
+        limit=None,
+        prepare_only=True,
+        results_dir=results_dir,
+        started_at=STARTED_AT,
+        dataset_dir=dataset,
+    )
+    assert code == EXIT_ERROR
+    assert str(dataset / "labels.json") in capsys.readouterr().err
+    assert not results_dir.exists()
+
+
+def test_run_two_datasets_in_one_results_dir_keep_their_own_caches(
+    data_dir: Path,
+    results_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    dataset = _small_dataset(tmp_path / "kume")
+    other = _dataset_cache(results_dir, dataset)
+    assert other != _cache_file(results_dir)
+    # The default set is limited on contract-02: contract-01 is in its cache.
+    assert _run(data_dir, results_dir, _rate_limited_at(data_dir, 1), limit=2) == EXIT_RATE_LIMITED
+    default_cache = _cache_file(results_dir).read_bytes()
+    # The small set (same ids, other label records) is limited on its second contract too. A
+    # plain run: the default set's contract-01 does not count as a usable record of this set.
+    code = _run(data_dir, results_dir, _rate_limited_at(data_dir, 1), dataset_dir=dataset)
+    assert code == EXIT_RATE_LIMITED
+    assert _cache_file(results_dir).read_bytes() == default_cache
+    assert list(json.loads(other.read_bytes().decode("utf-8"))["contracts"]) == ["contract-01"]
+    capsys.readouterr()
+
+    # The small set resumes from its own record only; the default set's record is neither taken
+    # nor counted as discarded, and the successful run's clean-up leaves it.
+    ran = _spy_runs(monkeypatch, forbidden=["contract-01"])
+    model = _model(data_dir, 2, start=1)
+    code = _run(data_dir, results_dir, model, dataset_dir=dataset, resume=True)
+    err = capsys.readouterr().err
+    assert code == EXIT_OK
+    assert ran == ["contract-02"]
+    assert "1 sözleşme önbellekten alındı, 1 sözleşme koşulacak, 0 kayıt" in err
+    assert not other.exists()
+    assert _cache_file(results_dir).read_bytes() == default_cache
+    for path in _result_files(results_dir):
+        path.unlink()
+
+    # The default set resumes from its own record as well.
+    ran.clear()
+    code = _run(data_dir, results_dir, _model(data_dir, 2, start=1), limit=2, resume=True)
+    err = capsys.readouterr().err
+    assert code == EXIT_OK
+    assert ran == ["contract-02"]
+    assert "1 sözleşme önbellekten alındı, 1 sözleşme koşulacak, 0 kayıt" in err
+    assert not (results_dir / ".cache").exists()
+
+
+def test_run_dataset_fresh_deletes_only_its_own_cache(
+    data_dir: Path, results_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    dataset = _small_dataset(tmp_path / "kume")
+    assert _run(data_dir, results_dir, _rate_limited_at(data_dir, 1), limit=2) == EXIT_RATE_LIMITED
+    default_cache = _cache_file(results_dir).read_bytes()
+    code = _run(data_dir, results_dir, _rate_limited_at(data_dir, 1), dataset_dir=dataset)
+    assert code == EXIT_RATE_LIMITED
+
+    # --fresh of the small set, limited at once: its file is gone, the default set's stays.
+    code = _run(
+        data_dir, results_dir, _rate_limited_at(data_dir, 0), dataset_dir=dataset, fresh=True
+    )
+    capsys.readouterr()
+    assert code == EXIT_RATE_LIMITED
+    assert not _dataset_cache(results_dir, dataset).exists()
+    assert _cache_file(results_dir).read_bytes() == default_cache

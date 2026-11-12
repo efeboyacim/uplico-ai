@@ -1,7 +1,8 @@
 """Eval cache: completed contracts on disk, so a rate-limited run can go on with `--resume`.
 
 docs/evals.md §6. One file per provider and model, `<results_dir>/.cache/<provider>_<model>.json`
-(UTF-8, LF, `ensure_ascii=False`), rewritten atomically after every completed contract. A record
+(another dataset than the default one gets its own file, see `cache_path`; UTF-8, LF,
+`ensure_ascii=False`), rewritten atomically after every completed contract. A record
 holds the contract's `ContractRun`, the rule rows of both modes, the contract's content digest and
 its completion time; no quote, draft, reasoning, raw finding, audit record or raw PII.
 
@@ -142,8 +143,17 @@ def label_records(labels_bytes: bytes) -> dict[str, Mapping[str, Any]]:
 # --- The file -------------------------------------------------------------------------------------
 
 
-def cache_path(results_dir: Path, provider: str, model: str) -> Path:
-    return results_dir / CACHE_DIR_NAME / f"{provider}_{safe_model_name(model)}.json"
+def cache_path(results_dir: Path, provider: str, model: str, *, dataset: str | None = None) -> Path:
+    """`<provider>_<model>.json`; for a dataset other than the default one (`dataset`, the
+    result file's `dataset_dir` text) `<provider>_<model>_dataset-<sha256[:8]>.json`.
+
+    A run rewrites its file with its own records only, so two datasets sharing one file would
+    delete each other's records (docs/evals.md §6 "Önbellek veri kümesine göre ayrılır").
+    """
+    name = f"{provider}_{safe_model_name(model)}"
+    if dataset is not None:
+        name += f"_dataset-{_sha256(dataset.encode('utf-8'))[:8]}"
+    return results_dir / CACHE_DIR_NAME / f"{name}.json"
 
 
 def cache_to_json(cache: CacheFile) -> dict[str, Any]:

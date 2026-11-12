@@ -1,7 +1,8 @@
 """Eval runner: `python -m evals.run [--limit N] [--prepare-only] [--results-dir DIR]
-[--resume | --fresh]`.
+[--resume | --fresh] [--dataset-dir DIR] [--commit HASH]`.
 
-For every contract of `evals/dataset/labels.json` (in file order, sequentially) the runner
+For every contract of `evals/dataset/labels.json` (or `--dataset-dir`'s; in file order,
+sequentially) the runner
 prepares the contract and runs the review graph **once** up to its interrupt in a temporary
 `DATA_DIR`; the agent's raw findings are verified twice by code (`verify(enabled=False)` for
 "before", `verify(enabled=True)` for "after"). The rule rows of both modes go through LangSmith
@@ -12,6 +13,9 @@ In full mode every completed contract is also written to the cache (`evals/cache
 stopped by the rate limit goes on with `--resume` from the contracts it has not finished. Once the
 result file is written only the selected contracts' records leave the cache (a `--limit` run keeps
 the others); `--fresh` deletes the old cache before any contract runs.
+
+Another dataset (`--dataset-dir`, docs/evals.md §6) is never uploaded to LangSmith and has its
+own cache file; `--commit` is only written down (the runner runs no git).
 
 Exit codes (docs/evals.md §6): 0 run complete and the hard thresholds hold (or were not
 measured); 1 configuration error, the run crashed, a usable cache without `--resume` / `--fresh`
@@ -27,6 +31,7 @@ import contextlib
 import dataclasses
 import io
 import json
+import re
 import shutil
 import sys
 import tempfile
@@ -101,6 +106,9 @@ REPO_ROOT = EVALS_DIR.parent  # /app in Docker; the run digest covers its src/ (
 DATASET_DIR = EVALS_DIR / "dataset"
 LABELS_PATH = DATASET_DIR / "labels.json"
 DEFAULT_RESULTS_DIR = EVALS_DIR / "results"
+DEFAULT_DATASET_TEXT = "evals/dataset"  # the result file's `dataset_dir` without `--dataset-dir`
+_LABELS_NAME = "labels.json"
+_COMMIT = re.compile(r"[0-9a-fA-F]{7,40}")
 
 EXIT_OK = 0
 EXIT_ERROR = 1
@@ -179,9 +187,51 @@ def load_labels(path: Path = LABELS_PATH) -> tuple[bytes, tuple[Label, ...]]:
     return raw, parse_labels(json.loads(raw.decode("utf-8")))
 
 
-def _contract_text(label: Label) -> str:
+@dataclasses.dataclass(frozen=True)
+class _Dataset:
+    """The run's dataset: where its files are, how the result file names it, its labels."""
+
+    dir: Path  # labels.json and the contract files (`contract_file` is relative to it)
+    text: str  # the result file's `dataset_dir`: "evals/dataset" or the given path, posix
+    default: bool  # the default set: uploaded when complete, the default cache file
+    labels_bytes: bytes
+    labels: tuple[Label, ...]
+
+
+def _open_dataset(dataset_dir: Path | None) -> _Dataset:
+    """The default set (`DATASET_DIR`, `load_labels()`), or the one in `dataset_dir`.
+
+    A missing or unreadable `labels.json` is an `EvalError` naming its path. A `dataset_dir`
+    that resolves to `DATASET_DIR` is the default set (its `text` stays the given path).
+    """
+    if dataset_dir is None:
+        labels_bytes, labels = load_labels()
+        return _Dataset(DATASET_DIR, DEFAULT_DATASET_TEXT, True, labels_bytes, labels)
+    path = dataset_dir / _LABELS_NAME
+    if not path.is_file():
+        raise EvalError(f"veri kümesinin {_LABELS_NAME} dosyası bulunamadı: {path}")
+    try:
+        labels_bytes, labels = load_labels(path)
+    except UnicodeDecodeError:
+        raise EvalError(f"{_LABELS_NAME} UTF-8 değil: {path}") from None
+    except ValueError as exc:  # json.JSONDecodeError too; messages carry no contract text
+        raise EvalError(f"{_LABELS_NAME} okunamadı ({path}): {exc}") from None
+    default = dataset_dir.resolve() == DATASET_DIR.resolve()
+    return _Dataset(dataset_dir, dataset_dir.as_posix(), default, labels_bytes, labels)
+
+
+def _check_commit(commit: str | None) -> str | None:
+    """`--commit`: 7-40 hex digits, lowercased; None stays None."""
+    if commit is None:
+        return None
+    if not _COMMIT.fullmatch(commit):
+        raise ValueError("commit 7-40 haneli onaltılık bir hash olmalı.")
+    return commit.lower()
+
+
+def _contract_text(dataset_dir: Path, label: Label) -> str:
     # Bytes, not read_text: no newline translation, the contract is read exactly as stored.
-    return (DATASET_DIR / label.contract_file).read_bytes().decode("utf-8")
+    return (dataset_dir / label.contract_file).read_bytes().decode("utf-8")
 
 
 def _copy_rules(source_dir: Path, target_dir: Path, tenant_ids: Sequence[str]) -> None:
@@ -216,12 +266,13 @@ def _run_contract(
     settings: Settings,
     label: Label,
     *,
+    dataset_dir: Path,
     prepare_only: bool,
     model: BaseChatModel | None,
     reviews: list[tuple[str, str]],
     now: Callable[[], datetime],
 ) -> tuple[_ContractResult | None, list[str]]:
-    """Prepare (and unless prepare-only, review) one contract.
+    """Prepare (and unless prepare-only, review) one contract of the dataset in `dataset_dir`.
 
     Returns the contract's result and the ids of its rate-limited rules; the result is None when
     a rule was rate limited (the run is then invalid and its rows are not built). `now` stamps
@@ -230,7 +281,10 @@ def _run_contract(
     store = Store(settings.data_dir, label.tenant_id)
     rules = store.load_rules()
     prepared = prepare_contract(
-        store, _contract_text(label), provider=settings.llm_provider, model=settings.llm_model
+        store,
+        _contract_text(dataset_dir, label),
+        provider=settings.llm_provider,
+        model=settings.llm_model,
     )
     review_id = prepared.review_id
     reviews.append((label.tenant_id, review_id))
@@ -369,10 +423,14 @@ def _evaluate_both(
     labels: Sequence[Label],
     labels_bytes: bytes,
     *,
-    partial: bool,
+    local_only: bool,
 ) -> tuple[dict[Mode, list[dict[str, int]]], str]:
-    """Counts of both modes from `evaluate()` and the LangSmith status (uploaded / local)."""
-    upload = settings.langsmith_api_key is not None and not partial
+    """Counts of both modes from `evaluate()` and the LangSmith status (uploaded / local).
+
+    `local_only` (a partial run, or a dataset other than the default one): never uploaded, even
+    with a key, so it does not mix with the default set's dataset and experiments (§7).
+    """
+    upload = settings.langsmith_api_key is not None and not local_only
     data: str | list[Example]
     if upload:
         client = Client(api_key=settings.langsmith_api_key)
@@ -395,7 +453,7 @@ def _evaluate_both(
 
 
 def _contract_digests(
-    settings: Settings, labels: Sequence[Label], labels_bytes: bytes
+    settings: Settings, labels: Sequence[Label], labels_bytes: bytes, dataset_dir: Path
 ) -> dict[str, str]:
     """Today's digest of every contract whose tenant has a rules.yaml in `settings.data_dir`.
 
@@ -409,15 +467,14 @@ def _contract_digests(
         if not rules.is_file():
             continue
         digests[label.id] = contract_fingerprint(
-            (DATASET_DIR / label.contract_file).read_bytes(), records[label.id], rules.read_bytes()
+            (dataset_dir / label.contract_file).read_bytes(), records[label.id], rules.read_bytes()
         )
     return digests
 
 
 def _open_cache(
     settings: Settings,
-    labels: Sequence[Label],
-    labels_bytes: bytes,
+    dataset: _Dataset,
     selected: Sequence[Label],
     *,
     results_dir: Path,
@@ -431,8 +488,14 @@ def _open_cache(
     the run (`EvalError`): a forgotten `--resume` would spend a day's quota. With `--fresh` the
     file is deleted unread (a corrupt one too) before any contract runs, so records the user
     discarded never come back. Otherwise a corrupt file is an `EvalError` naming the path.
+    A dataset other than the default one has its own file (`cache_path`).
     """
-    path = cache_path(results_dir, settings.llm_provider, settings.llm_model)
+    path = cache_path(
+        results_dir,
+        settings.llm_provider,
+        settings.llm_model,
+        dataset=None if dataset.default else dataset.text,
+    )
     try:
         run_digest = run_fingerprint(
             repo_root,
@@ -442,7 +505,7 @@ def _open_cache(
         )
     except FingerprintError as exc:
         raise EvalError(str(exc)) from None
-    digests = _contract_digests(settings, labels, labels_bytes)
+    digests = _contract_digests(settings, dataset.labels, dataset.labels_bytes, dataset.dir)
     cache = _Cache(
         path, settings.llm_provider, settings.llm_model, run_digest, digests, {}, frozenset()
     )
@@ -520,17 +583,23 @@ def run_eval(
     fresh: bool = False,
     now: Callable[[], datetime] | None = None,
     repo_root: Path = REPO_ROOT,
+    dataset_dir: Path | None = None,
+    commit: str | None = None,
 ) -> int:
     """Run the eval; returns 0, 2 (rate limited) or 3 (a hard threshold failed).
 
     A crash raises: `ContractRunError` for a contract's run (provider configuration errors and
     unexpected code errors are never turned into findings), `EvalError` for the runner itself
-    (also a usable cache without `resume` / `fresh`, and a corrupt cache).
+    (also a usable cache without `resume` / `fresh`, a corrupt cache and a dataset without a
+    readable labels.json).
     `model` is passed to the review graph (tests); without it the graph builds it from settings.
     `now` stamps each contract's `completed_at` (default: `started_at`); `repo_root` is the root
-    the cache's run digest is computed from.
+    the cache's run digest is computed from. `dataset_dir` is `--dataset-dir` (None: the
+    default set), `commit` is `--commit` (only written down).
     """
-    labels_bytes, labels = load_labels()
+    commit = _check_commit(commit)
+    dataset = _open_dataset(dataset_dir)
+    labels = dataset.labels
     if limit is not None and not 1 <= limit <= len(labels):
         raise ValueError(f"limit 1 ile {len(labels)} arasında olmalı.")
     if resume and fresh:
@@ -547,8 +616,7 @@ def run_eval(
         if prepare_only
         else _open_cache(
             settings,
-            labels,
-            labels_bytes,
+            dataset,
             selected,
             results_dir=results_dir,
             repo_root=repo_root,
@@ -578,6 +646,7 @@ def run_eval(
                     result, rate_limited = _run_contract(
                         eval_settings,
                         label,
+                        dataset_dir=dataset.dir,
                         prepare_only=prepare_only,
                         model=model,
                         reviews=reviews,
@@ -612,7 +681,11 @@ def run_eval(
         langsmith_status = "skipped"
     else:
         counts, langsmith_status = _evaluate_both(
-            settings, results, selected, labels_bytes, partial=partial
+            settings,
+            results,
+            selected,
+            dataset.labels_bytes,
+            local_only=partial or not dataset.default,
         )
 
     before = mode_metrics(sum_counts(counts["before"]))
@@ -644,6 +717,8 @@ def run_eval(
             "provider": settings.llm_provider,
             "model": settings.llm_model,
             "started_at": started_iso,
+            "dataset_dir": dataset.text,
+            "commit": commit,
             "resumed": bool(resumed),
             "run_dates": run_dates(result.completed_at for result in selected_results),
             "mode": "prepare_only" if prepare_only else "full",
@@ -677,6 +752,8 @@ def run_eval(
         mode="prepare_only" if prepare_only else "full",
         resumed_contracts=len(resumed),
         resumed_dates=tuple(run_dates(result.completed_at for result in resumed)),
+        dataset_dir=None if dataset.default else dataset.text,
+        commit=commit,
     )
     print(render_table(header, before, after, contracts, thresholds, str(path)), end="")
     return EXIT_OK if thresholds_passed(thresholds) else EXIT_THRESHOLD_FAILED
@@ -694,6 +771,8 @@ def run_or_report(
     fresh: bool = False,
     now: Callable[[], datetime] | None = None,
     repo_root: Path = REPO_ROOT,
+    dataset_dir: Path | None = None,
+    commit: str | None = None,
 ) -> int:
     """`run_eval`, with a crash reported on stderr (class name and contract only) as exit 1."""
     try:
@@ -708,6 +787,8 @@ def run_or_report(
             fresh=fresh,
             now=now,
             repo_root=repo_root,
+            dataset_dir=dataset_dir,
+            commit=commit,
         )
     except ContractRunError as exc:
         kind = "sağlayıcı kimlik/yapılandırma hatası" if exc.provider_config else "koşu hatası"
@@ -745,7 +826,20 @@ def _positive_int(raw: str) -> int:
     return value
 
 
-def parse_args(argv: Sequence[str] | None, contracts_total: int) -> argparse.Namespace:
+def _commit_hash(raw: str) -> str:
+    try:
+        commit = _check_commit(raw)
+    except ValueError:
+        raise argparse.ArgumentTypeError("7-40 haneli onaltılık bir hash olmalı") from None
+    assert commit is not None
+    return commit
+
+
+def parse_args(argv: Sequence[str] | None) -> tuple[argparse.Namespace, int]:
+    """The arguments and the chosen dataset's contract count (`--limit`'s upper bound).
+
+    A dataset folder without a readable labels.json is an argument error (exit 1, path shown).
+    """
     parser = _Parser(
         prog="python -m evals.run",
         description="Eval: önce/sonra tablosu ve sonuç dosyası (docs/evals.md).",
@@ -754,7 +848,20 @@ def parse_args(argv: Sequence[str] | None, contracts_total: int) -> argparse.Nam
         "--limit",
         type=_positive_int,
         default=None,
-        help=f"labels.json sırasındaki ilk N sözleşmeyi koş (1-{contracts_total}).",
+        help="labels.json sırasındaki ilk N sözleşmeyi koş (1 ile veri kümesinin sözleşme "
+        "sayısı arası).",
+    )
+    parser.add_argument(
+        "--dataset-dir",
+        type=Path,
+        default=None,
+        help="labels.json ve sözleşmelerin klasörü (varsayılan: evals/dataset).",
+    )
+    parser.add_argument(
+        "--commit",
+        type=_commit_hash,
+        default=None,
+        help="Sonuç dosyasına yazılacak commit (7-40 onaltılık hane; koşucu git çalıştırmaz).",
     )
     parser.add_argument(
         "--prepare-only",
@@ -779,16 +886,21 @@ def parse_args(argv: Sequence[str] | None, contracts_total: int) -> argparse.Nam
         help="Eski önbelleği başta okumadan sil ve baştan koş.",
     )
     args = parser.parse_args(argv)
-    if args.limit is not None and args.limit > contracts_total:
-        parser.error(f"--limit en fazla {contracts_total} olabilir.")
     if args.prepare_only and (args.resume or args.fresh):
         parser.error("--prepare-only önbellek kullanmaz; --resume ya da --fresh ile verilemez.")
-    return args
+    if args.dataset_dir is not None and not args.dataset_dir.is_dir():
+        parser.error(f"--dataset-dir klasörü bulunamadı: {args.dataset_dir}")
+    try:
+        contracts_total = len(_open_dataset(args.dataset_dir).labels)
+    except EvalError as exc:
+        parser.error(f"--dataset-dir: {exc}")
+    if args.limit is not None and args.limit > contracts_total:
+        parser.error(f"--limit en fazla {contracts_total} olabilir.")
+    return args, contracts_total
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    _, labels = load_labels()
-    args = parse_args(argv, len(labels))
+    args, _ = parse_args(argv)
     settings = load_settings_or_exit()
     return run_or_report(
         settings,
@@ -799,6 +911,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         resume=args.resume,
         fresh=args.fresh,
         now=lambda: datetime.now(UTC),
+        dataset_dir=args.dataset_dir,
+        commit=args.commit,
     )
 
 

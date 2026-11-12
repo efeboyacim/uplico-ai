@@ -938,6 +938,8 @@ class TableHeader:
     mode: RunMode
     resumed_contracts: int = 0  # contracts taken from the cache (`--resume`)
     resumed_dates: tuple[str, ...] = ()  # their `YYYY-MM-DD` completion days
+    dataset_dir: str | None = None  # only for a dataset other than the default one
+    commit: str | None = None  # `--commit`
 
 
 def _decimal(value: float, digits: int) -> str:
@@ -993,6 +995,10 @@ def render_table(
         f"Sağlayıcı: {header.provider}  Model: {header.model}  Tarih: {header.started_at}",
         f"{header.contracts_run}/{header.contracts_total} sözleşme  Kip: {mode}",
     ]
+    if header.dataset_dir is not None:
+        lines.append(f"Veri kümesi: {header.dataset_dir}")
+    if header.commit is not None:
+        lines.append(f"Commit: {header.commit}")
     if header.resumed_contracts:
         lines.append(
             f"Devam: {header.resumed_contracts} sözleşme önbellekten "

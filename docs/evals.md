@@ -160,6 +160,17 @@
   hesaplanır; başka kuralın ya da başka tool'un kaydı ve `model_call` sayılmaz; satır yoksa "ölçülmedi".
 - **Önbellek sürümü (`tests/test_eval_cache.py`):** sürüm 1 önbelleği (ya da `proposal_calls` /
   `proposal_errors` alanı eksik satır) bozuk sayılır (§6 "Bozuk önbellek").
+- **Ayrı veri kümesi (`--dataset-dir`, `--commit`; `tests/test_eval_run.py`):** geçici klasörde
+  kurulan 2 sözleşmelik bir kümeyle (etiketsiz: `tags` ve `pii_best_effort` boş) sahte modelle
+  koşulur → tablo "2/2 sözleşme" ve "Veri kümesi: …" yazar, sonuç dosyasında `dataset_dir` ve
+  `contracts_total: 2` vardır; enjeksiyon metrikleri "ölçülmedi", garanti edilmeyen PII sızıntısı
+  "ölçülmedi" görünür, çıkış 0. `evals/dataset/` ve `evals/results/` değişmez. `--limit 3` →
+  çıkış 1; olmayan klasör ya da `labels.json`'u olmayan klasör → çıkış 1, yol mesajda.
+  `--commit` 7–40 onaltılık hane ise sonuç dosyasına ve başlığa yazılır, değilse çıkış 1; seçenek
+  yokken `commit: null`, `dataset_dir: "evals/dataset"`. `LANGSMITH_API_KEY` varken bile
+  varsayılan dışı kümede yükleme yapılmaz (`langsmith: "local"`, HTTP isteği yok). Aynı
+  `--results-dir`'de iki kümenin önbelleği ayrı dosyadadır: birinin koşusu (başarılı ya da
+  `--resume`'lu) ötekinin kayıtlarını silmez, aynı `id`'li kaydı kendi sözleşmesi saymaz.
 - **PII:** geçerli TCKN maskelenir, checksum'ı tutmayan 11 hane maskelenmez; maskeli metinde ham değer kalmaz.
 - **Boşluklu TCKN, düzensiz IBAN, öneksiz cep (Adım 17b):** dataset'te olmayan yazımlarla da
   maskelenir: TCKN `214 738 739 60`, `2147 3873 960`, `21473 873960`, her hanesi ayrı, bölünemez
@@ -523,7 +534,10 @@ Sonuç `evals/results/` altına ve README'ye yazılır.
 
 - **Sonuç dosyası:** `evals/results/<UTC YYYYMMDD-HHMMSS>_<sağlayıcı>_<model adı, dosya adına
   uygun>[_partial|_prepare-only].json`; UTF-8, LF, girintili, `ensure_ascii=False`. İçerik:
-  `provider`, `model`, `started_at` (UTC ISO; bu çalıştırmanın zamanı), `resumed` (en az bir
+  `provider`, `model`, `started_at` (UTC ISO; bu çalıştırmanın zamanı), `dataset_dir`
+  (`--dataset-dir` verilmediyse `"evals/dataset"`, verildiyse verilen yolun POSIX biçimi; mutlak
+  yola çevrilmez), `commit` (`--commit` ile verilen hash, küçük harfle; verilmediyse `null`;
+  koşucu git çalıştırmaz), `resumed` (en az bir
   sözleşme `--resume` ile önbellekten alındı mı), `run_dates` (sözleşmelerin `completed_at`
   tarihlerinin benzersiz, sıralı günleri, `YYYY-MM-DD`), `mode`, `contracts_run`,
   `contracts_total`, `partial`, `max_concurrency`, `langsmith` (`uploaded` / `local` / `skipped`),
@@ -536,7 +550,8 @@ Sonuç `evals/results/` altına ve README'ye yazılır.
   sayısı, arama sayısıyla aynı yoldan), `proposal_errors` (bunlardan `status == error` olanlar),
   `code_check`). `metrics` iki modda da `proposal_calls` ve `proposal_errors` toplamlarını taşır
   (iki modda aynıdır). Önbellekten sözleşme alındıysa tablo başlığına bir satır eklenir:
-  "Devam: N sözleşme önbellekten (tarihler: …)".
+  "Devam: N sözleşme önbellekten (tarihler: …)". Varsayılan dışı veri kümesinde başlıkta
+  "Veri kümesi: <dataset_dir>", `--commit` verildiyse "Commit: <hash>" satırı vardır.
 - **Dosyada ve tabloda metin yok:** alıntı, taslak, gerekçe metni ve ham PII sonuç dosyasına ve
   stdout'a yazılmaz. PII ölçümünde bir değer, hazırlanan maskeli maddelerden birinde ya da o
   incelemenin `model_call` audit kayıtlarından birinin JSON metninde geçiyorsa "sızdı" sayılır;
@@ -560,9 +575,10 @@ Sonuç `evals/results/` altına ve README'ye yazılır.
   ile kısmi, `--resume` ile günlere bölünerek ya da çevrimdışı modda koşulur (`tech_stack.md`
   "Hangi plan?"). Gerçek limitte çıkış kodu 2 ve `--resume` denenmedi.
 - **`--limit N`:** Düşük limitli hesaplar için koşucu `--limit N` ile yalnızca `labels.json`
-  sırasındaki ilk N sözleşmeyi koşar (N < 1 ya da N > 7 argüman hatasıdır). Tablo başlığı
-  "N/7 sözleşme" yazar; sonuç dosyasında `contracts_run`, `contracts_total` ve `partial: true`
-  olur. Paydası 0 olan ya da gereken sözleşmesi koşulmamış metrik "ölçülmedi" görünür:
+  sırasındaki ilk N sözleşmeyi koşar (N < 1 ya da N > veri kümesinin sözleşme sayısı, varsayılan
+  kümede 7, argüman hatasıdır). Tablo başlığı "N/M sözleşme" yazar (M veri kümesinin sözleşme
+  sayısı; varsayılan kümede 7); sonuç dosyasında `contracts_run`, `contracts_total` ve
+  `partial: true` olur. Paydası 0 olan ya da gereken sözleşmesi koşulmamış metrik "ölçülmedi" görünür:
   enjeksiyon taraması sözleşme 6'yı (`injection_pattern`), "model kandı mı" ve "enjeksiyon sonucu"
   hem 6'yı hem 7'yi (`injection_pattern` ve `injection_paraphrase`) ister. Ölçülmeyen metrik eşiği
   bozmaz. Kısmi koşu tam koşuyla karşılaştırılmaz ve LangSmith'e yüklenmez (§7).
@@ -574,6 +590,21 @@ Sonuç `evals/results/` altına ve README'ye yazılır.
   bununla yapılır.
 - **`--results-dir DIR`:** sonuç dosyasının klasörü (varsayılan `evals/results`). Testler ve
   duman denemeleri geçici bir klasör verir; `evals/results/` altına yalnızca gerçek koşular yazar.
+- **`--dataset-dir DIR`:** veri kümesinin klasörü (varsayılan `evals/dataset`). `labels.json` ve
+  sözleşme dosyaları (`contract_file`, `DIR`'e göre) buradan okunur; etiket şeması aynıdır.
+  `--limit`'in üst sınırı ve başlıktaki "N/M sözleşme"nin `M`'si bu klasörün sözleşme sayısıdır.
+  Klasör, içindeki `labels.json` yoksa ya da okunamıyorsa argüman hatası (`1`, yol mesajda).
+  `--prepare-only`, `--resume`, `--fresh` ve `--limit` bu seçenekle aynı kurallarla çalışır.
+  Klasör `evals/dataset` ile aynı yere çıkıyorsa (mutlak yolu aynıysa) varsayılan küme sayılır.
+  Varsayılan dışı kümede LangSmith'e yükleme yapılmaz (§7) ve önbellek ayrı dosyadadır
+  ("Önbellek"). Enjeksiyon etiketi (`tags`) taşımayan kümede enjeksiyon metrikleri, boş
+  `pii_best_effort`'ta garanti edilmeyen PII sızıntısı "ölçülmedi" görünür; ölçülmeyen metrik
+  eşiği bozmaz (`--limit` ile aynı kural). Görülmemiş sözleşmelerle tek koşu (Adım 18b) bununla
+  yapılır: `--dataset-dir evals/holdout --results-dir evals/results/holdout`.
+- **`--commit HASH`:** isteğe bağlı; 7–40 onaltılık hane, değilse argüman hatası (`1`). Sonuç
+  dosyasına `commit` olarak (küçük harfle) ve tablo başlığına yazılır. Koşucu git çalıştırmaz
+  (Docker imajında `.git` yok); değer host'ta `git rev-parse HEAD` ile alınıp verilir.
+  Önbelleğe ve koşu özetine girmez.
 - **`rate_limited` koşuyu geçersiz kılar:** herhangi bir kural `no_finding` (sebep `rate_limited`)
   dönerse eval metrik basmaz; kaç kuralın limite takıldığını söyleyen açık bir hatayla, sıfır olmayan
   çıkış koduyla durur. Limite takılan bir kural "modelin hatası" gibi sayılmaz. Tamamlanan
@@ -592,6 +623,17 @@ Sonuç `evals/results/` altına ve README'ye yazılır.
   önbellekteyken `--limit 1 --resume` ile yapılan duman denemesi) dosya yalnızca bu kayıtlarla
   atomik olarak yeniden yazılır; bugünkü özetlerle eşleşmeyen kayıtlar geri yazılmaz. Hiç kayıt
   kalmazsa dosya (ve boşalan `.cache` klasörü) silinir. Çıkış `2` ve `1`'de dosya kalır.
+- **Önbellek veri kümesine göre ayrılır:** varsayılan dışı `--dataset-dir` ile dosya adı
+  `<sağlayıcı>_<model adı>_dataset-<dataset_dir'in sha256'sının ilk 8 hanesi>.json`'dur (özet,
+  sonuç dosyasına yazılan `dataset_dir` metninden alınır); varsayılan kümenin dosya adı
+  değişmez. Dosya biçimi aynıdır (sürüm 2). Gerekçe: bir koşu dosyayı yalnızca kendi kayıtlarıyla
+  yeniden yazar ("bugünkü özetlerle eşleşmeyen kayıtlar geri yazılmaz"), bu yüzden aynı dosyada
+  duran başka bir kümenin kayıtları ilk tamamlanan sözleşmede silinirdi. Sözleşme özetine
+  `dataset_dir` katmak bunu önlemezdi (kayıtlar yine eşleşmez ve yine yazılmazdı); kaydı
+  karıştırma riski zaten yoktur, çünkü sözleşme özeti sözleşme baytlarını ve etiket kaydını
+  içerir (aynı `id`'li ama farklı içerikli kayıt eşleşmez). Ayrı dosyayla bu kural ve
+  `--resume` / `--fresh` / "`--resume` unutulursa" kuralları her küme için olduğu gibi kalır;
+  `--fresh` yalnızca o kümenin dosyasını siler.
 - **Önbellek özeti (sha256):** önbellek commit numarasına değil içeriğe bağlıdır. Koşu özeti:
   `src/` altındaki tüm dosyalar (`__pycache__` ve `src/static/` hariç), `evals/metrics.py`,
   `evals/run.py`, `evals/cache.py` ve `uv.lock` (depo köküne göre yol + içerik özeti, yola göre
@@ -650,7 +692,9 @@ Sonuç `evals/results/` altına ve README'ye yazılır.
   yüklenir, arayüzde "Compare" ile karşılaştırılır. Dataset adı
   `contract-review-eval-<labels.json'ın sha256'sının ilk 8 hanesi>`; `experiment_prefix` `before`
   ve `after`. `--limit` ile kısmi koşuda yükleme yapılmaz (yerel yol kullanılır), kısmi koşu tam
-  koşuyla karışmaz.
+  koşuyla karışmaz. Varsayılan dışı `--dataset-dir` ile de yükleme yapılmaz (anahtar olsa bile;
+  kısmi koşudaki yerel yol, sonuç dosyasında `langsmith: "local"`): 7'lik setin dataset'i ve
+  experiment'leriyle karışmasın.
 - **Experiment'lerde giden veri.** Her sözleşme için `target` koşusu (`inputs`: `contract_id`,
   `tenant_id`; `outputs`: o moddaki kural satırları), evaluator koşusu (aynı satırlar girdi,
   sayımlar çıktı) ve sayım başına bir feedback; experiment metadata'sı `provider` ve `model`.

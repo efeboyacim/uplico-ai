@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import unicodedata
@@ -181,6 +182,15 @@ def test_cache_path_per_provider_and_safe_model(tmp_path: Path) -> None:
         tmp_path / ".cache" / "groq_openai-gpt-oss-120b.json"
     )
     assert cache_path(tmp_path, "ollama", "x") != cache_path(tmp_path, "groq", "x")
+
+
+def test_cache_path_per_dataset_keeps_default_name(tmp_path: Path) -> None:
+    default = cache_path(tmp_path, "groq", "openai/gpt-oss-120b")
+    assert cache_path(tmp_path, "groq", "openai/gpt-oss-120b", dataset=None) == default
+    holdout = cache_path(tmp_path, "groq", "openai/gpt-oss-120b", dataset="evals/holdout")
+    digest = hashlib.sha256(b"evals/holdout").hexdigest()[:8]
+    assert holdout == tmp_path / ".cache" / f"groq_openai-gpt-oss-120b_dataset-{digest}.json"
+    assert cache_path(tmp_path, "groq", "openai/gpt-oss-120b", dataset="evals/x") != holdout
 
 
 def test_write_then_load_round_trip_is_exact_and_leaves_no_temp_file(tmp_path: Path) -> None:
