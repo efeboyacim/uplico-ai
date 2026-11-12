@@ -239,6 +239,15 @@
   süresi. JS mantığının otomatik testi yok (bilinen sınır).
   Adım 16 için not: `viewer` görünümünde gizli karakter işaretleri her zaman madde düzeyinde
   görünür (ifade, karakterleri çıkarılmış madde metninde aranamaz); kusur değil, kuralın sonucu.
+  Adım 15 sonrası (`07c3839`): `.gitattributes` eklendi (`* text=auto eol=lf`); her metin dosyası
+  her platformda LF ile iner. Aynı commit, repoda CRLF ile kayıtlı dört dosyayı (`src/graph.py`,
+  `src/tools.py`, `tests/conftest.py`, `tests/test_graph.py`) LF'e çevirdi (yalnızca satır sonu).
+  Sebep: örnek sözleşmenin LF ve CRLF kopyaları karşılaştırıldı; madde numaraları, alıntı kontrolü
+  (satır kırılımını aşan alıntılar dahil), PII eşlemesi ve enjeksiyon işaretleri aynı çıktı, ama
+  ofsetler ve modele giden metnin baytları farklıydı (modele etkisi ölçülmedi).
+  Adım 16 için not (satır sonu): `evals/dataset/contracts/*.md` LF ile yazılır ve koşucu dosyayı
+  satır sonu çevirmeden okur (`read_bytes().decode("utf-8")`, testlerdeki `_sample()` gibi);
+  `labels.json` ofset değil `clause_no` tutar, satır sonundan etkilenmez.
 - **Sıradaki:** Adım 16 — Eval dataset'i.
 - Bu bölüm her adımın commit'inde güncellenir; sıradaki adım, aşağıdaki ilk işaretsiz kutudur.
 
