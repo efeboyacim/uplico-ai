@@ -27,7 +27,7 @@ class ProviderDefaults:
 
 PROVIDER_DEFAULTS: Mapping[Provider, ProviderDefaults] = MappingProxyType(
     {
-        "groq": ProviderDefaults(model="openai/gpt-oss-120b", max_concurrency=4),
+        "groq": ProviderDefaults(model="openai/gpt-oss-120b", max_concurrency=1),
         "ollama": ProviderDefaults(model="qwen3.5:9b", max_concurrency=1),
     }
 )

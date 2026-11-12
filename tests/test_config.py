@@ -135,7 +135,7 @@ def test_load_settings_given_model_is_kept() -> None:
     assert load_settings(env).llm_model == "custom-model"
 
 
-@pytest.mark.parametrize(("provider", "expected"), [("groq", 4), ("ollama", 1)])
+@pytest.mark.parametrize(("provider", "expected"), [("groq", 1), ("ollama", 1)])
 def test_load_settings_default_concurrency_follows_provider(provider: str, expected: int) -> None:
     env = _valid_env()
     env["LLM_PROVIDER"] = provider

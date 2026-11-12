@@ -164,8 +164,8 @@
   yedek `qwen3.5:4b` ile yapıldı (4 GB ekran kartı); (2) `.env`'deki Groq anahtarında ölçülen limit
   250K değil 8K TPM; varsayılan `MAX_CONCURRENCY=4` ile 5 kuraldan 3'ü `rate_limited` oldu.
   Adım 17–18 için notlar: tam eval bu anahtarda günlük limite büyük olasılıkla sığmaz;
-  `gpt-oss-120b` `get_clause` ve `propose_change`'i atlıyor (prompt); `MAX_CONCURRENCY`
-  varsayılanı açık soru.
+  `gpt-oss-120b` `get_clause` ve `propose_change`'i atlıyor (prompt). Adım 12 sonrası karar:
+  `MAX_CONCURRENCY`'nin Groq varsayılanı 4'ten 1'e indirildi (`tech_stack.md`, `spec.md` §10).
 - **Sıradaki:** Adım 13 — Avukat kararı ve finalize.
 - Bu bölüm her adımın commit'inde güncellenir; sıradaki adım, aşağıdaki ilk işaretsiz kutudur.
 

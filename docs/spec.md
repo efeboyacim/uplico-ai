@@ -230,7 +230,7 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
 - [x] **Hesapta hangi Groq limiti geçerli?** `.env`'deki anahtarla `gpt-oss-120b` için yanıt
       başlıklarında ölçülen limit **8.000 TPM** ve günde 1.000 istektir (2026-11-12,
       `x-ratelimit-limit-tokens` / `-requests`). Daha önce buraya Limits sayfasından "250K TPM"
-      yazılmıştı (2026-11-10); gerçek çağrıda bu limit görülmedi. Sonuçları: varsayılan
+      yazılmıştı (2026-11-10); gerçek çağrıda bu limit görülmedi. Sonuçları: o günkü varsayılan
       `MAX_CONCURRENCY=4` ile örnek sözleşmede 5 kuraldan 3'ü `rate_limited` oldu;
       `MAX_CONCURRENCY=1` ile hepsi tamamlandı (112 sn). Sözleşme başına ~25K token ile tam eval
       bu anahtarda dakikalık limite ancak sırayla, günlük limite ise büyük olasılıkla sığmaz;
@@ -243,9 +243,10 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
 - [ ] (Çevrimdışı mod) `qwen3.5:9b` Türkçe sözleşmede tool çağrılarını güvenilir yapıyor mu?
       **Denenmedi:** geliştirme makinesinin ekran kartı 4 GB; Adım 12'de yedek model `qwen3.5:4b`
       denendi (aşağıda). Varsayılan çevrimdışı model ölçülmemiş durumda.
-- [ ] `MAX_CONCURRENCY`'nin Groq varsayılanı 4 kalmalı mı? 8K TPM'li anahtarda ilk istek 5 kuraldan
-      3'ünü `rate_limited` yapıyor (bulgular avukat kuyruğuna düşer, inceleme çökmez). Varsayılanı 1
-      yapmak düşük limitli anahtarda doğru sonucu verir, yüksek limitli hesapta incelemeyi yavaşlatır.
+- [x] `MAX_CONCURRENCY`'nin Groq varsayılanı 4 kalmalı mı? **Hayır, 1 yapıldı** (2026-11-12).
+      8K TPM'li anahtarda 4 ile ilk istek 5 kuraldan 3'ünü `rate_limited` yapıyordu. Bedeli: yüksek
+      limitli hesapta inceleme yavaşlar (örnek sözleşmede 49 sn yerine 112 sn); orada
+      `MAX_CONCURRENCY=4` verilebilir.
 
 ### Adım 12 gözlemleri (2026-11-12, ilk gerçek model denemesi)
 Tek sözleşme (`tests/fixtures/sample_contract.md`: 15 madde, 7 enjeksiyon işareti), `acme`'nin 5

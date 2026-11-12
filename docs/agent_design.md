@@ -47,7 +47,7 @@ maddeler girer.
   tenant klasörü `Store`'un yaptığı doğrulamadan gelir (bilinmeyen tenant `UnknownTenantError`;
   doğrulanmamış `tenant_id`'den yol kurulmaz). `thread_id = review_id`. Testler betikli sahte modeli
   modülün iç durumuna dokunmadan verebilir.
-- `max_concurrency` invoke config anahtarı = `MAX_CONCURRENCY` (varsayılan: Groq 4, Ollama 1). `Send`
+- `max_concurrency` invoke config anahtarı = `MAX_CONCURRENCY` (varsayılan iki sağlayıcıda da 1). `Send`
   dallarını gerçekten sınırlar (8 dal, sınır 1 / 2 / 4 → en fazla 1 / 2 / 4 dal aynı anda; anahtar
   yoksa 8'i birden); semafor yoktur. Invoke config'i (`thread_id` + `max_concurrency`) ve başlangıç
   state'i (`PreparedContract` + kurallar; `injection_suspected = bool(prepared.injection_flags)`)

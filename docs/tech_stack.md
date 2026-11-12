@@ -48,7 +48,8 @@ Doğrulanamayan `spec.md` §10'da açık sorudur: `gpt-oss-120b`'nin Türkçe ka
 
 ### Hangi plan?
 - **Geliştirme hesabı:** Limits sayfasında `gpt-oss-120b` için **250K TPM** görünüyor (2026-11-10'da
-  teyit edildi). Tasarım ve varsayılan `MAX_CONCURRENCY=4` buna göredir.
+  teyit edildi). Tasarım başta buna göreydi (varsayılan `MAX_CONCURRENCY=4`); varsayılan Adım 12'den
+  sonra 1 yapıldı.
   **Gerçek çağrıda ölçülen farklı** (2026-11-12, Adım 12): `.env`'deki anahtarla yanıt başlıkları
   8.000 TPM ve günde 1.000 istek gösterdi; varsayılan eşzamanlılıkla 5 kuraldan 3'ü `rate_limited`
   oldu, `MAX_CONCURRENCY=1` ile hepsi tamamlandı. Hangisinin geçerli olduğu açık (`spec.md` §10).
@@ -133,8 +134,10 @@ Tanımsız, boş ve yalnızca boşluk içeren değer aynıdır ("boş").
   içinde `http://ollama:11434` (`docker-compose.yml` ayarlar). Host'taki Ollama için:
   `http://host.docker.internal:11434`
 - `LLM_NUM_CTX` — yalnızca Ollama: bağlam uzunluğu (varsayılan 4096 çok küçük; 16384 kullanılır)
-- `MAX_CONCURRENCY` — aynı anda çalışan kural agent'ı sayısı. Varsayılan: Groq 4, Ollama 1.
-  Groq hesabında düşük limitler (8K TPM) geçerliyse 1 yapılmalı. Verilmişse 1 ya da daha büyük
+- `MAX_CONCURRENCY` — aynı anda çalışan kural agent'ı sayısı. Varsayılan iki sağlayıcıda da 1.
+  Groq'ta 1 olmasının sebebi düşük limitli anahtardır (8K TPM): 4 ile örnek sözleşmede 5 kuraldan
+  3'ü `rate_limited` oldu (Adım 12). Yüksek limitli hesapta (250K TPM) 4 yapılabilir; inceleme
+  yaklaşık iki kat hızlanır. Verilmişse 1 ya da daha büyük
   tam sayı olmalıdır (`LLM_NUM_CTX` de öyle); değilse başlangıç hatasıdır.
 - `TENANT_API_KEYS` — API anahtarı → `tenant_id` + `role` (`lawyer` / `viewer`) + `name` eşlemesi.
   Tek satır JSON nesnesi: `{"<api-anahtarı>": {"tenant_id": "…", "role": "…", "name": "…"}}`.
