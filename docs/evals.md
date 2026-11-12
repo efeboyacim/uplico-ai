@@ -168,7 +168,19 @@
   `pii_map` gövdedeki `edited_text`'in yeni TCKN girdisini tutar ve `next == ("finalize",)` olur.
 - **Rapor:** son karardan önce → 409. Sonra → kural sonuçlarını, taslakları (kod kontrolü ve avukat
   kararıyla) ve talep edilen değişiklikleri içerir; kabul edilen ve düzenlenen taslaklar listededir,
-  reddedilen değildir. Raporu okumak audit log'a satır eklemez.
+  reddedilen değildir. Raporu okumak audit log'a satır eklemez. `awaiting_lawyer` ve `failed`
+  inceleme → 409; başka tenant'ın incelemesi → 404; anahtarsız → 401.
+- **Rapor fonksiyonu (`tests/test_report.py`, saf):** bölümler kural sırasındadır; `correct` ile
+  değişen `final_status` raporda; karar verilmeyen taslak `proposals`'ta `proposal_action: null` ile
+  var, `requested_changes`'te yok; düzenlenen taslakta `text == edited_text`, kabul edilende modelin
+  metni; `correct` ile `compliant`'a çevrilen bulgunun kabul edilmiş taslağı listede değil;
+  `approved` + son hali `non_compliant` → `approved_with_noncompliant=true`, `changes_requested` →
+  `false`; `approve` + uygunsuz bulguda kabul edilmiş taslak → liste dolu **ve** uyarı `true`
+  (değişmez: `approved` iken liste doluysa uyarı hiçbir zaman `false` değildir); kararı olmayan
+  kayıt ve son sonucu eksik bulgu → `ValueError`.
+- **Rapor maskesi eksiksiz açılır:** her metin alanında (alıntı, taslak, düzenlenmiş metin, şüpheli
+  ifade) yer tutucu olan bir incelemede `lawyer` raporunda hiçbir yer tutucu kalmaz; `viewer`
+  raporunda hepsi durur.
 - **Role göre gösterim:** test tüm `GET` uçlarını (inceleme, rapor, audit) dolaşır. `viewer`
   yanıtlarında `pii_values`'tan hiçbiri geçmez ve asıl sözleşme metni yoktur; `lawyer` inceleme ve
   rapor yanıtlarında geçer; audit yanıtı her iki rolde de maskelidir. Şüpheli ifadenin içinde bir

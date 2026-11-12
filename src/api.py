@@ -56,6 +56,7 @@ from src.models import (
     InjectionKind,
     InterruptReason,
     LawyerDecision,
+    LawyerReport,
     MaskedText,
     NoFindingReason,
     Proposal,
@@ -67,6 +68,7 @@ from src.models import (
 from src.prepare import prepare_contract
 from src.prepare.index import drop_index
 from src.prepare.pii import mask, unmask
+from src.report import build_lawyer_report, build_report
 from src.store import Store, UnknownTenantError
 from src.text import strip_invisible
 
@@ -85,6 +87,7 @@ _MSG_PROVIDER_CONFIG = "Model sağlayıcısının kimlik ya da yapılandırma ay
 _MSG_INTERNAL = "İnceleme tamamlanamadı: beklenmeyen bir hata oluştu."
 _MSG_TOO_LARGE = "Sözleşme metni çok uzun: en fazla 2.000.000 karakter kabul edilir."
 _MSG_NOT_AWAITING = "İnceleme avukat kararı beklemiyor."
+_MSG_NOT_DECIDED = "İnceleme için son karar henüz verilmedi."
 _MSG_DECISION_FAILED = "Karar kaydedilemedi: beklenmeyen bir hata oluştu."
 _RESUMABLE_NEXT = (("human_review",), ("finalize",))
 
@@ -322,9 +325,9 @@ def _lawyer_review(record: ReviewRecord) -> LawyerReviewView:
 
 
 def _unmask_lawyer_view(view: LawyerReviewView, mapping: Mapping[str, str]) -> LawyerReviewView:
-    """The only place where placeholders are replaced by raw values: every text field of a built
-    lawyer view (clause text, flag phrase, quote, reasoning, escalation reason, proposal, the
-    lawyer's edited text)."""
+    """Puts raw values back into a built lawyer view; one such function per lawyer response model
+    (`_unmask_lawyer_report` is the other). Covers every text field of the view: clause text, flag
+    phrase, quote, reasoning, escalation reason, proposal, the lawyer's edited text."""
 
     def put_back(text: str) -> str:
         return unmask(text, mapping)
@@ -362,6 +365,41 @@ def _unmask_lawyer_view(view: LawyerReviewView, mapping: Mapping[str, str]) -> L
     )
 
 
+def _unmask_lawyer_report(report: LawyerReport, mapping: Mapping[str, str]) -> LawyerReport:
+    """Puts raw values back into a built lawyer report: quote, proposal text, the lawyer's edited
+    text, requested-change text and flag phrase."""
+
+    def put_back(text: str) -> str:
+        return unmask(text, mapping)
+
+    def put_back_optional(text: str | None) -> str | None:
+        return None if text is None else unmask(text, mapping)
+
+    return report.model_copy(
+        update={
+            "rule_results": [
+                r.model_copy(update={"quote": put_back_optional(r.quote)})
+                for r in report.rule_results
+            ],
+            "proposals": [
+                p.model_copy(
+                    update={
+                        "proposed_text": put_back(p.proposed_text),
+                        "edited_text": put_back_optional(p.edited_text),
+                    }
+                )
+                for p in report.proposals
+            ],
+            "requested_changes": [
+                c.model_copy(update={"text": put_back(c.text)}) for c in report.requested_changes
+            ],
+            "injection_flags": [
+                f.model_copy(update={"phrase": put_back(f.phrase)}) for f in report.injection_flags
+            ],
+        }
+    )
+
+
 def review_body(store: Store, record: ReviewRecord, principal: Principal) -> dict[str, Any]:
     """The review response for the caller's role; `POST /reviews` and `GET /reviews/{id}` both
     produce their body here. The PII map is read only for a lawyer."""
@@ -372,6 +410,15 @@ def review_body(store: Store, record: ReviewRecord, principal: Principal) -> dic
     else:
         view = _viewer_review(record)
     return view.model_dump(mode="json")
+
+
+def report_body(store: Store, record: ReviewRecord, principal: Principal) -> dict[str, Any]:
+    """The report response for the caller's role. The PII map is read only for a lawyer."""
+    if principal.role == "lawyer":
+        return _unmask_lawyer_report(
+            build_lawyer_report(record), store.get_pii_map(record.review_id)
+        ).model_dump(mode="json")
+    return build_report(record).model_dump(mode="json")
 
 
 def _audit_entry(record: AuditRecord) -> AuditEntryView:
@@ -445,6 +492,16 @@ def require_awaiting_lawyer(
     """
     if record.status != "awaiting_lawyer":
         raise _reject(request, 409, _MSG_NOT_AWAITING, "inceleme karar beklemiyor")
+    return record
+
+
+def require_decided(
+    request: Request,
+    record: Annotated[ReviewRecord, Depends(load_review)],
+) -> ReviewRecord:
+    """409 unless the lawyer's final decision is recorded. No role check: the report is a `GET`."""
+    if record.status not in ("approved", "changes_requested"):
+        raise _reject(request, 409, _MSG_NOT_DECIDED, "son karar henüz verilmedi")
     return record
 
 
@@ -691,6 +748,14 @@ def create_app(settings: Settings) -> FastAPI:
     ) -> JSONResponse:
         store = Store(settings.data_dir, principal.tenant_id)
         return JSONResponse(review_body(store, record, principal))
+
+    @app.get("/reviews/{review_id}/report")
+    def get_report(
+        principal: Annotated[Principal, Depends(get_principal)],
+        record: Annotated[ReviewRecord, Depends(require_decided)],
+    ) -> JSONResponse:
+        store = Store(settings.data_dir, principal.tenant_id)
+        return JSONResponse(report_body(store, record, principal))
 
     @app.get("/reviews/{review_id}/audit")
     def get_audit(

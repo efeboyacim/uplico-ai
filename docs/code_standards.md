@@ -158,7 +158,8 @@
   `0` öneki ister.
 - Hazırlık asıl sözleşme metnini değiştirmez; asıl metin saklanır. Modelin kopyasından yalnızca
   görünmez karakterler çıkarılır, başka hiçbir metin silinmez.
-- Maske açma tek bir fonksiyondadır ve yalnızca yanıt üretilirken, `lawyer` rolü için çağrılır.
+- Maske açma her `lawyer` yanıt modeli için tek bir fonksiyondadır (inceleme yanıtı ve rapor;
+  ikisi de `src/api.py`'de) ve yalnızca yanıt üretilirken, `lawyer` rolü için çağrılır.
   `viewer` yanıtlarında ve audit yanıtlarında çağrılmaz. Endpoint içinde elle maske açılmaz.
 - Yanıtlar sabit alan listesiyle kurulur: yanıt modelleri alanlarını tek tek adlandırır; bir kayıt
   ya da `Finding` dökülüp içinden alan silinerek yanıt üretilmez. `lawyer`'a özel alanlar ayrı ve

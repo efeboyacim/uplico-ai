@@ -77,6 +77,43 @@ LAWYER_REVIEW_KEYS = REVIEW_KEYS | {"original_text"}
 LAWYER_CLAUSE_KEYS = CLAUSE_KEYS | {"start", "end"}
 LAWYER_FLAG_KEYS = FLAG_KEYS | {"start", "end", "detail"}
 
+REPORT_KEYS = {
+    "review_id",
+    "created_at",
+    "decided_at",
+    "provider",
+    "model",
+    "decided_by",
+    "status",
+    "approved_with_noncompliant",
+    "noncompliant_rule_ids",
+    "rule_results",
+    "proposals",
+    "requested_changes",
+    "injection_flags",
+}
+RULE_RESULT_KEYS = {
+    "rule_id",
+    "severity",
+    "model_status",
+    "final_status",
+    "clause_id",
+    "clause_no",
+    "quote",
+    "needs_review",
+    "review_reasons",
+    "action",
+}
+REPORT_PROPOSAL_KEYS = {
+    "rule_id",
+    "clause_id",
+    "proposed_text",
+    "code_check",
+    "proposal_action",
+    "edited_text",
+}
+REQUESTED_CHANGE_KEYS = {"rule_id", "clause_id", "clause_no", "source", "text"}
+
 MSG_INTERNAL = "İnceleme tamamlanamadı: beklenmeyen bir hata oluştu."
 
 
@@ -271,6 +308,7 @@ def test_routes_walk_covers_the_known_endpoints(app: FastAPI) -> None:
     assert ("POST", "/reviews") in routes
     assert ("GET", "/reviews/{review_id}") in routes
     assert ("GET", "/reviews/{review_id}/audit") in routes
+    assert ("GET", "/reviews/{review_id}/report") in routes
     assert ("POST", "/reviews/{review_id}/decision") in routes
 
 
@@ -798,6 +836,31 @@ def test_role_based_presentation_review_and_audit(
     assert pii_reads == [review_id]
     assert _audit_count(store) == audit_count
 
+    # The report (available once decided) follows the same rule; the lawyer edits a draft with a
+    # raw name, so the edited text is a raw value in the lawyer report.
+    edited = f"Bildirimler {mapping['[KISI_2]']} adına yapılır."
+    decided = _decide(client, review_id, _sample_decision(posted, "edit", edited))
+    assert decided.status_code == 200, decided.text
+    pii_reads.clear()
+    viewer_report = client.get(f"/reviews/{review_id}/report", headers=ACME_VIEWER)
+    assert viewer_report.status_code == 200
+    assert pii_reads == []  # the PII map is never read for a viewer
+    viewer_report_text = _all_text(viewer_report.json())
+    for value in ALL_RAW:
+        assert value not in viewer_report_text, f"{value!r} reached the viewer report"
+    assert "[KISI_" in viewer_report_text
+    # No start / end / detail for a viewer.
+    assert all(set(f) == FLAG_KEYS for f in viewer_report.json()["injection_flags"])
+    lawyer_report = client.get(f"/reviews/{review_id}/report", headers=ACME_LAWYER)
+    assert lawyer_report.status_code == 200
+    assert pii_reads == [review_id]
+    lawyer_report_text = _all_text(lawyer_report.json())
+    assert PLACEHOLDER.search(lawyer_report_text) is None, PLACEHOLDER.search(lawyer_report_text)
+    assert edited in lawyer_report_text
+    [change] = lawyer_report.json()["requested_changes"]
+    assert change["source"] == "edited" and change["text"] == edited
+    assert any("Ayşe Kaya" in f["phrase"] for f in lawyer_report.json()["injection_flags"])
+
 
 def test_response_fixed_field_lists_per_role(client: TestClient, settings: Settings) -> None:
     _install_model(settings, "acme", {"liability_cap": _liability_with_proposal()})
@@ -824,6 +887,18 @@ def test_response_fixed_field_lists_per_role(client: TestClient, settings: Setti
     assert all(set(f) == FINDING_KEYS for f in lawyer["findings"])
     proposals = [f["proposal"] for f in lawyer["findings"] if f["proposal"] is not None]
     assert proposals and all(set(p) == PROPOSAL_KEYS for p in proposals)
+
+    # The report: exact key sets at the top level and in every section, for both roles.
+    assert _decide(client, review_id, _queue_decision(lawyer)).status_code == 200
+    for headers, flag_keys in ((ACME_VIEWER, FLAG_KEYS), (ACME_LAWYER, LAWYER_FLAG_KEYS)):
+        report = client.get(f"/reviews/{review_id}/report", headers=headers).json()
+        assert set(report) == REPORT_KEYS
+        assert report["rule_results"] and report["proposals"] and report["requested_changes"]
+        assert report["injection_flags"]
+        assert all(set(r) == RULE_RESULT_KEYS for r in report["rule_results"])
+        assert all(set(p) == REPORT_PROPOSAL_KEYS for p in report["proposals"])
+        assert all(set(c) == REQUESTED_CHANGE_KEYS for c in report["requested_changes"])
+        assert all(set(f) == flag_keys for f in report["injection_flags"])
 
 
 class _ClauseWithExtra(Clause):
@@ -1800,3 +1875,166 @@ def test_decision_lock_per_tenant_other_tenant_decides_while_held(
         thread.join(WAIT_S)  # deadlock guard, not a timing assertion
         assert not thread.is_alive(), "globex waited for acme's decision lock"
     assert result == [200]
+
+
+# --- Report ---------------------------------------------------------------------------------------
+
+
+def _sample_decision(
+    review: Mapping[str, Any], proposal_action: str, edited_text: str | None = None
+) -> dict[str, Any]:
+    """The queue decision for the sample contract, with the liability draft decided as given."""
+    body = _queue_decision(review)
+    entries = {e["rule_id"]: e for e in body["findings"]}
+    entry = entries.setdefault("liability_cap", {"rule_id": "liability_cap"})
+    entry["proposal_action"] = proposal_action
+    if edited_text is not None:
+        entry["edited_text"] = edited_text
+    body["findings"] = list(entries.values())
+    return body
+
+
+def _report(
+    client: TestClient, review_id: str, headers: Mapping[str, str] = ACME_VIEWER
+) -> dict[str, Any]:
+    response = client.get(f"/reviews/{review_id}/report", headers=dict(headers))
+    assert response.status_code == 200, response.text
+    body: dict[str, Any] = response.json()
+    return body
+
+
+def test_report_before_decision_conflict_for_awaiting_lawyer_review(
+    client: TestClient, settings: Settings
+) -> None:
+    review_id = _clean_review(client, settings)["review_id"]
+    store = Store(settings.data_dir, "acme")
+    before = _audit_count(store)
+    for headers in (ACME_LAWYER, ACME_VIEWER):
+        response = client.get(f"/reviews/{review_id}/report", headers=headers)
+        assert response.status_code == 409
+        assert response.json() == {"detail": "İnceleme için son karar henüz verilmedi."}
+    assert _audit_count(store) == before
+
+
+def test_report_failed_review_conflict(client: TestClient, settings: Settings) -> None:
+    _install_model(settings, "acme", {"late_penalty_cap": [_config_errors()[0]]})
+    assert client.post("/reviews", json={"text": _sample()}, headers=ACME_LAWYER).status_code == 502
+    record = _only_review(Store(settings.data_dir, "acme"))
+    assert record.status == "failed"
+    for headers in (ACME_LAWYER, ACME_VIEWER):
+        response = client.get(f"/reviews/{record.review_id}/report", headers=headers)
+        assert response.status_code == 409
+
+
+def test_report_other_tenant_not_found_and_no_key_unauthorized(
+    client: TestClient, settings: Settings
+) -> None:
+    review = _clean_review(client, settings)
+    review_id = review["review_id"]
+    assert _decide(client, review_id, _queue_decision(review)).status_code == 200
+    for headers in (GLOBEX_LAWYER, GLOBEX_VIEWER):
+        assert client.get(f"/reviews/{review_id}/report", headers=headers).status_code == 404
+    assert client.get(f"/reviews/{review_id}/report").status_code == 401
+    unknown = {"X-API-Key": "unknown-key-123"}
+    assert client.get(f"/reviews/{review_id}/report", headers=unknown).status_code == 401
+    assert client.get(f"/reviews/{uuid.uuid4()}/report", headers=ACME_VIEWER).status_code == 404
+
+
+def test_report_after_decision_shows_header_results_and_requested_changes(
+    client: TestClient, settings: Settings
+) -> None:
+    review = _clean_review(client, settings)
+    review_id = review["review_id"]
+    store = Store(settings.data_dir, "acme")
+    # The draft passes the code check, so it is outside the queue: decide it explicitly.
+    body = _with_entry(
+        _queue_decision(review), {"rule_id": "termination_notice", "proposal_action": "accept"}
+    )
+    assert _decide(client, review_id, body).status_code == 200
+    record = store.get_review(review_id)
+    assert record is not None
+    audit_before = _audit_count(store)
+
+    for headers in (ACME_VIEWER, ACME_LAWYER):
+        report = _report(client, review_id, headers)
+        assert report["review_id"] == review_id
+        assert report["status"] == "approved"
+        assert report["decided_by"] == "Av. Acme" and report["decided_at"] == record.decided_at
+        assert report["created_at"] == record.created_at
+        assert (report["provider"], report["model"]) == (record.provider, record.model)
+        assert [r["rule_id"] for r in report["rule_results"]] == [
+            f.rule_id for f in record.findings
+        ]
+        results = {r["rule_id"]: r for r in report["rule_results"]}
+        notice = results["termination_notice"]
+        assert notice["model_status"] == notice["final_status"] == "non_compliant"
+        assert notice["clause_no"] is not None
+        assert results["governing_law"]["final_status"] == "compliant"
+        [proposal] = report["proposals"]
+        assert proposal["rule_id"] == "termination_notice"
+        assert proposal["proposal_action"] == "accept" and proposal["edited_text"] is None
+        [change] = report["requested_changes"]
+        assert change["source"] == "accepted" and change["text"] == proposal["proposed_text"]
+        assert report["approved_with_noncompliant"] is True
+        assert "termination_notice" in report["noncompliant_rule_ids"]
+    # Reading the report writes nothing, however often it is read.
+    assert _audit_count(store) == audit_before
+
+
+def test_report_request_changes_has_no_warning_but_lists_noncompliant(
+    client: TestClient, settings: Settings
+) -> None:
+    review = _clean_review(client, settings)
+    review_id = review["review_id"]
+    body = _with_entry(
+        _queue_decision(review, contract="request_changes"),
+        {"rule_id": "termination_notice", "proposal_action": "accept"},
+    )
+    assert _decide(client, review_id, body).status_code == 200
+    report = _report(client, review_id)
+    assert report["status"] == "changes_requested"
+    assert report["approved_with_noncompliant"] is False
+    assert "termination_notice" in report["noncompliant_rule_ids"]
+    assert report["requested_changes"]
+
+
+@pytest.mark.parametrize("proposal_action", ["accept", "edit"])
+def test_report_mask_fully_opened_for_lawyer_and_kept_for_viewer(
+    client: TestClient, settings: Settings, proposal_action: str
+) -> None:
+    _install_model(
+        settings,
+        "acme",
+        {
+            "termination_notice": _termination_compliant(),
+            "liability_cap": _liability_with_proposal(),
+        },
+    )
+    posted = _post_ok(client, ACME_LAWYER)
+    review_id = posted["review_id"]
+    mapping = Store(settings.data_dir, "acme").get_pii_map(review_id)
+    edited = None
+    if proposal_action == "edit":
+        edited = f"Bildirimler {mapping['[KISI_2]']} adına yapılır."
+    body = _sample_decision(posted, proposal_action, edited)
+    assert _decide(client, review_id, body).status_code == 200
+
+    viewer = _report(client, review_id, ACME_VIEWER)
+    lawyer = _report(client, review_id, ACME_LAWYER)
+    viewer_text, lawyer_text = _all_text(viewer), _all_text(lawyer)
+    assert PLACEHOLDER.search(lawyer_text) is None, PLACEHOLDER.search(lawyer_text)
+    for value in ALL_RAW:
+        assert value not in viewer_text, f"{value!r} reached the viewer report"
+    # Every text field that carries a placeholder for the viewer is raw for the lawyer.
+    for section, field in (
+        ("rule_results", "quote"),
+        ("proposals", "proposed_text"),
+        ("requested_changes", "text"),
+        ("injection_flags", "phrase"),
+    ):
+        viewer_values = [item[field] for item in viewer[section] if item[field]]
+        assert any(PLACEHOLDER.search(v) for v in viewer_values), (section, field)
+    if edited is not None:
+        assert any(PLACEHOLDER.search(p["edited_text"] or "") for p in viewer["proposals"])
+        [lawyer_proposal] = [p for p in lawyer["proposals"] if p["edited_text"]]
+        assert lawyer_proposal["edited_text"] == edited

@@ -142,8 +142,9 @@ kurulur. Kural uç adına değil yönteme bağlıdır: **`GET` dışındaki her 
 | Asıl sözleşme metni (`original_text`) | Var; işaret konumları bu metne göre karakter ofsetidir | **Yok** |
 | Audit kayıtları | Saklandığı gibi, maskeli | Saklandığı gibi, maskeli |
 
-- Kural tüm okuma uçlarında ve arayüzde aynıdır. Maske açma tek bir fonksiyondadır ve yalnızca
-  yanıt üretilirken, `lawyer` için çalışır; saklanan veri her zaman maskelidir (asıl sözleşme metni
+- Kural tüm okuma uçlarında ve arayüzde aynıdır. Maske açma her `lawyer` yanıt modeli için
+  tek bir fonksiyondadır (inceleme yanıtı için bir tane, rapor için bir tane; ikisi de `src/api.py`'de
+  yan yana ve aynı `unmask`'i çağırır) ve yalnızca yanıt üretilirken, `lawyer` için çalışır; saklanan veri her zaman maskelidir (asıl sözleşme metni
   ve `pii_map` dışında).
 - **Yanıt sabit alan listesiyle kurulur, kayıttan alan çıkarılarak değil.** İnceleme, madde, işaret
   ve bulgu için ayrı yanıt modelleri vardır ve her biri yalnızca adı yazılmış alanları taşır
@@ -323,8 +324,17 @@ Kurallar:
 ### Rapor (`GET /reviews/{id}/report`)
 - Yalnızca JSON. İstek anında, `reviews` tablosundaki son sonuçtan `src/report.py` ile üretilir;
   ayrı bir rapor dosyası saklanmaz. Okumak hiçbir şeyi değiştirmez.
-- Son karar verilmeden istenirse **409** döner.
-- Role göre gösterim kuralı geçerlidir (`lawyer` maskesiz, `viewer` maskeli).
+- Son karar verilmeden istenirse **409** döner: durumu `approved` / `changes_requested` olmayan her
+  inceleme (`running`, `awaiting_lawyer`, `failed`) 409 alır. Kontrol bir bağımlılıktadır
+  (`require_decided`); sıra 401 → 404 → 409'dur, `GET` olduğu için rol kontrolü yoktur.
+- Role göre gösterim kuralı geçerlidir (`lawyer` maskesiz, `viewer` maskeli). `viewer` için
+  `pii_map` okunmaz.
+- Rapor modelleri `src/models.py`'dedir (`Report`, `LawyerReport` ve bölüm modelleri; hepsi
+  `extra="forbid"`). `src/report.py` iki saf fonksiyon taşır: `build_report(record) -> Report` ve
+  `build_lawyer_report(record) -> LawyerReport`. İkisi de **maskeli** döner; `rules.yaml`'a, DB'ye
+  ve `pii_map`'e bakmaz. `LawyerReport`, `Report`'un alanları artı işaret konumlarıdır. Kayıtta
+  `decision` yoksa ya da bir bulgunun son sonucu (`FindingOutcome`) eksikse `ValueError` fırlatır
+  (kod hatası; API'de 500). Maskeyi `src/api.py`'deki rapor açıcısı açar.
 
 | Bölüm | İçerik |
 |---|---|
@@ -335,6 +345,31 @@ Kurallar:
 | Taslaklar | Her taslak için: modelin metni, kod kontrolü sonucu, avukatın kararı (ya da "karar verilmedi"), varsa düzenlenmiş metin |
 | Talep edilen değişiklikler | Avukatın **kabul ettiği** ve **düzenlediği** taslaklar (son metinleriyle). Reddedilenler burada yer almaz. |
 | Enjeksiyon işaretleri | İşaretlenen maddeler, eşleşen ifade ve konumu, gizli karakterlerin konumu |
+
+Gövdenin alanları (bölümler düz bir nesnenin alanlarıdır; listeler kural sırasındadır):
+
+| Alan | İçerik |
+|---|---|
+| `review_id`, `created_at`, `decided_at`, `provider`, `model`, `decided_by` | Başlık; iki role de aynı |
+| `status` | `approved` / `changes_requested` |
+| `approved_with_noncompliant`, `noncompliant_rule_ids` | Uyarı. `noncompliant_rule_ids` son sonucu `non_compliant` olan kurallardır (her iki son kararda da dolar); `approved_with_noncompliant` yalnızca `status = approved` ve bu liste boş değilse `true`'dur |
+| `rule_results[]` | Kural başına bir tane: `rule_id`, `severity`, `model_status`, `final_status`, `clause_id`, `clause_no`, `quote`, `needs_review`, `review_reasons`, `action` |
+| `proposals[]` | Taslağı olan her bulgu için: `rule_id`, `clause_id`, `proposed_text`, `code_check`, `proposal_action` ("karar verilmedi" = `null`), `edited_text` |
+| `requested_changes[]` | `rule_id`, `clause_id`, `clause_no`, `source` (`accepted` / `edited`), `text` (son metin: `accepted` ise modelin metni, `edited` ise avukatınki) |
+| `injection_flags[]` | `viewer`: `clause_id`, `kind`, `phrase`; `lawyer`: ayrıca `start`, `end`, `detail` |
+
+- `clause_no`, kayıttaki maddelerden `clause_id` ile bulunur; `rule_results`'ta bulgunun maddesi,
+  `requested_changes`'te taslağın maddesidir. Madde yoksa `null`.
+- Bulgunun `reasoning`, `value`, `unit`, `escalation_reason` alanları, taslağın `rationale`'ı ve
+  madde metinleri rapora girmez; inceleme yanıtından okunur.
+- **Talep edilen değişiklikler:** bir taslak listeye yalnızca üçü birlikte tutarsa girer: bulgunun
+  son sonucu `non_compliant`, taslak var, `proposal_action` `accept` ya da `edit`. `correct` ile
+  `compliant`'a çevrilen bulgunun kabul edilmiş taslağı `proposals`'ta görünür, bu listede görünmez.
+- **Liste sözleşme kararından bağımsız türetilir.** Karar ucu son kararı taslak kararlarıyla
+  karşılaştırmaz; avukat uygunsuz bir bulgunun taslağını kabul edip sözleşmeyi onaylayabilir. O
+  durumda rapor hem `status: approved` hem dolu bir `requested_changes` taşır ve bu gizlenmez.
+  Listeye yalnızca son sonucu `non_compliant` olan bulgular girdiği için, `approved` iken liste
+  doluysa `approved_with_noncompliant` her zaman `true`'dur.
 
 Yeniden yüklenen sözleşme yeni bir incelemedir; önceki incelemeyle bağlanmaz.
 

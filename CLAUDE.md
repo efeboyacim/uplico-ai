@@ -29,10 +29,9 @@ Uygulama `docs/plan.md`'deki adımlarla, sırayla yazılır. Hangi adımda olund
 bölümünde ve adım kutularında yazar; bir oturuma başlarken önce oraya bak. Bir adım doğrulanıp
 commit edilince dur ve sıradaki adıma geçmeden önce kullanıcıdan onay al.
 
-**Şu an:** Adım 0–13 bitti (Adım 13: `POST /reviews/{id}/decision`, `finalize` düğümü,
-`src/decision.py`, tek transaction'lı `complete_review`, tenant başına karar kilidi; karar
-alanları inceleme yanıtında).
-Sıradaki: Adım 14 — Rapor.
+**Şu an:** Adım 0–14 bitti (Adım 14: `GET /reviews/{id}/report`, saf `src/report.py`, rapor
+modelleri `src/models.py`'de, `lawyer` raporu için ayrı maske açıcı; karardan önce 409).
+Sıradaki: Adım 15 — Arayüz.
 
 ## Komutlar
 ```bash

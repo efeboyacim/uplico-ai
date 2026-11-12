@@ -1,5 +1,6 @@
 """Pydantic schemas shared by the store, preparation, graph, verification and API."""
 
+from collections.abc import Sequence
 from typing import Literal, NewType, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -232,3 +233,72 @@ class ReviewRecord(_Model):
     decision: ReviewOutcome | None = None
     decided_at: str | None = None
     decided_by: str | None = None
+
+
+class RuleResult(_Model):
+    """One rule in the report: the model's status, the final status and the lawyer's action."""
+
+    rule_id: str
+    severity: Severity
+    model_status: FindingStatus
+    final_status: FindingStatus
+    clause_id: str | None
+    clause_no: str | None
+    quote: str | None
+    needs_review: bool
+    review_reasons: list[ReviewReason]
+    action: FindingAction | None
+
+
+class ReportProposal(_Model):
+    """One proposal in the report; `proposal_action` is null when the lawyer did not decide."""
+
+    rule_id: str
+    clause_id: str
+    proposed_text: str
+    code_check: CodeCheck | None
+    proposal_action: ProposalAction | None
+    edited_text: str | None
+
+
+class RequestedChange(_Model):
+    """A proposal the lawyer accepted or edited, with its final text."""
+
+    rule_id: str
+    clause_id: str
+    clause_no: str | None
+    source: Literal["accepted", "edited"]
+    text: str
+
+
+class ReportInjectionFlag(_Model):
+    clause_id: str
+    kind: InjectionKind
+    phrase: str
+
+
+class LawyerReportInjectionFlag(ReportInjectionFlag):
+    start: int
+    end: int
+    detail: str | None
+
+
+class Report(_Model):
+    review_id: str
+    created_at: str
+    decided_at: str | None
+    provider: str
+    model: str
+    decided_by: str | None
+    status: DecidedStatus
+    approved_with_noncompliant: bool
+    noncompliant_rule_ids: list[str]
+    rule_results: list[RuleResult]
+    proposals: list[ReportProposal]
+    requested_changes: list[RequestedChange]
+    # Sequence (covariant): the lawyer report narrows the element type.
+    injection_flags: Sequence[ReportInjectionFlag]
+
+
+class LawyerReport(Report):
+    injection_flags: Sequence[LawyerReportInjectionFlag]

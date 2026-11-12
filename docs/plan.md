@@ -195,7 +195,17 @@
   üzerinden, `rules.yaml`'a bakmadan üretilir; `approved_with_noncompliant` ve talep edilen
   değişiklikler saklanmaz, raporda türetilir; kayda bakan 422'lerde girdisi hiç gönderilmemiş
   bulgunun `loc`'u indeks yerine `rule_id` taşır.
-- **Sıradaki:** Adım 14 — Rapor.
+  Adım 14: `src/report.py` (saf `build_report` / `build_lawyer_report`), rapor modelleri ve
+  `GET /reviews/{id}/report` yazıldı; kararlar (R1–R8) aşağıda Adım 14 bölümünde. Dokümanları ana
+  oturum, kodu bir alt-agent yazdı; kod iki bağımsız incelemeden (doküman uyumu, güvenlik / rol
+  gösterimi) kritik bulgu olmadan geçti. Alt-agent dört dosyanın satır sonlarını CRLF'e çevirmişti;
+  commit'ten önce LF'e geri alındı. Elle deneme Docker'da değil, `data/`'nın bir kopyasında
+  `TestClient` ile yapıldı: bekleyen gerçek bir acme incelemesinde karardan önce 409, anahtarsız
+  401, başka tenant 404; `approve` + kabul edilen taslaktan sonra iki rolde 200, `status: approved`
+  ile birlikte dolu `requested_changes` ve `approved_with_noncompliant=true` (R8'in durumu), audit
+  satır sayısı değişmedi, `viewer` işaretlerinde konum yok. `edit` yolu gerçek veride denenmedi;
+  testlerle kapsanıyor. `data/tenants/acme/` altındaki dört inceleme hâlâ `awaiting_lawyer`.
+- **Sıradaki:** Adım 15 — Arayüz.
 - Bu bölüm her adımın commit'inde güncellenir; sıradaki adım, aşağıdaki ilk işaretsiz kutudur.
 
 ## Bağlam
@@ -762,11 +772,30 @@ gereksiz yönlendirme satırları bunu gösterir.
   temiz; görünmez karakter (Cf) taraması.
 - **Commit:** `feat: add lawyer decision endpoint and finalize step`
 
-### [ ] Adım 14 — Rapor
+### [x] Adım 14 — Rapor
 - **Ne:** `src/report.py` saf fonksiyonu (saklanan son sonuçtan üretir; DB'ye yazmaz);
   `GET /reviews/{id}/report` (karardan önce 409; role göre gösterim).
+- **Kararlar** (dokümanların boş bıraktığı noktalar; kodlamadan önce `architecture.md` §3 "Rapor" /
+  "Role göre gösterim", `code_standards.md` ve `evals.md` §2'ye işlendi; kullanıcı 2026-11-12'de
+  onayladı):
+  (R1) Rapor modelleri `src/models.py`'de; `build_report(record) -> Report` ve
+  `build_lawyer_report(record) -> LawyerReport` saf ve maskeli; kararsız kayıt ya da son sonucu
+  eksik bulgu `ValueError`.
+  (R2) Gövde alanları `architecture.md` §Rapor tablosundaki gibi; "karar verilmedi" =
+  `proposal_action: null`; `reasoning`, `rationale`, `value`, `unit`, madde metni rapora girmez.
+  (R3) Talep edilen değişiklik: son sonuç `non_compliant` + taslak var + `accept` / `edit`.
+  (R4) **Doküman sapması:** maske açma artık "her `lawyer` yanıt modeli için tek fonksiyon"
+  (`_unmask_lawyer_view` ve `_unmask_lawyer_report`, ikisi de `api.py`'de); unutulan alanı *Rapor
+  maskesi eksiksiz açılır* testi yakalar.
+  (R5) `require_decided` bağımlılığı: `approved` / `changes_requested` dışındaki her durum 409;
+  sıra 401 → 404 → 409, rol kontrolü yok.
+  (R6) `report_body`; `viewer` için `pii_map` okunmaz; uç audit'e yazmaz.
+  (R7) Dokümanlar koddan önce güncellendi.
+  (R8) Liste sözleşme kararından bağımsız türetilir: `approved` iken `requested_changes` dolu
+  olabilir ve gizlenmez; o durumda `approved_with_noncompliant` her zaman `true`'dur (karar ucu son
+  kararı taslak kararlarıyla karşılaştırmaz; Adım 13 değişmedi).
 - **Dosyalar:** `src/report.py`, `src/models.py`, `src/api.py`, `tests/test_report.py`,
-  `tests/test_api.py`
+  `tests/test_api.py`, `docs/architecture.md`, `docs/code_standards.md`, `docs/evals.md`, `CLAUDE.md`
 - **Doğrulama:** Testler: *Rapor* (karardan önce 409; kural sonuçları, taslaklar, talep edilen
   değişiklikler; kabul edilen ve düzenlenen listede, reddedilen değil; okumak audit'e satır eklemez);
   kararların rapora yansıması (düzeltilen bulgunun son sonucu, "karar verilmedi",
