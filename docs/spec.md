@@ -219,6 +219,14 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   sanıp maskeleyebilir ve kod yer tutucuyu sayı olarak okuyamaz. Telafisi: "uygun" bulgunun
   gösterdiği maddede böyle bir yer tutucu varsa bulgu avukata gider (`masked_value_in_clause`);
   yer tutucu başka bir maddedeyse ya da bulgu "uygun değil" ise bu telafi çalışmaz.
+- **Arama yalnızca BM25'tir:** kuralın sözcüklerini kullanmadan yazılmış madde bulunamayabilir.
+  Eval'de (Adım 18) arama isabeti 30 / 32; sözleşme 4'te madde 9 ("Sır Saklama") ve madde 11
+  ("Sözleşmenin Sona Ermesi … bir ay önceden … haber vererek") kaçtı, iki kural `not_found`
+  döndü. Her `not_found` avukata gittiği için sessizce geçmez. Dataset ve tokenizer buna göre
+  ayarlanmadı.
+- **Taslak yazımı kodla zorlanmaz:** `non_compliant` bulgudan sonra `propose_change`'i
+  `submit_finding`'in yanıtı, prompt ve tool açıklaması ister; model çağırmazsa bulgu
+  `missing_proposal` ile avukata gider. Eval'de 1 / 11 → 11 / 11 (tek model, tek koşu).
 
 ## 9. Varsayımlar ve bağımlılıklar
 - İki kurgusal şirket: `acme` ve `globex`; her birinin ~5 kurallık seti var. Her kural `critical` ya
@@ -237,8 +245,9 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   (`500 000 00 00`) telefon sayar; tek boşlukla ayrılmış ayrı sayılar birlikte 11 hane edip
   checksum'ı tutarsa (`10 30 120 10 20`, yaklaşık yüzde bir) TCKN sayılır.
 - Varsayılan mod bir Groq hesabı ve `GROQ_API_KEY` gerektirir. Geliştirme hesabı ücretsiz
-  katmandadır (8K TPM / 200K TPD); önce/sonra tablolu tam eval (tek geçiş, tahmini ≈ 175K token)
-  bu limitlerle bir güne ancak sığar, taslaklarla aşılabilir (`tech_stack.md` "Hangi plan?").
+  katmandadır (8K TPM / 200K TPD); önce/sonra tablolu tam eval (tek geçiş) Adım 18'de 206K ve
+  242K token tuttu, yani bu limitlerle bir güne sığmaz (2026-11-12'de bu limitler o anahtarda
+  uygulanmadı; geçerli limit bilinmiyor, `tech_stack.md` "Hangi plan?").
 - Değerlendiricinin makinesinde GPU olmayabilir; varsayılan mod GPU gerektirmez.
 - Varsayılan modda model indirilmez; Ollama çalışmaz. Çevrimdışı modda ilk çalıştırmada sohbet
   modeli indirilir (internet gerekir, ~7 GB); indirme bittikten sonra internet gerekmez.
@@ -247,24 +256,36 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
 - README ve karar dokümanı (en fazla 2 sayfa) ayrıca yazılacak; bu dosyalar onların kaynağıdır.
 
 ## 10. Açık sorular
-- [ ] `openai/gpt-oss-120b` Türkçe sözleşmede tool çağrılarını ve birebir alıntıyı güvenilir yapıyor
+- [x] `openai/gpt-oss-120b` Türkçe sözleşmede tool çağrılarını ve birebir alıntıyı güvenilir yapıyor
       mu? Türkçe için yayımlanmış bir ölçüm bulunamadı; ilk eval koşusu gösterecek. İlk gözlem
       aşağıda ("Adım 12 gözlemleri"): tek sözleşmede tool çağrıları ve alıntılar hatasızdı, ama
       model `get_clause` ve `propose_change`'i atladı.
+      **Adım 18 (2026-11-12, 7 sözleşme, iki koşu; `evals.md` §4 "İlk koşuların sonucu"):** iki
+      koşuda 35 kararın 33'ü doğru; alıntı geçerliliği 23 / 23 (2. koşu), doğru madde 30 / 30,
+      sonuçsuz görev 0. İki yanlış alıntı ya da tool çağrısından değil aramadan geliyor (sözleşme
+      4'te iki dolaylı yazılmış madde, BM25 sınırı). `propose_change` atlaması: taslak oranı 1 / 11
+      → `submit_finding` yanıtındaki yönlendirmeyle 11 / 11 (kodla zorlanmaz; başka modelde
+      denenmedi). `get_clause` kullanımı ölçülmedi (sonuç dosyasında yok). Tek model, tek gün, 35
+      karar: genel bir Türkçe kalite ölçümü değildir.
 - [x] Sözleşme başına token tahmini (~40K) doğru mu? Örnek sözleşmede (15 madde, 5 kural)
       ölçülen: `gpt-oss-120b` 25,1K token, `qwen3.5:4b` 42,0K token (2026-11-12, tek koşu). Eval
-      sözleşmeleri daha uzunsa artar; kesin sayı Adım 18'de ölçülür.
+      sözleşmelerinde (Adım 18, `gpt-oss-120b`) sözleşme başına 23,5K–37,8K (taslak 1 / 11) ve
+      28,6K–39,5K (taslak 11 / 11); 7 sözleşme 206K ve 242K.
 - [x] **Hesapta hangi Groq limiti geçerli?** Ücretsiz katman: `gpt-oss-120b` için
       **30 RPM, 1K RPD, 8K TPM, 200K TPD** (2026-11-12; hem konsolun Limits sayfası hem yanıt
       başlıkları). Daha önce buraya "250K TPM teyit edildi" yazılmıştı (2026-11-10); bu anahtar
       için yanlıştı. Sonuçları: o günkü varsayılan
       `MAX_CONCURRENCY=4` ile örnek sözleşmede 5 kuraldan 3'ü `rate_limited` oldu;
-      `MAX_CONCURRENCY=1` ile hepsi tamamlandı (112 sn). Sözleşme başına ~25K token ile 7 sözleşmelik
-      tek geçiş ≈ 175K token (günlük sınıra ancak sığar). Önce/sonra ikinci bir geçiş istemez:
+      `MAX_CONCURRENCY=1` ile hepsi tamamlandı (112 sn). 7 sözleşmelik tek geçiş Adım 18'de
+      206K ve 242K token tuttu (taslaklarla 200K aşıldı). Önce/sonra ikinci bir geçiş istemez:
       model sözleşme başına bir kez çalışır, `verify` aynı ham bulgular üzerinde iki kez kodla
-      hesaplanır (`evals.md` §5). Tahmin tek ölçüme dayanır ve o koşuda `propose_change`
-      çağrılmamıştı; taslaklarla 200K aşılabilir (ölçülmedi).
-      README çözümü (`MAX_CONCURRENCY=1` ve `--limit N` ile kısmi koşu, ya da çevrimdışı mod) yazmalı.
+      hesaplanır (`evals.md` §5).
+      **Adım 18 gözlemi (2026-11-12):** o gün bu anahtarla toplam ≈ 473K token harcandı, koşular
+      dakikada ≈ 18–21K token hızla gitti; hiç 429 gelmedi. 8K TPM / 200K TPD bu anahtarda o gün
+      uygulanmadı; sebebi bilinmiyor (limit ya da hesap katmanı değişmiş olabilir; Limits sayfası
+      kontrol edilmedi). Geçerli limit bilinmiyor; düşük limitli hesap için rehber koşullu kalır.
+      README çözümü (`MAX_CONCURRENCY=1` ve `--limit N` ile kısmi koşu, `--resume`, ya da
+      çevrimdışı mod) yazmalı.
 - [x] Groq SDK'sı 429'da `retry-after`'a uyuyor mu? Evet, 60 sn'ye kadar; daha uzunsa en fazla 8 sn'lik
       üstel beklemeye düşer (SDK kaynak kodundan doğrulandı, `tech_stack.md`). Ek sarmalayıcı yazılmaz.
 - [x] `max_concurrency` `Send` dallarını gerçekten sınırlıyor mu? Evet: langgraph 1.2.20'de 8 dal,

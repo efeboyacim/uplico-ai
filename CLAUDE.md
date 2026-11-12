@@ -29,14 +29,17 @@ Uygulama `docs/plan.md`'deki adımlarla, sırayla yazılır. Hangi adımda olund
 bölümünde ve adım kutularında yazar; bir oturuma başlarken önce oraya bak. Bir adım doğrulanıp
 commit edilince dur ve sıradaki adıma geçmeden önce kullanıcıdan onay al.
 
-**Şu an:** Adım 0–17 bitti (Adım 17: `evals/metrics.py` ve `evals/run.py`; tek komut önce/sonra
-tablosunu basar, `--limit N` ve `--prepare-only` seçenekleri var; Docker'da Groq ile tek
-sözleşmelik koşu denendi, tam koşu Adım 18'de).
+**Şu an:** Adım 0–18 bitti (Adım 17: `evals/metrics.py` ve `evals/run.py`; tek komut önce/sonra
+tablosunu basar, `--limit N` ve `--prepare-only` seçenekleri var).
 Adım 17 sonrası: `--resume` (içerik özetli önbellek) ve Adım 17b (maskeleyici üç biçim daha
 yakalar; garanti edilmeyen PII 5 / 5 → 2 / 5).
 Ardından `verify`'a `masked_value_in_clause` sinyali eklendi ("uygun" bulgunun maddesinde TCKN /
 telefon yer tutucusu varsa avukata gider).
-Sıradaki: Adım 18 — İlk eval koşusu ve kalibrasyon.
+Adım 18: Groq ile iki tam eval koşusu (2026-11-12); ilki iki hata gösterdi, ikisi ayrı `fix:`
+commit'iyle düzeltildi (`verify`'da cümle sınırını aşan birim; taslak yönlendirmesi, 1 / 11 →
+11 / 11). İkinci koşuda bütün sert eşikler tuttu (değiştirilmedi); iki yanlış sözleşme 4'teki
+arama kaçışı (BM25 sınırı), sonuçlar `docs/evals.md` §4–§5'te.
+Sıradaki: Adım 19 — README ve karar dokümanı.
 
 ## Komutlar
 ```bash

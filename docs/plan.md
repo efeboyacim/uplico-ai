@@ -264,7 +264,7 @@
   satırındaki ad, öneksiz telefon, boşluklu TCKN, düzensiz gruplanmış IBAN).
   Adım 17–18 için notlar: (1) sözleşmeler 13–14 madde, 2.950–4.080 karakter (örnek sözleşme
   ölçeğinde); 7 sözleşmelik tek geçiş tahmini 175K token Adım 12'deki tek koşuya dayanır ve o
-  koşuda model `propose_change` çağırmamıştı; 13 beklenen `non_compliant` ile 200K günlük sınır
+  koşuda model `propose_change` çağırmamıştı; 12 beklenen `non_compliant` ile 200K günlük sınır
   aşılabilir (ölçülmedi). (2) `spec.md` §10, `tech_stack.md` ve `evals.md` §6'daki "önce/sonra için
   iki geçiş ≈ 350K" ifadesi `evals.md` §5 ile çelişiyor: model sözleşme başına bir kez çalışır,
   `verify` iki kez kodla hesaplanır; Adım 17'de düzeltilir. (3) Model hiç hata yapmazsa önce/sonra
@@ -292,7 +292,7 @@
   **Denenmeyenler:** LangSmith'e yükleme yolu (kısmi koşuda atlanır; ilk kez Adım 18'de çalışır);
   çıkış kodu 2 ve 3 yalnızca sahte modelle sınandı; Ollama ile koşu.
   Adım 18 için not: sözleşme 1 ihlalsiz (taslak çağrısı yok) ve 25,1K token tuttu; 7 sözleşmenin
-  tabanı ≈ 175K, 13 beklenen ihlalin taslak çağrıları buna eklenir; 200K günlük sınır aşılabilir
+  tabanı ≈ 175K, 12 beklenen ihlalin taslak çağrıları buna eklenir; 200K günlük sınır aşılabilir
   (aşılırsa koşu çıkış kodu 2 ile durur ve dosya yazmaz).
   Adım 17 sonrası (kaldığı yerden devam): koşucu, tamamlanan her sözleşmenin satırlarını
   `evals/results/.cache/` altına yazar (commit edilmez); `--resume` eşleşen kayıtları yeniden
@@ -345,9 +345,61 @@
   **Denenmedi:** eski ve yeni `verify`'ın geniş girdide karşılaştırması bağımsız olarak
   doğrulanmadı (dayanak: mevcut 421 doğrulama testinden yalnızca birinin beklentisi, kural gereği,
   değişti).
-- **Sıradaki:** Adım 18 — İlk eval koşusu ve kalibrasyon. `src/` değiştiği için imaj yeniden
-  kurulmalı; önbellek özeti de değişti.
-- **Adım 18'e başlarken (2026-11-12 oturumunun devri):**
+  Adım 18 (2026-11-12): tam eval iki kez koşuldu (Groq `openai/gpt-oss-120b`, Docker,
+  `MAX_CONCURRENCY=1`, 7 / 7 sözleşme, iki koşu da çıkış 0; sonuç dosyaları
+  `evals/results/20261112-173317_…` ve `20261112-200616_…`). 1. koşu (kod `9b6ca9a`) iki hata
+  gösterdi, ikisi kendi `fix:` commit'iyle düzeltildi: `2a6fbe3` (`verify`'da sayıdan sonra cümle
+  sınırını aşan birim sahte süre aralığı üretiyor, o cümle sonunda biten birebir alıntı
+  `quote_not_found` oluyordu) ve `4ccc03d` (`non_compliant` bulgudan sonra taslak yazılmıyordu,
+  1 / 11; `submit_finding` yanıtı artık `propose_change`'i ister, yalnızca yönlendirme; eval
+  satırına `proposal_calls` / `proposal_errors`, önbellek sürümü 2). 2. koşu (kod `4ccc03d`):
+  güvensiz hata 2 / 35 → 0 / 35, yönlendirme 0 / 35 → 12 / 35, kaçırılan uygunsuzluk 1 / 12, yanlış
+  bulgu 0 / 11, alıntı geçerliliği 23 / 23, arama isabeti 30 / 32, taslak 11 / 11, enjeksiyon
+  sonucu 0, PII 0; 241.576 token, $0,0411. İki koşuda 35 kararın `status`'ü aynı; iki yanlış
+  sözleşme 4'teki arama kaçışı (madde 9 ve 11; BM25 sınırı, düzeltilmez — madde 11 için karar
+  sonuçlar görüldükten sonra alındı). Önce/sonra farkının tamamı bu iki `not_found` satırından;
+  model alıntıda ve sayıda hata yapmadı. Kalibrasyon: sert eşikler değişmedi (küçük örneklem, aynı
+  günün iki koşusu); ölçülen değerler yanlarına yazıldı. Ayrıntı `evals.md` §3–§6, `spec.md` §10,
+  `tech_stack.md` "Hangi plan?". Cümle sınırı düzeltmesinin tasarımı iki inceleme turunda
+  daraltıldı: ilk tasarım ("her noktalama keser") güvensiz yönde gerileme üretti ("50.000,- TL",
+  "45. iş gününde" sessizce düşüyordu); ikinci tur sınırdan sonraki gerçek ifadenin yutulduğunu
+  buldu ("Madde 4. Doksanıncı günde"), ana oturumda düzeltildi. Son sürümü bağımsız inceleyici
+  görmedi; ana oturum HEAD ile 30.000 rastgele girdi × 3 türde karşılaştırdı (sınır içermeyen
+  metinde sıfır fark) ve `verify` düzeyinde 64.000 üçlüde sınır içermeyen metinde "eskiden kuyruk,
+  şimdi değil" sıfır çıktı. Kabul edilen kayıp ve kalan sınırlar `agent_design.md` §5'te.
+  **Tahmin tutmadı:** "iki güne yayılır" denmişti; iki koşu da limitsiz, aynı gün bitti (o gün
+  ≈ 473K token, hiç 429 yok; 8K TPM / 200K TPD bu anahtarda uygulanmadı, sebebi bilinmiyor).
+  "`verify` düzeltmesi tek tur" beklentisi de tutmadı: üç tasarım turu gerekti.
+  **Denenmeyenler:** LangSmith'e yükleme (iki koşuda da `langsmith: "local"`, konteynerde anahtar
+  yoktu); gerçek limitte çıkış kodu 2 ve `--resume`; çıkış kodu 3; Ollama ile eval; taslak
+  yönlendirmesinin başka modelde etkisi; 1 / 11 → 11 / 11 farkının ne kadarının tool yanıtından,
+  ne kadarının prompt / açıklama değişikliğinden geldiği (ayrı ölçülmedi, tek koşu).
+  İnceleme yan bulgusu (önceden de vardı, düzeltilmedi): `verify` taslağın `clause_id`'sini
+  bulgununkiyle karşılaştırmıyor; model fikir değiştirip başka madde için bulgu bildirirse eski
+  taslak yeni bulguya ekli kalır.
+- **Sıradaki:** Adım 19 — README ve karar dokümanı.
+- **Adım 19'a başlarken (Adım 18'in devri):** README'ye taşınacaklar:
+  1. Asıl önce/sonra tablosu 2. koşudan (`evals.md` §5), altında dürüst not: farkın tamamı
+     sözleşme 4'teki iki `not_found` satırından; tablo bu koşuda alıntı / sayı kontrolünün değerini
+     değil, bedelini (12 / 35 yönlendirme) gösteriyor.
+  2. Gereksiz yönlendirme dökümü: 10 / 12'nin 8'i tasarım gereği (3 beklenen `not_found` + 5
+     enjeksiyon şüphesi), 2'si doğrulama sinyali (`ambiguous_value`; biri haklı, biri gürültü).
+     Metrik "boşa giden iş" değil, "status'ü avukat değiştirmeden kalacak satırlar"dır.
+  3. İkincil tablolar: Adım 17b PII 5 / 5 → 2 / 5 (iki `…_prepare-only.json`); düzeltme etkisi 1.
+     koşu → 2. koşu: taslak 1 / 11 → 11 / 11, yönlendirme 19 / 35 → 12 / 35, alıntı geçerliliği
+     16 / 16 → 23 / 23.
+  4. Arama sınırı: arama isabeti 30 / 32; sözleşme 4 madde 9 ve 11 kaçtı (`evals.md` §3 "Sonuç");
+     embedding "daha fazla vaktim olsaydı"ya.
+  5. LangSmith'e yükleme gerçek sunucuya karşı denenmedi.
+  6. Limit gözlemi ve N=3: 8K TPM / 200K TPD 2026-11-12'de uygulanmadı, geçerli limit bilinmiyor;
+     ücretsiz katman komutu `--limit 3` (ilk üç sözleşme ≈ 105K) koşullu olarak yazılır.
+  7. Denenmeyenler (yukarıdaki Adım 18 listesi ve önceki adımlarınkiler) ve aşağıdaki "Adım 18
+     devri"nin 7. maddesindeki sınırlar (hâlâ geçerli; "iki güne yayılabilen koşu" yerine limit
+     gözlemi yazılır).
+  8. Bilinen sınırlar: `verify` taslağın maddesini bulgunun maddesiyle eşleştirmiyor; taslak
+     yazımı kodla zorlanmıyor; cümle sınırı düzeltmesinin kabul edilen kaybı ve kalan sınırları
+     (`agent_design.md` §5'e gönderme); son `verify` sürümü bağımsız incelenmedi.
+- **Adım 18 devri (tamamlandı; 2026-11-12 oturumunun devri):**
   1. Depo temiz; son kod commit'i `9b6ca9a`, ardından yalnızca doküman commit'leri (`78aa363`,
      `48535ea` ve bu notun commit'i; önbellek özetini bozmaz). `origin/main`'e push yapılmadı
      (push Adım 20'dir).
@@ -1085,17 +1137,25 @@ gereksiz yönlendirme satırları bunu gösterir.
   kapsamı değil.
 - **Commit:** `fix: mask spaced TCKN, irregularly grouped IBAN and unprefixed mobile numbers`
 
-### [ ] Adım 18 — İlk eval koşusu ve kalibrasyon
+### [x] Adım 18 — İlk eval koşusu ve kalibrasyon
 - **Ne:** Eval Groq üzerinde koşulur; sonuçlar kaydedilir; eşikler gerçek sonuca göre `evals.md`'de,
   açık sorular `spec.md` §10'da güncellenir. Bulunan her hata önce teste dönüşür ve kendi `fix:`
   commit'iyle düzeltilir; adımın kendi commit'i sonuçlardır. Arama sözleşme 4'teki dolaylı ifadeyi
   kaçırırsa bu hata sayılıp düzeltilmez: sözleşme ve tokenizer olduğu gibi kalır,
   sonuç (arama isabeti ve kaçan kural) Adım 19'da README'ye sınır olarak yazılır.
-- **Dosyalar:** `evals/results/*`, `docs/evals.md`, `docs/spec.md`
+  **Gerçekleşen:** iki tam koşu (2026-11-12); 1. koşunun gösterdiği iki hata kendi commit'iyle
+  düzeltildi (`2a6fbe3` cümle sınırını aşan birim, `4ccc03d` taslak yönlendirmesi). Arama madde
+  9'un yanında madde 11'i de kaçırdı; ikisi de sınır olarak yazıldı (madde 11 kararı sonuçlar
+  görüldükten sonra alındı). Sert eşikler değişmedi.
+- **Dosyalar:** `evals/results/*`, `docs/evals.md`, `docs/spec.md`, `docs/tech_stack.md`,
+  `docs/plan.md`
 - **Doğrulama:** Eval komutu hatasız biter; `evals.md` §8'deki eşikler (güvensiz hata, enjeksiyon
   sonucu, PII sızıntısı) sağlanır ya da sapma (ör. sözleşme 7) dürüstçe yazılır.
   `LANGSMITH_API_KEY` varsa bir koşuda dataset ve iki experiment (`before`, `after`) görünür; yoksa
   bu yolun denenmediği README'ye yazılır.
+  **Gerçekleşen:** iki koşu da çıkış 0; bütün sert eşikler iki koşuda da sağlandı (sözleşme 7
+  dahil: model kanmadı, enjeksiyon sonucu 0). Anahtar yoktu (`langsmith: "local"`); yükleme
+  denenmedi, README'ye yazılacak.
 - **Commit:** `docs: record first eval results and calibrated thresholds`
 
 ### [ ] Adım 19 — README ve karar dokümanı
@@ -1103,7 +1163,9 @@ gereksiz yönlendirme satırları bunu gösterir.
   sınırlar, "daha fazla vaktim olsaydı"). Karar dokümanı: CASE.md'deki 5 soru sırasıyla, en fazla 2 sayfa.
 - **README — ücretsiz Groq anahtarıyla:** tam eval'in günlük limite sığmadığı ve çalışacak komut
   açıkça yazılır: `docker compose run --rm -e MAX_CONCURRENCY=1 app python -m evals.run --limit 3`.
-  N değeri Adım 18'de ölçülen sözleşme başına token'a göre kesinleşir. Yanında iki seçenek daha:
+  N=3: Adım 18'de ilk üç sözleşme ≈ 105K token tuttu (2. koşu), 200K günlük sınır uygulanıyorsa
+  sığar; tam koşu 206–242K ile sığmaz. Adım 18'de 200K sınırı o anahtarda uygulanmadı (geçerli
+  limit bilinmiyor); README bunu koşullu yazar. Yanında iki seçenek daha:
   limitsiz tam koşu için `LLM_PROVIDER=ollama`, koşmadan görmek için `evals/results/`.
 - **README — ilk çalıştırmada inen toplam:** her iki mod için ayrı yazılır. Adım 12'de ölçülen:
   varsayılan mod (Groq) yalnızca uygulama imajı, diskte 611 MB (sıkıştırılmış 140 MB). Çevrimdışı
