@@ -205,6 +205,19 @@
   ile birlikte dolu `requested_changes` ve `approved_with_noncompliant=true` (R8'in durumu), audit
   satır sayısı değişmedi, `viewer` işaretlerinde konum yok. `edit` yolu gerçek veride denenmedi;
   testlerle kapsanıyor. `data/tenants/acme/` altındaki dört inceleme hâlâ `awaiting_lawyer`.
+  Adım 15 için notlar (Adım 14'ten): (1) Sayfa bir `GET` ucudur ama anahtarsız açılır; mevcut
+  rota listesi testine `GET /` eklenir ve "`GET` dışındaki her uç `lawyer` ister" testi geçmeye
+  devam etmelidir. (2) Sayfa veriyi `GET /reviews/{id}`'den çeker: metin üzerinde gösterim için
+  `original_text`, madde `start` / `end` ve işaret `start` / `end` / `detail` yalnızca `lawyer`
+  yanıtındadır; `viewer` yanıtında asıl metin ve konum yoktur, sayfa o rolde maskeli madde
+  metinlerini (`clauses[].text`) alt alta gösterir ve alıntıyı madde içinde arar. (3) Alıntı
+  (`quote`) maskeli metinden gelir, `lawyer` yanıtında maskesi açılmıştır; madde metni de aynı
+  eşlemeyle açıldığı için alıntı açılmış madde metninde aranır, `original_text`'te değil (görünmez
+  karakterler madde metninden çıkarılmıştır, asıl metinde durur). (4) Rapor ucu hazır
+  (`GET /reviews/{id}/report`, karardan önce 409); planda sayfanın raporu göstermesi yok, eklemek
+  kapsam kararıdır. (5) Elle denemede kapanmış inceleme gerekirse gerçek `data/`'da yok; kopyada
+  karar verilerek üretilir. (6) Alt-agent'a iş verilirse satır sonu LF kalmalı; teslimde
+  `git diff --stat` ile bakılır.
 - **Sıradaki:** Adım 15 — Arayüz.
 - Bu bölüm her adımın commit'inde güncellenir; sıradaki adım, aşağıdaki ilk işaretsiz kutudur.
 
