@@ -30,7 +30,9 @@ bölümünde ve adım kutularında yazar; bir oturuma başlarken önce oraya bak
 commit edilince dur ve sıradaki adıma geçmeden önce kullanıcıdan onay al.
 
 **Şu an:** Adım 0–12 bitti (Adım 12: `Dockerfile`, `docker-compose.yml`, `offline` profili,
-ilk gerçek model denemesi; gözlemler `docs/spec.md` §10).
+ilk gerçek model denemesi; gözlemler `docs/spec.md` §10. Sonrasında: `POST /reviews` metnine
+2.000.000 karakter sınırı, Groq için `MAX_CONCURRENCY` varsayılanı 1, Groq limitleri ücretsiz
+katmana göre düzeltildi).
 Sıradaki: Adım 13 — Avukat kararı ve finalize.
 
 ## Komutlar

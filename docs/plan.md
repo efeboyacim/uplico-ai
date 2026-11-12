@@ -169,6 +169,15 @@
   güne sığmaz; iki güne bölünür, `--limit N` ile kısmi koşulur ya da çevrimdışı modda koşulur;
   `gpt-oss-120b` `get_clause` ve `propose_change`'i atlıyor (prompt). Adım 12 sonrası karar:
   `MAX_CONCURRENCY`'nin Groq varsayılanı 4'ten 1'e indirildi (`tech_stack.md`, `spec.md` §10).
+  Adım 13 için notlar (Adım 12'den): (1) `create_app`'te artık bir `RequestValidationError`
+  işleyicisi var; karar ucunun 422'si de ondan geçer ve yalnızca `type`, `loc`, `msg` taşır
+  (`edited_text` geri yansıtılmaz). Zorunluluk kontrolü için elle üretilen 422 aynı biçimi
+  korumalı. (2) İmaj `src/`'yi kopyalar, bağlamaz: kod değişince kapsayıcıda denemek için
+  `docker compose up --build` gerekir. (3) Elle denemelerden `data/tenants/acme/` altında
+  `awaiting_lawyer` durumunda dört inceleme duruyor (git dışı); thread'leri `human_review`'da
+  bekliyor, karar ucunu gerçek veriyle elle denemek için kullanılabilir. (4) Örnek sözleşmede
+  her bulgu `injection_suspected` taşır (iki maddedeki işaret beş bulguya da ekleniyor); *Son
+  karar* testleri "avukatsız geçen bulgu" için ayrı, işaretsiz bir metin kullanmalı.
 - **Sıradaki:** Adım 13 — Avukat kararı ve finalize.
 - Bu bölüm her adımın commit'inde güncellenir; sıradaki adım, aşağıdaki ilk işaretsiz kutudur.
 
