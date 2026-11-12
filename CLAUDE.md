@@ -29,9 +29,9 @@ Uygulama `docs/plan.md`'deki adımlarla, sırayla yazılır. Hangi adımda olund
 bölümünde ve adım kutularında yazar; bir oturuma başlarken önce oraya bak. Bir adım doğrulanıp
 commit edilince dur ve sıradaki adıma geçmeden önce kullanıcıdan onay al.
 
-**Şu an:** Adım 0–15 bitti (Adım 15: `GET /` tek sayfalık arayüz, `src/static/index.html`; yalnızca
-`GET /reviews/{id}` çağırır, DOM'u `textContent` ile kurar, yanıt script özetli CSP taşır).
-Sıradaki: Adım 16 — Eval dataset'i.
+**Şu an:** Adım 0–16 bitti (Adım 16: `evals/dataset/` — 7 sentetik sözleşme, `labels.json` ile 35
+beklenen karar, `tests/test_dataset.py` tutarlılık testi; etiketleri kullanıcı onayladı).
+Sıradaki: Adım 17 — Eval metrikleri ve koşucu.
 
 ## Komutlar
 ```bash

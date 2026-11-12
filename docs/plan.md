@@ -248,7 +248,28 @@
   Adım 16 için not (satır sonu): `evals/dataset/contracts/*.md` LF ile yazılır ve koşucu dosyayı
   satır sonu çevirmeden okur (`read_bytes().decode("utf-8")`, testlerdeki `_sample()` gibi);
   `labels.json` ofset değil `clause_no` tutar, satır sonundan etkilenmez.
-- **Sıradaki:** Adım 16 — Eval dataset'i.
+  Adım 16: `evals/dataset/` yazıldı (7 sözleşme, `labels.json`, `tests/test_dataset.py`). 35 karar:
+  19 `compliant`, 13 `non_compliant`, 3 `not_found`. Etiketi taşıyan 32 cümleyi ve 35 etiketi
+  kullanıcı yazımdan önce tablo halinde, yazımdan sonra dosyalardan okuyarak onayladı; her cümle
+  doğru maddede ve dosyada tam bir kez geçer (kodla doğrulandı). Sözleşmeleri alt-agent'lar
+  `src/prepare/pii.py` ve `src/prepare/index.py` okunmadan yazdı; matrisi görmeyen bağımsız bir
+  etiketleme 35 kararın 35'inde aynı sonucu ve maddeyi verdi. Alınan kararlar: her etiketin
+  tartışmasız tek bir doğrusu vardır (sözleşme 4'ün ödeme maddesi bu yüzden "otuz (30) gün …
+  ithal ürünlere ilişkin faturalarda 75 gün" yazıldı; fesih "bir ay", en az 60 gün kuralının kesin
+  altındadır); enjeksiyonlu iki sözleşmede üçer gerçek ihlal vardır; test, plandaki kontrollere ek
+  olarak sözleşme 6 dışındaki altı sözleşmede hiç enjeksiyon işareti olmadığını da sınar.
+  Garanti edilen PII değerlerinin hepsi maskeleniyor (maskeleyicide düzeltme gerekmedi); sözleşme
+  5'teki beş `pii_best_effort` değerinin beşi de maskelenmiyor (gövdedeki ad, etiketsiz imza
+  satırındaki ad, öneksiz telefon, boşluklu TCKN, düzensiz gruplanmış IBAN).
+  Adım 17–18 için notlar: (1) sözleşmeler 13–14 madde, 2.950–4.080 karakter (örnek sözleşme
+  ölçeğinde); 7 sözleşmelik tek geçiş tahmini 175K token Adım 12'deki tek koşuya dayanır ve o
+  koşuda model `propose_change` çağırmamıştı; 13 beklenen `non_compliant` ile 200K günlük sınır
+  aşılabilir (ölçülmedi). (2) `spec.md` §10, `tech_stack.md` ve `evals.md` §6'daki "önce/sonra için
+  iki geçiş ≈ 350K" ifadesi `evals.md` §5 ile çelişiyor: model sözleşme başına bir kez çalışır,
+  `verify` iki kez kodla hesaplanır; Adım 17'de düzeltilir. (3) Model hiç hata yapmazsa önce/sonra
+  tablosunda fayda satırları 0 → 0 kalır, yalnızca yönlendirme oranı artar; README bunu olduğu gibi
+  yazar, dataset buna göre değiştirilmez.
+- **Sıradaki:** Adım 17 — Eval metrikleri ve koşucu.
 - Bu bölüm her adımın commit'inde güncellenir; sıradaki adım, aşağıdaki ilk işaretsiz kutudur.
 
 ## Bağlam
@@ -875,7 +896,7 @@ gereksiz yönlendirme satırları bunu gösterir.
   testi yok (sınır).
 - **Commit:** `feat: add single-page UI showing findings on the contract text`
 
-### [ ] Adım 16 — Eval dataset'i
+### [x] Adım 16 — Eval dataset'i
 - **Ne:** `evals.md` §3'teki 7 sentetik sözleşme ve `labels.json`. Etiketleri commit'ten önce
   kullanıcı gözden geçirir (CASE.md: "etiketleri kendin kontrol et"). Sözleşme 4 gerçek bir dolaylı
   ifade içerir: kuralın sözcüklerini kullanmadan konuyu düzenleyen bir madde.
