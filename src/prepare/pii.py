@@ -4,6 +4,7 @@ Amounts, durations, dates, percentages, clause numbers and company names are nev
 rules need them. Masking is pure: no I/O, no logging, and no raw value in an exception message.
 """
 
+import bisect
 import re
 import unicodedata
 from collections.abc import Iterable, Iterator, Mapping
@@ -44,19 +45,27 @@ _BOUNDARIES: dict[str, tuple[str, str]] = {
 _EMAIL = re.compile(
     _EMAIL_BEFORE + r"[A-Za-z0-9._%+\-]+@(?:[A-Za-z0-9\-]+\.)+[A-Za-z]{2,}" + _EMAIL_AFTER
 )
-# Compact or in the standard print grouping ("TR33 0006 1005 1978 6457 8413 26"): at most one
-# space or no-break space at each group boundary. Other groupings are a documented limit.
-_IBAN_GAP = "[ \u00a0]?"
-_IBAN = re.compile(
-    _ALNUM_BEFORE
-    + r"TR[0-9]{2}(?:"
-    + _IBAN_GAP
-    + r"[0-9]{4}){5}"
-    + _IBAN_GAP
-    + r"[0-9]{2}"
-    + _ALNUM_AFTER
-)
-_TCKN = re.compile(r"(?<![0-9])[1-9][0-9]{10}(?![0-9])")
+# At most one space or no-break space between two characters of a TCKN or an IBAN. Tabs, line
+# breaks and other Unicode spaces are not gaps: an IBAN split over two lines is a documented limit.
+_GAP_CHAR = "[ \u00a0]"
+_GAP = _GAP_CHAR + "?"
+# "TR" and 24 digits in any grouping: compact, the standard print grouping
+# ("TR33 0006 1005 1978 6457 8413 26") or irregular ("TR18 00010 00406 02833 88480 99"). Each step
+# consumes exactly one digit, so the pattern cannot backtrack catastrophically.
+_IBAN = re.compile(_ALNUM_BEFORE + r"TR(?:" + _GAP + r"[0-9]){24}" + _ALNUM_AFTER)
+# Compact or the standard print grouping, the only IBAN spellings found before step 17b. Used only
+# to tell a strict IBAN from a weak, freely grouped one (see `_is_weak`).
+_IBAN_STANDARD = re.compile(r"TR[0-9]{2}(?:" + _GAP + r"[0-9]{4}){5}" + _GAP + r"[0-9]{2}")
+# 11 digits in any grouping. Searched inside a lookahead so every start is tried and candidates
+# may overlap: in "45 123456789 50" the bad-checksum "45 123456789" must not hide the valid
+# "123456789 50". A spaced candidate is weak (see `_is_weak`), so "4437 0532 648" cannot split a
+# phone.
+_TCKN = re.compile(r"(?<![0-9])(?=([1-9](?:" + _GAP + r"[0-9]){10})(?![0-9]))")
+# A run grouped like thousands ("55 000 000 000") is an amount, not a TCKN.
+_THOUSANDS = re.compile(r"[1-9][0-9]{0,2}(?:" + _GAP_CHAR + r"[0-9]{3})+")
+# A spaced candidate right after a digit and "." or "," continues a number ("Madde 5.1 5 400 000
+# 000"), unless that digit ends a value already found.
+_DOTTED_BEFORE = re.compile(r"[0-9][.,]")
 # "+90" or "0", then 3-3-2-2 digits; at most one space, dot or hyphen between parts. No generic
 # digit-group pattern, so amounts, durations and dates are never taken for a phone number.
 _SEP = r"[ .\-]?"
@@ -70,6 +79,35 @@ _PHONE = re.compile(
     + r"[0-9]{2}"
     + _SEP
     + r"[0-9]{2}(?![0-9])"
+)
+# A mobile number without prefix: "5" and 3-3-2-2 digits with exactly one space, dot or hyphen
+# between the groups ("533 555 05 30"). It has no checksum, so the pattern stays narrow: not inside
+# a longer number (no digit, "+", or digit and one separator before or after it; this also keeps it
+# out of "+90 532 ..." and "1.532.123.45.67") and not a clause number ("Madde 532 123 45 67"). A
+# complete neighbouring "5xx xxx xx xx" group after one separator counts as a boundary, so two
+# numbers written one after the other are both found; `_discover` also searches a copy in which
+# the values already found are blanked, so a digit that belongs to one of them does not block.
+# Known false positive, documented: any number of this shape, e.g. "500 000 00 00".
+_BARE_SEP = r"[ .\-]"
+_BARE_CORE = (
+    r"5[0-9]{2}" + _BARE_SEP + r"[0-9]{3}" + _BARE_SEP + r"[0-9]{2}" + _BARE_SEP + r"[0-9]{2}"
+)
+_PHONE_BARE = re.compile(
+    r"(?<![0-9+])(?:(?<![0-9+]"
+    + _BARE_SEP
+    + r")|(?<=(?<![0-9+])"
+    + _BARE_CORE
+    + _BARE_SEP
+    + r"))(?<!"
+    + _any_case("madde")
+    + _GAP_CHAR
+    + r")"
+    + _BARE_CORE
+    + r"(?![0-9])(?!"
+    + _BARE_SEP
+    + r"(?!"
+    + _BARE_CORE
+    + r"(?![0-9]))[0-9])"
 )
 
 # --- Person names -------------------------------------------------------------------------------
@@ -418,20 +456,82 @@ def _iban_valid(iban: str) -> bool:
 # --- Masking ------------------------------------------------------------------------------------
 
 
+def _is_weak(kind: str, value: str) -> bool:
+    """A spelling first found in step 17b: a spaced TCKN, a freely grouped IBAN or a mobile number
+    without prefix. It only takes text that no strict value covers (see `_resolve`), so a value the
+    older patterns find (e-mail, compact or standard-grouped IBAN, prefixed phone, compact TCKN,
+    name) never loses its place to one."""
+    if kind == "TCKN":
+        return not value.isdigit()
+    if kind == "IBAN":
+        return _IBAN_STANDARD.fullmatch(value) is None
+    return kind == "TELEFON" and value.startswith("5")
+
+
 def _discover(text: str) -> Iterator[tuple[str, str]]:
     """(kind, value) pairs found in `text`, in no particular order."""
-    for m in _EMAIL.finditer(text):
-        yield "EPOSTA", m.group()
-    for m in _IBAN.finditer(text):
-        if _iban_valid(m.group()):
-            yield "IBAN", m.group()
+    found: list[tuple[str, str]] = []
+    for pattern, kind in (
+        (_EMAIL, "EPOSTA"),
+        (_IBAN, "IBAN"),
+        (_PHONE, "TELEFON"),
+        (_PHONE_BARE, "TELEFON"),
+    ):
+        for m in pattern.finditer(text):
+            if kind != "IBAN" or _iban_valid(m.group()):
+                found.append((kind, m.group()))
+    spaced: list[tuple[int, str]] = []
     for m in _TCKN.finditer(text):
-        if _tckn_valid(m.group()):
-            yield "TCKN", m.group()
-    for m in _PHONE.finditer(text):
-        yield "TELEFON", m.group()
+        value = m.group(1)
+        if _THOUSANDS.fullmatch(value) or not _tckn_valid("".join(value.split())):
+            continue
+        if value.isdigit():
+            found.append(("TCKN", value))
+        else:
+            spaced.append((m.start(), value))
+    # The bare-phone searches and the dotted-number check below look at a copy in which the values
+    # already found are blanked, i.e. at what re-masking sees: a digit that belongs to a found
+    # value does not block ("21473873960 533 555 05 30", "21473873960,214 738 739 60"). Blanking
+    # resolves overlaps like `mask` does (strict first), so a weak value that loses there is not
+    # blanked here either.
+    if found:
+        for m in _PHONE_BARE.finditer(_blank_values(text, found)):
+            found.append(("TELEFON", m.group()))
+    spaced_ends: set[int] = set()
+    if spaced:
+        blanked = _blank_values(text, found)
+        for start, value in spaced:
+            dotted = _DOTTED_BEFORE.match(blanked, max(start - 2, 0), start)
+            if dotted is None or start - 1 in spaced_ends:
+                found.append(("TCKN", value))
+                spaced_ends.add(start + len(value))
+    if spaced_ends:  # a bare mobile number right after a spaced TCKN
+        for m in _PHONE_BARE.finditer(_blank_values(text, found)):
+            found.append(("TELEFON", m.group()))
+    yield from found
     for name in _discover_names(text):
         yield "KISI", name
+
+
+def _blank_values(text: str, found: Iterable[tuple[str, str]]) -> str:
+    """`text` with every masked occurrence of the found values blanked by `_FILLER`, same length."""
+    kind_of: dict[str, str] = {}
+    for kind, value in found:
+        kind_of.setdefault(value, kind)
+    spans: list[tuple[int, int, str]] = []
+    for start, end, value in _occurrences(text, kind_of):
+        before, after = _BOUNDARY_PATTERNS[kind_of[value]]
+        if before.match(text, start) and after.match(text, end):
+            spans.append((start, end, value))
+    weak = {value for value, kind in kind_of.items() if _is_weak(kind, value)}
+    parts: list[str] = []
+    position = 0
+    for start, end, _ in _resolve(spans, weak):
+        parts.append(text[position:start])
+        parts.append(_FILLER * (end - start))
+        position = end
+    parts.append(text[position:])
+    return "".join(parts)
 
 
 def _validate(mapping: Mapping[str, str]) -> dict[str, int]:
@@ -452,15 +552,31 @@ def _blank_placeholders(text: str) -> str:
     return PLACEHOLDER.sub(lambda m: _FILLER * len(m.group()), text)
 
 
-def _resolve(spans: list[tuple[int, int, str]]) -> list[tuple[int, int, str]]:
-    """Earliest start wins; on equal start the longer span wins."""
-    kept: list[tuple[int, int, str]] = []
+_Span = tuple[int, int, str]
+
+
+def _greedy(spans: Iterable[_Span], blocked: list[_Span]) -> list[_Span]:
+    """Earliest start wins, the longer span on equal start; a span overlapping `blocked` (sorted,
+    non-overlapping) is skipped."""
+    kept: list[_Span] = []
     last_end = 0
+    starts = [start for start, _, _ in blocked]
     for start, end, value in sorted(spans, key=lambda s: (s[0], s[0] - s[1])):
-        if start >= last_end:
-            kept.append((start, end, value))
-            last_end = end
+        if start < last_end:
+            continue
+        i = bisect.bisect_left(starts, end)
+        if i and blocked[i - 1][1] > start:
+            continue
+        kept.append((start, end, value))
+        last_end = end
     return kept
+
+
+def _resolve(spans: list[_Span], weak: set[str]) -> list[_Span]:
+    """Strict spans first; a weak span (see `_is_weak`) only takes text that no kept strict span
+    covers."""
+    strong = _greedy((s for s in spans if s[2] not in weak), [])
+    return sorted(strong + _greedy((s for s in spans if s[2] in weak), strong))
 
 
 _BOUNDARY_PATTERNS = {
@@ -571,9 +687,10 @@ def mask(text: str, mapping: Mapping[str, str]) -> tuple[MaskedText, dict[str, s
                 kind_of.setdefault(spelling, "KISI")
                 spans.append((start, end, spelling))
 
+    weak = {value for value, kind in kind_of.items() if _is_weak(kind, value)}
     parts: list[str] = []
     position = 0
-    for start, end, value in _resolve(spans):
+    for start, end, value in _resolve(spans, weak):
         assigned = placeholder_of.get(value)
         if assigned is None:
             kind = kind_of[value]

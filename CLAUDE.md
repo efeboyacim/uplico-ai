@@ -32,7 +32,9 @@ commit edilince dur ve sıradaki adıma geçmeden önce kullanıcıdan onay al.
 **Şu an:** Adım 0–17 bitti (Adım 17: `evals/metrics.py` ve `evals/run.py`; tek komut önce/sonra
 tablosunu basar, `--limit N` ve `--prepare-only` seçenekleri var; Docker'da Groq ile tek
 sözleşmelik koşu denendi, tam koşu Adım 18'de).
-Sıradaki: Adım 17b — Maskeleyici düzeltmesi (`docs/plan.md`), sonra Adım 18.
+Adım 17 sonrası: `--resume` (içerik özetli önbellek) ve Adım 17b (maskeleyici üç biçim daha
+yakalar; garanti edilmeyen PII 5 / 5 → 2 / 5).
+Sıradaki: `verify`'a madde düzeyinde "maskelenmiş sayı" sinyali (`docs/plan.md`), sonra Adım 18.
 
 ## Komutlar
 ```bash

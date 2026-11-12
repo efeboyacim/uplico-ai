@@ -449,11 +449,11 @@ model adını basan `python -m src.config` eklenir.
 |---|---|---|
 | Asıl sözleşme metni | Makinede kalır (tenant `app.db`) | Makinede kalır |
 | PII eşlemesi (yer tutucu → gerçek değer) | Makinede kalır (tenant `app.db`) | Makinede kalır |
-| Standart biçimde TCKN, IBAN, önekli telefon, e-posta, taraf/imza bloğundaki adlar | Gitmez (maskeli) | Gitmez |
+| Bitişik ya da boşluklu TCKN, tek satırda yazılmış IBAN (bitişik, dörtlü ya da serbest gruplu), önekli telefon, 3-3-2-2 ayraçla yazılmış öneksiz cep telefonu, e-posta, taraf/imza bloğundaki adlar | Gitmez (maskeli) | Gitmez |
 | Maskeli madde metni, kural metni, agent mesajları | **Groq'a gider** | Makinede kalır |
 | Tutarlar, fiyatlar, süreler, tarihler, ticari şartlar, şirket adları | **Groq'a gider** (maskelenmez; kurallar bunlara ihtiyaç duyar) | Makinede kalır |
 | Avukatın düzenlediği taslak metni | Modele gitmez (karar agent çalıştıktan sonra verilir); maskeli saklanır | Makinede kalır |
-| Maskelemenin kaçırdığı kimlik bilgileri (gövdede geçen ad, öneksiz telefon, boşluklu TCKN, düzensiz gruplanmış ya da satıra bölünmüş IBAN) | **Groq'a gidebilir** | Makinede kalır |
+| Maskelemenin kaçırdığı kimlik bilgileri (gövdede geçen ad, etiketsiz imza satırındaki ad, satıra bölünmüş, tireli ya da çift boşluklu IBAN, ayraçsız ya da bölünemez boşlukla gruplanmış öneksiz cep numarası, öneksiz sabit hat, binlik gibi gruplanmış TCKN) | **Groq'a gidebilir** | Makinede kalır |
 | Trace (yalnızca `LANGSMITH_API_KEY` varsa) | LangSmith'e gider, maskeli | Kapalı tutulur |
 
 Groq tarafı (2026-11-10'da okunan belgeler, `tech_stack.md`): varsayılan olarak saklamaz; güvenilirlik

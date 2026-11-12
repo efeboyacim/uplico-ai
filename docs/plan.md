@@ -308,7 +308,29 @@
   **Sıra için sonuç:** Adım 17b `src/prepare/pii.py`'yi değiştirir ve önbelleği geçersiz kılar;
   tam koşudan önce bitmeli, iki koşu günü arasına `src/` değişikliği girmemelidir. Docker'da özet
   imajdaki `src/` kopyasından hesaplanır; `src/` değişince imaj yeniden kurulmalıdır.
-- **Sıradaki:** Adım 17b — Maskeleyici düzeltmesi (önce `--prepare-only` ile 5 / 5 kaydedilir),
+  Adım 17b: `src/prepare/pii.py` üç biçimi daha yakalar (boşluklu TCKN, serbest gruplu IBAN,
+  `5xx xxx xx xx` öneksiz cep). Ölçüm (Docker, `--prepare-only`, model yok; iki dosya
+  `evals/results/` altında): garanti edilmeyen PII sızıntısı 5 / 5 → 2 / 5 (kalan iki değer gövdedeki
+  ad ve etiketsiz imza satırındaki ad); garanti edilen PII 0 → 0. **Tahmin tutmadı:** "yaklaşık 15
+  satır" denmişti; 175 satır değişti ve üç inceleme turu gerekti. Birinci tur dört davranış kusuru
+  buldu (boşlukla gruplanmış 11 haneli tutarların ~%2'si TCKN sayılıyordu; önceden maskelenen
+  telefon bölünüyordu; art arda iki öneksiz numara ve bir değerden hemen sonra gelen numara
+  kaçıyordu). İkinci tur iki gerileme buldu (hanesi eksik IBAN telefonu bölüyordu; yapışık e-posta
+  maskelenmiyordu). Karar: üç yeni biçim "zayıf"tır, yalnızca eski kalıpların kaplamadığı metni alır
+  (değişmez: eski kalıpların bulduğu değer yeni biçimler yüzünden yer kaybetmez; tohumlu rastgele
+  testle sabit). Bağımsız doğrulama: 80.000 girdide Adım 17b öncesinin maskelediği hiçbir aralık
+  kaybolmadı; 7 sözleşmede tek fark sözleşme 5'teki üç hedef değer. Kabul edilen bedeller
+  (`agent_design.md` PII bölümünde): `5` ile başlayan her 3-3-2-2 sayı telefon sayılır
+  (`500 000 00 00`); tek boşlukla ayrılmış ayrı sayılar 11 haneye denk gelip checksum'ı tutarsa
+  TCKN sayılır (~%1); binlik gibi gruplanmış gerçek TCKN maskelenmez; yapışık yazılmış değerlerde
+  yeni biçim devreye girmeyebilir ve yeniden maskeleme sabit olmayabilir (yalnızca daha fazlasını
+  maskeler). Üç değer `labels.json`'da `pii_best_effort` listesinde kaldı (bilinçli istisna,
+  `evals.md` §3). `tests/test_eval_run.py`'deki 5 / 5 beklentileri 2 / 5 oldu.
+  **Bu adımın açtığı boşluk (sıradaki commit kapatır):** yanlışlıkla maskelenen bir tutar ya da süre
+  yer tutucu olur ve `verify` onu sayı olarak okumaz; "uygun" bulgu, maskelenen değer alıntıda da
+  alıntının dışında da olsa, eşiksiz kuralda ya da görünen değer kuralı sağlıyorsa avukata gitmez
+  (denendi). Adım 17b'den önce bir tutarın maskelenmesi pratikte mümkün değildi.
+- **Sıradaki:** `verify`'a madde düzeyinde "maskelenmiş sayı" sinyali (kendi `fix:` commit'i),
   sonra Adım 18.
 - Bu bölüm her adımın commit'inde güncellenir; sıradaki adım, aşağıdaki ilk işaretsiz kutudur.
 
@@ -990,7 +1012,7 @@ gereksiz yönlendirme satırları bunu gösterir.
   `evaluate()` çalışmazsa `spec.md` §10'daki yedek (aynı evaluator'larla düz döngü) kullanılır.
 - **Commit:** `feat: add one-command eval with before/after verification table`
 
-### [ ] Adım 17b — Maskeleyici: boşluklu TCKN, düzensiz IBAN, öneksiz cep telefonu
+### [x] Adım 17b — Maskeleyici: boşluklu TCKN, düzensiz IBAN, öneksiz cep telefonu
 - **Karar (2026-11-12, kullanıcı):** Adım 16'da sözleşme 5'te maskelenmediği görülen beş
   `pii_best_effort` değerinden üçünün biçimi maskeleyiciye eklenir. Adım 17'den **sonra**, Adım
   18'den **önce** yapılır: "önce" sayısını (5 / 5) gerçek koşucu ölçmüş olmalıdır.

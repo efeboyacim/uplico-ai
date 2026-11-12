@@ -106,6 +106,36 @@
   taslak (belirsiz sonuç) → `code_check=failed`. `check`'i olmayan kuralda taslak
   → `unverifiable` etiketi, bu yüzden kuyruğa düşmez.
 - **PII:** geçerli TCKN maskelenir, checksum'ı tutmayan 11 hane maskelenmez; maskeli metinde ham değer kalmaz.
+- **Boşluklu TCKN, düzensiz IBAN, öneksiz cep (Adım 17b):** dataset'te olmayan yazımlarla da
+  maskelenir: TCKN `214 738 739 60`, `2147 3873 960`, `21473 873960`, her hanesi ayrı, bölünemez
+  boşlukla; önünde sayı olan tuzak (`45 123456789 50` gibi, checksum'ı tutmayan bir öndeki aday
+  gerçek değeri yutmaz). IBAN `TR18 00010 00406 02833 88480 99`, `TR 18 0001 0004 0602 8338 8480 99`,
+  `TR180001 000406028338 848099`, bölünemez boşlukla. Telefon `533 555 05 30`, `533.555.05.30`,
+  `533-555-05-30`, `533 555-05.30`. Her biçimde maske açma metni aynen geri verir, aynı değerin ikinci
+  geçişi aynı yer tutucuyu alır, maskeli metni yeniden maskelemek bir şey değiştirmez. Maskelenmez:
+  checksum'ı tutmayan boşluklu 11 hane, mod-97'si tutmayan serbest gruplu `TR…`, `1 250 000 TL`,
+  `10 000 000 000 TL`, `01 04 2026`, `90 gün 30 gün 15 gün`, `Madde 532 123 45 67`, `532.123,45`,
+  `1.532.123.45.67`, `10.532.123.45`, ayraçsız `5335550530`, öneksiz sabit hat `212 555 12 34`;
+  checksum'ı tutan binlik gruplu tutarlar (`55 000 000 000 TL`, bölünemez boşlukla da,
+  `50 500 000 000 TL`; betikle üretilir) ve madde numarasına bitişik tutar
+  (`Madde 5.1 5 400 000 000 TL`); sekme, satır sonu, ince boşluk ya da bölünemez boşlukla ayrılmış
+  öneksiz cep numarası. Önekli telefonlar (`+90 532 123 45 67`, `0532 123 45 67`, `0212 123 45 67`)
+  tek bir `TELEFON` değeri kalır; IBAN'ın ya da telefonun içindeki rakamlardan TCKN çıkmaz; önündeki
+  sayıyla birleşen bir TCKN adayı telefonu bölmez (`Sözleşme No 4437 0532 648 99 50` →
+  `Sözleşme No 4437 [TELEFON_1]`). Tek boşlukla art arda yazılmış iki ya da üç öneksiz cep numarası
+  ayrı ayrı maskelenir; TCKN, IBAN ya da önekli telefondan tek boşlukla sonra gelen öneksiz cep
+  numarası ilk geçişte maskelenir ve yeniden maskeleme bir şey değiştirmez. `500 000 00 00` ve
+  `10 30 120 10 20` (checksum'ı tutan, tek boşlukla ayrılmış ayrı sayılar) bilinen yanlış
+  pozitiflerdir ve maskelenir (`agent_design.md` "PII maskeleme"); testler bunları sabitler.
+  Değişmez: eski kalıpların bulduğu bir değer yeni biçimler yüzünden asla yer kaybetmez (üç yeni
+  biçim zayıftır, yalnızca katı bir değerin kaplamadığı metni alır). Tohumlu rastgele üretimle
+  (sabit tohum, en az 3.000 girdi) sınanır: yeni biçimlerin keşfi testte kapatıldığında maskelenen
+  her (başlangıç, bitiş, ham değer) aralığı, açıkken de birebir aynı maskelenir. İki örnek
+  sabitlenir: `Ödeme hesabı TR34 0006 1005 1978 6457 84 0532 123 45 67 numaralı …` içinde telefon
+  tek `[TELEFON_1]` kalır (hanesi eksik IBAN'ın ardındaki sayıyla birleşen serbest gruplu IBAN onu
+  bölmez); `Tel: 533 555 05 30-info@ornek.com` (ve `.`, `_` ile ya da ayraçsız yapışık varyantları)
+  `Tel: 533 555 05 [EPOSTA_1]` olur, Adım 17b öncesiyle aynı. İkisinde de yeniden maskeleme bir şey
+  değiştirmez ve maske açma metni aynen geri verir.
 - **Tutar, süre ve tarih maskelenmez:** "1.250.000 TL", "5.000.000,00 TL", "90 gün", "otuz (30) gün",
   "01.01.2026", "2026-01-01", "%15", "Madde 12" ve yan yana yazılmış "01.01.2026 1.250 TL" içeren
   metin maskelemeden aynen çıkar. Telefon kalıbı bunların hiçbirini yakalamaz; "+90 532 123 45 67"
@@ -256,10 +286,19 @@ README'ye sınır olarak yazılır.
   ]
 }
 ```
-`pii_values`: maskelenmesi garanti edilenler (TCKN, bitişik ya da dörtlü gruplarla yazılmış IBAN, önekli telefon, e-posta, taraf/imza bloğundaki adlar).
-`pii_best_effort`: maskelenmesi **garanti edilmeyen** her kimlik bilgisi (gövdede geçen ad, öneksiz
-telefon, boşluklu TCKN, düzensiz gruplanmış ya da satıra bölünmüş IBAN, etiketsiz imza satırındaki ad).
+`pii_values`: maskelenmesi garanti edilenler (bitişik ya da boşluklu TCKN, binlik gibi gruplanmış
+`dd ddd ddd ddd` yazımı hariç; bitişik, dörtlü ya da serbest gruplu (karakterler arasında en fazla
+birer boşluk ya da bölünemez boşluk) tek satırlık IBAN; önekli telefon; 3-3-2-2 ayraçla (boşluk,
+nokta ya da tire) yazılmış öneksiz cep telefonu; e-posta; taraf/imza bloğundaki adlar).
+`pii_best_effort`: maskelenmesi **garanti edilmeyen** her kimlik bilgisi (gövdede geçen ad, etiketsiz
+imza satırındaki ad, satıra bölünmüş, tireli ya da çift boşluklu IBAN, ayraçsız ya da bölünemez
+boşlukla gruplanmış öneksiz cep numarası, öneksiz sabit hat, binlik gibi gruplanmış TCKN).
 Değerler maskeleyicinin onları yakalayıp yakalamadığına göre değil, ne olduklarına göre etiketlenir.
+**Bilinçli istisna:** sözleşme 5'teki boşluklu TCKN (`214 738 739 60`), düzensiz IBAN
+(`TR18 00010 00406 02833 88480 99`) ve öneksiz cep telefonu (`533 555 05 30`) Adım 17b'den sonra
+garanti edilen biçimlerdendir, ama Adım 17b'nin önce/sonra kaydı görünür kalsın diye
+`pii_best_effort` listesinde bırakılmıştır ("garanti edilmeyen PII sızıntısı" 5 / 5 → 2 / 5; kalan
+ikisi adlardır). `tests/test_dataset.py` bu üçünün maskelendiğini, iki adın maskelenmediğini sınar.
 Kuralın önemi (`critical` / `normal`) etiketten değil, tenant'ın `rules.yaml` dosyasından okunur.
 
 Eval graph'ı `interrupt`'a kadar çalıştırır; avukat aşaması (karar, rapor) eval'de değil unit

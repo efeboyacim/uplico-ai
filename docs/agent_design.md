@@ -440,13 +440,63 @@ yoktur.**
   - **Yalnızca kimlik bilgileri maskelenir:** TCKN, IBAN, telefon, e-posta, kişi adı.
   - **Maskelenmez:** tutarlar, süreler, tarihler, yüzdeler, madde numaraları, şirket adları. Kurallar
     bu değerlere ihtiyaç duyar; maskelenirlerse doğrulama çalışmaz.
-  - TCKN: 11 hane + checksum · IBAN: `TR` + 24 hane + mod-97; bitişik ya da
-    standart dörtlü gruplarla (`TR33 0006 1005 1978 6457 8413 26`; gruplar arasında tek boşluk ya da
-    bölünemez boşluk) · e-posta: regex.
-  - Telefon: yalnızca `+90` ya da `0` öneki ve ardından 3-3-2-2 haneli gruplar (`0XXX XXX XX XX`).
+  - TCKN: 11 hane + checksum; bitişik ya da haneler arasında (herhangi bir gruplamayla) en fazla
+    birer boşluk ya da bölünemez boşlukla (`214 738 739 60`, `2147 3873 960`). Checksum boşluklar
+    atılarak uygulanır. Adaylar örtüşerek aranır (her başlangıç denenir) ve checksum'ı tutan her
+    aday değer sayılır: `45 123456789 50` içinde checksum'ı tutmayan `45 123456789` gerçek
+    `123456789 50`'yi yutamaz. İki şekil TCKN sayılmaz: binlik gruplanmış bir tutar
+    (`55 000 000 000`, yani `dd ddd ddd ddd`; boşluk ya da bölünemez boşlukla) ve önünde rakam +
+    nokta ya da virgül olan boşluklu aday (`Madde 5.1 5 400 000 000` içinde `1 5 400 000 000`; o rakam
+    zaten bulunmuş bir değerin son hanesiyse engellemez).
+  - **Öncelik (değişmez):** eski kalıpların bulduğu bir değer, yeni biçimler yüzünden asla yer
+    kaybetmez. Adım 17b'nin üç yeni biçimi **zayıftır**: boşluklu TCKN, standart kalıba (bitişik ya
+    da `TR` + 2 hane ve dörtlü gruplar, gruplar arasında en fazla birer boşluk) uymayan serbest
+    gruplu IBAN ve öneksiz cep telefonu. **Katı** olanlar Adım 17b'den önce de bulunanlardır:
+    e-posta, bitişik ya da standart gruplu IBAN, `+90` / `0` önekli telefon, bitişik TCKN, ad.
+    Çakışan aralıklar iki turda çözülür: önce katı değerler arasında önce başlayan, eşit başlangıçta
+    uzun olan kazanır (sonuç Adım 17b öncesiyle aynıdır); sonra zayıf değerler yalnızca katı bir
+    değerin kaplamadığı metni alır, kendi aralarında yine önce başlayan, eşit başlangıçta uzun olan
+    kazanır. Bu yüzden bir IBAN'ın ya da telefonun içinden TCKN çıkmaz; önündeki bir sayıyla
+    telefonun ilk grupları birleşerek (`4437 0532 648`) telefonu bölemez; hanesi eksik bir IBAN'ın
+    ardından tek boşlukla gelen telefon (`TR34 0006 1005 1978 6457 84 0532 123 45 67`), ilk grubunu
+    ödünç alan serbest gruplu bir IBAN mod-97'yi tutturduğunda bile bölünmez (`TR34 … 84 [TELEFON_1]`).
+  - IBAN: `TR` + 24 hane + mod-97; bitişik, standart dörtlü gruplarla
+    (`TR33 0006 1005 1978 6457 8413 26`) ya da serbest gruplamayla
+    (`TR18 00010 00406 02833 88480 99`, `TR 18 0001 …`): hanelerin arasında ve `TR`'den sonra en
+    fazla birer boşluk ya da bölünemez boşluk. Satır sonu ayraç değildir.
+  - E-posta: regex.
+  - Numaralar metinde yazıldığı haliyle (boşluklarıyla) eşlemeye girer; maske açma metni aynen geri
+    verir. TCKN ve IBAN'da ayraç yalnızca boşluk ya da bölünemez boşluktur; telefonda (önekli ve
+    öneksiz) yalnızca boşluk, nokta ya da tiredir. Bölünemez boşluk telefonda ayraç değildir; diğer
+    Unicode boşlukları, sekme ve satır sonu hiçbir kalıpta ayraç değildir.
+  - Telefon, önekli: `+90` ya da `0` öneki ve ardından 3-3-2-2 haneli gruplar (`0XXX XXX XX XX`).
     Gruplar arasında en fazla tek bir boşluk, nokta ya da tire olabilir; grup içinde ayraç olmaz.
-    Öneksiz rakam grupları eşleşmez; böylece tutar ("1.250.000 TL"), süre ("90 gün"), tarih
-    ("01.01.2026") ve yan yana yazılmış tarih + tutar ("01.01.2026 1.250 TL") yakalanmaz. Bunu bir test sınar.
+  - Telefon, öneksiz cep: `5` ile başlayan 10 hane, 3-3-2-2 gruplanmış, gruplar arasında **zorunlu**
+    tek bir ayraç (boşluk, nokta ya da tire; karışık olabilir): `533 555 05 30`, `533.555.05.30`,
+    `533 555-05.30`. Checksum'ı olmadığı için kalıp dar tutulur: önünde rakam, `+` ya da rakam + tek
+    ayraç olamaz (`1.532.123.45.67`; `+90 532 …` ve `0532 …` içinden ikinci bir değer çıkmaz);
+    ardında rakam ya da tek ayraç + rakam olamaz; "Madde" sözcüğü ve tek boşluktan sonra gelmez
+    ("Madde 532 123 45 67" madde numarasıdır). İki istisna bu sınırı gevşetir: tek ayraçla bitişen
+    komşu, tam bir `5xx xxx xx xx` grubuysa sınır sayılır (`533 555 05 30 532 123 45 67` iki
+    telefondur); önündeki rakam zaten bulunmuş bir değerin (TCKN, IBAN, önekli ya da öneksiz telefon,
+    e-posta) parçasıysa engellemez (`TCKN 21473873960 533 555 05 30`), böylece ilk geçişte maskelenen
+    metni yeniden maskelemek yeni bir telefon çıkarmaz. Ayraçsız 10 hane (`5335550530`), öneksiz
+    sabit hat (`212 555 12 34`) ve başka gruplamalar yakalanmaz.
+  - Bu kalıplar dışında rakam grupları eşleşmez; genel bir "rakam grubu" kalıbı yoktur. Böylece tutar
+    ("1.250.000 TL", "1 250 000 TL"), süre ("90 gün"), tarih ("01.01.2026", "01 04 2026") ve yan yana
+    yazılmış tarih + tutar ("01.01.2026 1.250 TL") yakalanmaz. Bunu bir test sınar.
+  - Bilinen yanlış pozitif (bilinçli, testle sabitlenmiştir): `5` ile başlayan ve 3-3-2-2 ayraçla
+    gruplanmış her sayı öneksiz telefon sayılır, tutar bağlamında bile (`500 000 00 00`). Dışarıda
+    bırakacak güvenilir bir kural yok (checksum yok; `500` gibi tek bir öneki dışlamak sorunu yalnızca
+    bir sonraki sayıya taşır). Bedeli sınırlıdır: tutarlar üçlü gruplanır (`500 000 000`), 3-3-2-2
+    geçerli bir tutar yazımı değildir; böyle maskelenen bir sayı yer tutucu olur ve kod onu sayı
+    olarak okumaz ("Yer tutucular sayı değildir"), yani yanlış bir değer olarak okunmaz. Fazla
+    maskeleme yönünde hata, PII sızıntısı yönündekinden tercih edilir.
+  - Bilinen yanlış pozitif (bilinçli, testle sabitlenmiştir): tek boşlukla ayrılmış ayrı sayılar
+    birlikte 11 hane ediyor, `1`–`9` ile başlıyor ve binlik gruplanmış değilse (`10 30 120 10 20`)
+    checksum tuttuğunda (yaklaşık yüzde bir) TCKN olarak maskelenir. Haneler arasındaki boşluk
+    gruplamasına bakmayan boşluklu TCKN kalıbı bunları gerçek bir değerden ayıramaz; bedeli
+    `500 000 00 00` ile aynıdır (yer tutucu sayı olarak okunmaz).
   - Kişi adı: taraf ve imza bloklarından ("Ad Soyad:", "Yetkili:", "temsilen") çıkarılır, tüm metinde
     (sözcük sınırıyla) değiştirilir. Ayırma kuralı:
     - **Dizi:** etiketten sonra, aynı satırda, yalnızca boşlukla ayrılmış ve büyük harfle başlayan
@@ -497,8 +547,24 @@ yoktur.**
     (incelemenin mevcut eşlemesiyle, aynı çağrı zinciriyle: `mask(strip_invisible(metin), eşleme)`;
     ayrıntı `architecture.md` §3 "Avukat kararı"). Orada eşlemede olmayan yeni bir kişi adı
     yakalanmaz; `viewer` onu inceleme yanıtında, raporda ve audit'te görebilir (bilinen sınır).
-  - Sınır: maskelenmesi garanti edilmeyenler kaçabilir: gövdede geçen ad, öneksiz telefon,
-    boşluklu TCKN, düzensiz gruplanmış ya da satıra bölünmüş IBAN, etiketsiz imza satırındaki ad. Ad sözleşmenin hiçbir yerinde bir etiketin
+  - Sınır: maskelenmesi garanti edilmeyenler kaçabilir: gövdede geçen ad, etiketsiz imza satırındaki
+    ad, satıra bölünmüş, tireli ya da çift boşluklu IBAN, ayraçsız öneksiz cep numarası
+    (`5335550530`), öneksiz sabit hat (`212 555 12 34`), çift boşluklu ya da sekmeyle ayrılmış
+    numaralar, gruplar arasında bölünemez boşluk olan telefon numaraları, binlik gibi
+    gruplanmış TCKN (`dd ddd ddd ddd`, ör. `21 473 873 960`; tutardan ayrılamadığı için bilerek
+    yakalanmaz) ve önünde boşluksuz rakam + nokta ya da virgül olan boşluklu TCKN (`1.214 738 739 60`;
+    o rakam bulunmuş bir değerin son hanesi değilse). Bir e-postaya ya da başka bir katı değere
+    boşluksuz yapışık yazılmış yeni biçimli değer (boşluklu TCKN, serbest gruplu IBAN, öneksiz cep)
+    maskelenmeyebilir: `Tel: 533 555 05 30-info@ornek.com` içinde e-posta `30-info@ornek.com`'dur ve
+    telefonun yerini alır; sonuç Adım 17b öncesiyle aynıdır (`Tel: 533 555 05 [EPOSTA_1]`,
+    telefonun ilk haneleri ham kalır; `.`, `_` ya da ayraçsız yapışmada da). Değerler birbirine
+    ayraçsız yapışık yazıldığında maskeli metni yeniden maskelemek ilk geçişin bulamadığı bir değeri
+    bulabilir (ilk geçişte sınırı kapatan komşu rakam artık yer tutucudur); ikinci geçiş yalnızca
+    daha fazlasını maskeler, hiçbir şeyi açmaz. Bu sınıf Adım 17b'den önce de vardı; yeni biçimlerle
+    sıklaşır (rastgele yapışık girdilerde ölçülen: yaklaşık %0,7 yalnızca yeni sürümde, %1,4 iki
+    sürümde de). Boşluk, virgül ya da satır sonuyla ayrılmış değerlerde görülmedi. Öneksiz cep kalıbı
+    checksum'sızdır; kapsamı bilerek dardır. Örtüşen iki geçerli TCKN adayından yalnızca önce
+    başlayan maskelenir. Ad sözleşmenin hiçbir yerinde bir etiketin
     ("Ad Soyad:", "Yetkili:", "temsilen") yanında geçmiyorsa hiçbir yazımı yakalanmaz: imza
     bloğunda yalnızca "AHMET YILMAZ" satırı, gövdede "Ahmet Yılmaz" varsa ikisi de modele gider.
     Varsayılan modda maskelenmeyen her şey Groq'a gider (`architecture.md` §6 "Veri nereye gidiyor");

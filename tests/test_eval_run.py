@@ -319,9 +319,9 @@ def test_run_prepare_only_calls_no_model_and_measures_pii(
     assert all(value is None for value in data["metrics"]["after"].values())
     contracts = data["metrics"]["contracts"]
     assert contracts["pii_leaked"] == 0
-    assert contracts["best_effort"] == {"num": 5, "den": 5, "value": 1.0}
+    assert contracts["best_effort"] == {"num": 2, "den": 5, "value": 0.4}
     assert contracts["input_tokens"] is None
-    assert "5 / 5" in _line(out, "Garanti edilmeyen PII sızıntısı")
+    assert "2 / 5" in _line(out, "Garanti edilmeyen PII sızıntısı")
     assert "ölçülmedi" in _line(out, "Güvensiz hata oranı  ")
     assert "ölçülmedi" in _line(out, "Enjeksiyon: tarama")  # contract 6 not run
 
@@ -461,7 +461,7 @@ def test_run_contract_05_outputs_carry_no_raw_pii(
     written = path.read_bytes().decode("utf-8")
 
     contract = next(c for c in data["contracts"] if c["contract_id"] == "contract-05")
-    assert contract["best_effort_leaked_count"] == 5
+    assert contract["best_effort_leaked_count"] == 2
     assert contract["best_effort_leaked"][0] == "pii_best_effort[0]"
     for label in LABELS[:5]:
         for value in label["pii_values"] + label["pii_best_effort"]:
