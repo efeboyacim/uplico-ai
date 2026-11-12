@@ -1,0 +1,102 @@
+[
+  {
+    "id": "holdout-01",
+    "tenant_id": "acme",
+    "contract_file": "contracts/sozlesme_1_acme.md",
+    "tags": [
+      "holdout"
+    ],
+    "pii_values": [
+      "Selin Karaduman",
+      "Murat Öztekin",
+      "34152870662",
+      "27604193518",
+      "0532 418 27 65",
+      "0544 903 16 28",
+      "0216 555 41 80",
+      "0538 776 02 19",
+      "TR49 0098 7041 0238 5716 0933 42"
+    ],
+    "pii_best_effort": [
+      "Elif Tanrıverdi",
+      "Caner Yüksel"
+    ],
+    "expected": [
+      {
+        "rule_id": "termination_notice",
+        "status": "non_compliant",
+        "clause_no": "10"
+      },
+      {
+        "rule_id": "late_penalty_cap",
+        "status": "compliant",
+        "clause_no": "8"
+      },
+      {
+        "rule_id": "insurance_minimum",
+        "status": "non_compliant",
+        "clause_no": "9"
+      },
+      {
+        "rule_id": "liability_cap",
+        "status": "compliant",
+        "clause_no": "7"
+      },
+      {
+        "rule_id": "governing_law",
+        "status": "not_found",
+        "clause_no": null
+      }
+    ]
+  },
+  {
+    "id": "holdout-02",
+    "tenant_id": "globex",
+    "contract_file": "contracts/sozlesme_2_globex.md",
+    "tags": [
+      "holdout"
+    ],
+    "pii_values": [
+      "Kerem Yalçınkaya",
+      "Ayşe Gündoğdu",
+      "40973256196",
+      "18346502706",
+      "0505 627 40 91",
+      "0553 281 74 30",
+      "0224 555 18 62",
+      "0549 312 85 07",
+      "TR53 0096 4077 3015 8249 0166 85"
+    ],
+    "pii_best_effort": [
+      "Hakan Erdemir",
+      "Zeynep Kocabaş"
+    ],
+    "expected": [
+      {
+        "rule_id": "termination_notice",
+        "status": "compliant",
+        "clause_no": "11"
+      },
+      {
+        "rule_id": "warranty_period",
+        "status": "non_compliant",
+        "clause_no": "7"
+      },
+      {
+        "rule_id": "payment_term",
+        "status": "compliant",
+        "clause_no": "5"
+      },
+      {
+        "rule_id": "price_increase_cap",
+        "status": "non_compliant",
+        "clause_no": "6"
+      },
+      {
+        "rule_id": "confidentiality",
+        "status": "not_found",
+        "clause_no": null
+      }
+    ]
+  }
+]

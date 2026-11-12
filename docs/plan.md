@@ -1158,6 +1158,75 @@ gereksiz yönlendirme satırları bunu gösterir.
   denenmedi, README'ye yazılacak.
 - **Commit:** `docs: record first eval results and calibrated thresholds`
 
+### [ ] Adım 18b — Görülmemiş iki sözleşmede tek koşu (holdout)
+- **Karar (2026-11-12, kullanıcı):** Adım 18'de prompt ve `verify` 7 sözleşmeye bakılarak
+  değiştirildi; o set artık geliştirme setidir. Projeyi hiç görmeyen ayrı bir oturuma, yalnızca
+  `CASE.md` ve iki tenant'ın kural setleri verilerek 2 sözleşme ve beklenen sonuçları yazdırıldı
+  (agent çıktısı görülmeden; kullanıcı etiketleri okudu). Agent bu iki sözleşmede **bir kez**
+  ölçülür.
+- **Kurallar:**
+  1. **Tek atış.** Koşu bir kez yapılır, sonuç olduğu gibi yazılır. Bu sonuca bakılarak `src/`,
+     prompt, etiket ya da sözleşme değiştirilmez; değiştirilirse bu iki sözleşme "görülmemiş" diye
+     raporlanamaz. Limit yüzünden yarıda kalan koşunun `--resume` ile tamamlanması ikinci atış
+     sayılmaz.
+  2. **Metin değişmez.** Kaynak: `Masaüstü\holdout-sozlesmeler\sozlesme_1_acme.md` (sha256
+     `ae41d08c…4d71`, 3.651 bayt) ve `sozlesme_2_globex.md` (sha256 `2ffb551b…9ea6`, 3.588 bayt).
+     İki dosya yalnızca sözleşme metni içerir (beklenen sonuç tablosu ayrı dosyadadır:
+     `beklenen_bulgular.md`); satır sonları LF'tir (67 LF, 0 CR; ilk ölçümde yanlışlıkla CRLF
+     denmişti, bayt sayımıyla düzeltildi). Dosyalar bayt bayt kopyalanır; kopya ile kaynağın
+     sha256'sı karşılaştırılır. Holdout sözleşmelerine `.gitattributes`'ta `-text` kuralı eklenir
+     (git hiçbir dönüşüm yapmaz); commit'ten sonra `git cat-file` ile depodaki blob'un sha256'sı
+     da kaynakla karşılaştırılır. Telefon numaralarıyla ilgili öneri uygulanmaz.
+  3. **Ayrı tutulur.** Veri `evals/holdout/` altında (`contracts/`, `labels.json`), sonuç
+     `evals/results/holdout/` altında durur; önbellek sonuç klasörünün `.cache` alt klasöründe
+     olduğu için 7'lik setle karışmaz. Sonuç eşiklere ve asıl önce/sonra tablosuna girmez;
+     `evals.md`'de ayrı bir bölümde, README'de ayrı bir tabloda "2 sözleşme, tek koşu" notuyla
+     verilir.
+  4. **`src/` değişmez.** Yalnızca koşucu değişir (aşağıda).
+- **Koşucu (`evals/run.py`):** `--dataset-dir DIR` (varsayılan `evals/dataset`): `labels.json` ve
+  sözleşme dosyaları buradan okunur; `--limit` sınırı o klasörün sözleşme sayısıdır.
+  `--commit HASH`: sonuç dosyasına `commit` alanı olarak yazılır (Docker imajında `.git` yok;
+  değer host'ta `git rev-parse HEAD` ile verilir; verilmezse `null`). Sağlayıcı ve model zaten
+  yazılıyor. Sonuç dosyasına `dataset_dir` de yazılır. Enjeksiyon etiketi taşımayan sette
+  enjeksiyon metrikleri "ölçülmedi" görünür (mevcut davranış). LangSmith: holdout koşusu
+  yüklenmez (kısmi koşu gibi yerel yol); 7'lik setin dataset'iyle karışmasın.
+  Önce doküman (`evals.md` §5–§7), sonra test, sonra kod.
+- **Etiketler:** beklenen sonuç tabloları (kural, durum, madde no, birebir alıntı) kullanıcıdan
+  alınır ve `evals/holdout/labels.json`'a aktarılır (`rule_id`, `status`, `clause_no`); tabloyla
+  satır satır karşılaştırma çıktısı kullanıcıya gösterilir. Tablodaki birebir alıntı
+  `labels.json` şemasında yoktur; tablo `evals/holdout/expected.md` olarak olduğu gibi saklanır
+  ve her alıntının gösterdiği maddede harfi harfine geçtiği testle denetlenir (etiketin kendi
+  tutarlılığı). PII listeleri (`pii_values`, `pii_best_effort`) tabloda yoksa `evals.md` §3'teki
+  tanıma göre ("ne olduklarına göre") metinden çıkarılır ve bu, etiket dosyasında ayrıca
+  belirtilir; maskeleyicinin sonucuna bakılmadan yazılır.
+- **Sıra:**
+  1. Koşucu seçeneği: doküman, test, kod; `feat:` commit'i. 7'lik sette davranış değişmez
+     (`tests/test_eval_run.py` geçer; `--prepare-only` çıktısı aynı).
+  2. Sözleşmeler (bayt kopyası + `.gitattributes`), `labels.json`, `expected.md` ve
+     `tests/test_holdout.py` (sha256'lar; `rule_id`'ler tenant'ın kural setiyle birebir;
+     `clause_no` bölünen maddelerde var; alıntılar maddede geçiyor; PII değerleri ham metinde var):
+     **koşudan önce** ayrı commit (`test: add held-out contracts with expected findings`).
+  3. Model çağırmayan ön kontrol: imaj `src/` değişmediği için yeniden kurulmaz (`evals/` bind
+     mount); `--prepare-only --dataset-dir evals/holdout` ile hazırlık, PII ve tarama ölçülür.
+     Bu çıktı da olduğu gibi yazılır; maskeleyici burada bir değeri kaçırırsa düzeltilmez.
+  4. Tek koşu (kullanıcı onayıyla; ≈70K token beklenir, iki sözleşme):
+     `docker compose run --rm app python -m evals.run --dataset-dir evals/holdout --results-dir
+     evals/results/holdout --commit <2. adımın commit'i>`. Çalışma ağacı temiz olmalı. Çıkış kodu
+     2 (limit) gelirse yeniden denenmez, kullanıcıya bildirilir.
+  5. Sonuç `evals.md`'ye (yeni bölüm) ve `plan.md` Durum'a yazılır; yanlış her satır sınıflanır
+     (arama / model / `verify` / etiket) ama düzeltilmez. Etiketin yanlış olduğu düşünülürse
+     etiket değiştirilmez; satır "etiket tartışmalı" notuyla ve gerekçesiyle raporlanır.
+- **Ön kontrolde görülen (2026-11-12, model yok):** `split_clauses` iki dosyayı olduğu gibi
+  (başlıkta uzun tire) doğru bölüyor: 12 ve 13 madde. Ayrı imza başlığı olmadığı için imza satırları
+  son maddenin içinde kalıyor.
+- **Dosyalar:** `evals/run.py`, `tests/test_eval_run.py`, `tests/test_holdout.py`,
+  `evals/holdout/*`, `.gitattributes`, `evals/results/holdout/*`, `docs/evals.md`, `docs/plan.md`
+- **Doğrulama:** Kopyaların ve depodaki blob'ların sha256'sı kaynakla aynı; `labels.json` tabloyla
+  satır satır aynı; `uv run pytest`, ruff, mypy temiz; sonuç dosyasında `commit`, `provider`,
+  `model` dolu ve `commit` koşudan önceki etiket commit'i; 7'lik setin sonuç ve önbellek
+  klasörüne dosya yazılmamış.
+- **Commit:** `docs: record the single held-out eval run`
+
 ### [ ] Adım 19 — README ve karar dokümanı
 - **Ne:** README (kurulum, eval sonuçları ve önce/sonra tablosu, düşük Groq limiti notu, bilinen
   sınırlar, "daha fazla vaktim olsaydı"). Karar dokümanı: CASE.md'deki 5 soru sırasıyla, en fazla 2 sayfa.

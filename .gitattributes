@@ -2,3 +2,7 @@
 # must reach each machine as the same bytes: offsets, the model input and the CSP script hash
 # depend on them.
 * text=auto eol=lf
+# Held-out contracts (plan.md "Adım 18b") are kept byte for byte as they were written: git
+# applies no conversion to them.
+evals/holdout/contracts/* -text
+evals/holdout/expected.md -text
