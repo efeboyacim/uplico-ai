@@ -1,0 +1,755 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sözleşme inceleme</title>
+<style>
+:root {
+  --bg: #f6f5f2;
+  --surface: #ffffff;
+  --ink: #1d1d1f;
+  --muted: #6b6b70;
+  --line: #dddcd6;
+  --accent: #2c5d8a;
+  --ok: #2f7d4a;
+  --ok-bg: #dcefe2;
+  --bad: #b3261e;
+  --bad-bg: #f8dcd9;
+  --nf: #6b6b70;
+  --nf-bg: #e9e8e4;
+  --warn: #9a6200;
+  --warn-bg: #fbecc9;
+  --flag: #c2410c;
+  --flag-bg: #ffe3d1;
+  --pulse: #ffd54a;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #17181a;
+    --surface: #212226;
+    --ink: #ececec;
+    --muted: #a0a0a6;
+    --line: #3a3b40;
+    --accent: #8ab4e0;
+    --ok: #7fcf98;
+    --ok-bg: #1f3a29;
+    --bad: #f2a29b;
+    --bad-bg: #4a2220;
+    --nf: #b0b0b6;
+    --nf-bg: #333438;
+    --warn: #f0c26a;
+    --warn-bg: #45361a;
+    --flag: #ffa271;
+    --flag-bg: #4a2a18;
+    --pulse: #8a6d00;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+header.bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  padding: 10px 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+}
+header.bar h1 { font-size: 16px; margin: 0 12px 0 0; }
+header.bar label { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+header.bar input {
+  font: inherit;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--ink);
+  min-width: 0;
+}
+#key { width: 200px; }
+#rid { width: 320px; max-width: 70vw; }
+button {
+  font: inherit;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--surface);
+  cursor: pointer;
+}
+button.plain { background: transparent; color: var(--accent); }
+#msg { font-size: 13px; color: var(--muted); }
+#msg.err { color: var(--bad); font-weight: 600; }
+main { padding: 16px; }
+.empty { color: var(--muted); max-width: 640px; }
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+.meta b { color: var(--ink); font-weight: 600; }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+@media (min-width: 980px) {
+  .layout { grid-template-columns: minmax(0, 1fr) 420px; }
+  .panel { position: sticky; top: 64px; max-height: calc(100vh - 80px); overflow: auto; }
+}
+.doc, .panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.doc { padding: 16px 18px; }
+.panel { padding: 12px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); margin-bottom: 12px; }
+.legend span.sw { display: inline-block; width: 22px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 4px; }
+.text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.gap { color: var(--muted); padding: 4px 0 4px 12px; }
+.clause {
+  border-left: 3px solid var(--line);
+  padding: 4px 0 4px 10px;
+  margin: 10px 0;
+}
+.clause.whole-st-compliant { border-left-color: var(--ok); }
+.clause.whole-st-not_found { border-left-color: var(--nf); }
+.clause.whole-st-non_compliant { border-left-color: var(--bad); }
+.clause.whole { background: var(--nf-bg); }
+.clause.whole-x { box-shadow: inset 0 0 0 2px var(--flag); }
+.chead { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-bottom: 4px; }
+.cno { font-size: 12px; font-weight: 700; color: var(--muted); margin-right: 4px; }
+.chip {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  user-select: none;
+}
+.st-compliant.chip, .badge.st-compliant { background: var(--ok-bg); color: var(--ok); }
+.st-non_compliant.chip, .badge.st-non_compliant { background: var(--bad-bg); color: var(--bad); }
+.st-not_found.chip, .badge.st-not_found { background: var(--nf-bg); color: var(--nf); }
+.chip.nr { border-color: var(--warn); }
+.chip.xchip { background: var(--flag-bg); color: var(--flag); }
+.hl { cursor: pointer; border-radius: 2px; }
+.hl.q.st-compliant { background: var(--ok-bg); }
+.hl.q.st-not_found { background: var(--nf-bg); }
+.hl.q.st-non_compliant { background: var(--bad-bg); }
+.hl.q.nr { box-shadow: 0 2px 0 var(--warn); }
+.hl.x { text-decoration: underline wavy var(--flag); text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
+.hl.x.x-hidden_characters { background: var(--flag-bg); padding: 0 2px; }
+.flabel {
+  display: inline-block;
+  white-space: normal;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--flag);
+  background: var(--flag-bg);
+  border: 1px solid var(--flag);
+  border-radius: 4px;
+  padding: 0 5px;
+  margin: 0 3px;
+  cursor: pointer;
+}
+.pulse { outline: 3px solid var(--pulse); outline-offset: 1px; }
+.panel h2 { font-size: 14px; margin: 4px 4px 8px; }
+.summary { font-size: 13px; color: var(--muted); margin: 0 4px 10px; }
+.summary b { color: var(--ink); }
+.filter { font-size: 13px; margin: 0 4px 10px; display: flex; gap: 6px; align-items: center; }
+.card {
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.card.nr { border-left-color: var(--warn); }
+.card.static { cursor: default; }
+.card .top { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 4px; }
+.card .rule { font-weight: 700; font-size: 13px; word-break: break-all; }
+.badge { font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 10px; }
+.badge.nr { background: var(--warn-bg); color: var(--warn); }
+.badge.x { background: var(--flag-bg); color: var(--flag); }
+.badge.dec { background: var(--nf-bg); color: var(--ink); }
+.row { margin: 3px 0; }
+.row .k, .row.k { color: var(--muted); }
+.note { color: var(--warn); font-weight: 600; margin: 3px 0; }
+.quote {
+  margin: 4px 0;
+  padding: 4px 8px;
+  border-left: 3px solid var(--line);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-style: italic;
+}
+.box {
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: var(--bg);
+  border-radius: 4px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+ul.reasons { margin: 2px 0 2px 18px; padding: 0; }
+.flagitem .phrase {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.sel { outline: 2px solid var(--accent); }
+</style>
+</head>
+<body>
+<header class="bar">
+  <h1>Sözleşme inceleme</h1>
+  <label>API anahtarı <input id="key" type="password" autocomplete="off" spellcheck="false"></label>
+  <label>İnceleme kimliği <input id="rid" type="text" autocomplete="off" spellcheck="false"></label>
+  <button id="load" type="button">Getir</button>
+  <button id="clear" type="button" class="plain">Anahtarı sil</button>
+  <span id="msg" role="status"></span>
+</header>
+<main id="out">
+  <p class="empty">API anahtarını ve inceleme kimliğini girip <b>Getir</b>'e basın. Sayfa yalnızca
+  incelemeyi okur; karar API üzerinden verilir. Anahtar yalnızca bu sekmenin belleğinde tutulur.</p>
+</main>
+<script>
+"use strict";
+(function () {
+  const L = (o) => new Map(Object.entries(o));
+  const REVIEW_STATUS = L({
+    running: "Çalışıyor", awaiting_lawyer: "Avukat kararı bekliyor", approved: "Onaylandı",
+    changes_requested: "Değişiklik istendi", failed: "Başarısız"
+  });
+  const FINDING_STATUS = L({ compliant: "Uygun", non_compliant: "Uygun değil", not_found: "Bulunamadı" });
+  const REASONS = L({
+    quote_not_found: "Alıntı sözleşmede bulunamadı",
+    numeric_mismatch: "Değer alıntıyla uyuşmuyor",
+    ambiguous_value: "Değer belirsiz",
+    unit_conversion_uncertain: "Birim dönüşümü belirsiz",
+    unverified_not_found: "“Bulunamadı” doğrulanmadı",
+    critical_not_found: "Kritik kural bulunamadı",
+    missing_proposal: "Değişiklik taslağı yok",
+    proposal_noncompliant: "Taslak kurala uymuyor",
+    agent_escalated: "Agent avukata yönlendirdi",
+    no_finding: "Sonuç üretilemedi",
+    run_interrupted: "Çalışma yarıda kesildi",
+    injection_suspected: "Enjeksiyon şüphesi"
+  });
+  const NO_FINDING = L({ no_submit: "Sonuç bildirilmedi", step_limit: "Adım sınırı", rate_limited: "Hız sınırı", llm_error: "Model hatası" });
+  const CODE_CHECK = L({ passed: "geçti", failed: "kaldı", unverifiable: "doğrulanamadı" });
+  const ACTION = L({ accept: "Kabul edildi", correct: "Düzeltildi" });
+  const PROPOSAL_ACTION = L({ accept: "Kabul edildi", edit: "Düzenlendi", reject: "Reddedildi" });
+  const CONTRACT_DECISION = L({ approve: "Onay", request_changes: "Değişiklik talebi" });
+  const KIND = L({ pattern: "Şüpheli ifade", hidden_characters: "Gizli karakter" });
+  const ERRORS = L({ "401": "API anahtarı eksik ya da tanınmıyor.", "404": "İnceleme bulunamadı." });
+  const WHOLE_NOTE = "Alıntının yeri gösterilemedi, madde işaretlendi.";
+  const WHOLE_FLAG_NOTE = "İfadenin yeri gösterilemedi, madde işaretlendi.";
+
+  const keyInput = document.getElementById("key");
+  const idInput = document.getElementById("rid");
+  const out = document.getElementById("out");
+  const msg = document.getElementById("msg");
+  let requestNo = 0;
+
+  const label = (map, value) => (map.has(String(value)) ? map.get(String(value)) : String(value));
+  const cpLen = (s) => Array.from(s).length;
+
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined && text !== null) e.textContent = String(text);
+    return e;
+  }
+
+  function row(parent, key, value) {
+    if (value === undefined || value === null || value === "") return;
+    const r = el("div", "row");
+    r.appendChild(el("span", "k", key + ": "));
+    r.appendChild(document.createTextNode(String(value)));
+    parent.appendChild(r);
+  }
+
+  function setMessage(text, isError) {
+    msg.textContent = text;
+    msg.className = isError ? "err" : "";
+  }
+
+  function clearOut(node) {
+    while (out.firstChild) out.removeChild(out.firstChild);
+    if (node) out.appendChild(node);
+  }
+
+  /* Exact search: the start and end (code points) of the only occurrence, else null. */
+  function findOnce(hay, needle) {
+    if (typeof needle !== "string" || needle === "") return null;
+    const i = hay.indexOf(needle);
+    if (i < 0 || hay.indexOf(needle, i + 1) >= 0) return null;
+    const start = cpLen(hay.slice(0, i));
+    return { start: start, end: start + cpLen(needle) };
+  }
+
+  const isInt = (n) => Number.isInteger(n) && n >= 0;
+  const clamp = (n, lo, hi) => Math.min(Math.max(n, lo), hi);
+
+  function clauseName(c) {
+    if (!c) return "—";
+    return c.clause_no ? "Madde " + c.clause_no : "Numarasız bölüm (" + c.clause_id + ")";
+  }
+
+  /*
+   * Blocks share one coordinate space: in the lawyer view the code points of original_text,
+   * in the viewer view the clause texts laid end to end. block.chars[p - block.base] is the
+   * character at position p.
+   */
+  function buildBlocks(review, lawyer) {
+    const blocks = [];
+    const byClause = new Map();
+    if (lawyer) {
+      const chars = Array.from(review.original_text);
+      const clauses = review.clauses
+        .filter((c) => isInt(c.start) && isInt(c.end))
+        .slice()
+        .sort((a, b) => a.start - b.start);
+      let pos = 0;
+      for (const c of clauses) {
+        const s = clamp(c.start, pos, chars.length);
+        const e = clamp(c.end, s, chars.length);
+        if (s > pos) blocks.push({ kind: "gap", chars: chars, base: 0, start: pos, end: s });
+        const b = { kind: "clause", clause: c, chars: chars, base: 0, start: s, end: e };
+        blocks.push(b);
+        byClause.set(c.clause_id, b);
+        pos = e;
+      }
+      if (pos < chars.length) blocks.push({ kind: "gap", chars: chars, base: 0, start: pos, end: chars.length });
+    } else {
+      let base = 0;
+      for (const c of review.clauses) {
+        const chars = Array.from(String(c.text));
+        const b = { kind: "clause", clause: c, chars: chars, base: base, start: base, end: base + chars.length };
+        blocks.push(b);
+        byClause.set(c.clause_id, b);
+        base += chars.length;
+      }
+    }
+    for (const b of blocks) {
+      b.wholeFindings = [];
+      b.wholeFlags = [];
+      b.chips = [];
+    }
+    return { blocks: blocks, byClause: byClause };
+  }
+
+  const sliceOf = (b) => b.chars.slice(b.start - b.base, b.end - b.base).join("");
+
+  function place(review, lawyer, doc) {
+    const ranges = [];
+    const labels = new Map();
+    const findingPlace = [];
+    const flagPlace = [];
+    review.findings.forEach((f, i) => {
+      const b = f.clause_id ? doc.byClause.get(f.clause_id) : undefined;
+      if (!b) {
+        findingPlace.push(f.clause_id ? "missing" : "none");
+        return;
+      }
+      b.chips.push({ key: "f" + i, finding: f });
+      const r = findOnce(sliceOf(b), f.quote);
+      const cls = ["q", "st-" + f.status];
+      if (f.needs_review) cls.push("nr");
+      if (r) {
+        ranges.push({ start: b.start + r.start, end: b.start + r.end, cls: cls, key: "f" + i });
+        findingPlace.push("exact");
+      } else {
+        b.wholeFindings.push(i);
+        findingPlace.push("whole");
+      }
+    });
+    review.injection_flags.forEach((x, j) => {
+      const b = doc.byClause.get(x.clause_id);
+      let r = null;
+      if (lawyer) {
+        if (isInt(x.start) && isInt(x.end) && x.end > x.start) r = { start: x.start, end: x.end };
+      } else if (b) {
+        const local = findOnce(sliceOf(b), x.phrase);
+        if (local) r = { start: b.start + local.start, end: b.start + local.end };
+      }
+      if (b) b.chips.push({ key: "x" + j, flag: x });
+      if (r) {
+        ranges.push({ start: r.start, end: r.end, cls: ["x", "x-" + x.kind], key: "x" + j });
+        if (!labels.has(r.end)) labels.set(r.end, []);
+        labels.get(r.end).push(j);
+        flagPlace.push("exact");
+      } else if (b) {
+        b.wholeFlags.push(j);
+        flagPlace.push("whole");
+      } else {
+        flagPlace.push("missing");
+      }
+    });
+    return { ranges: ranges, labels: labels, findingPlace: findingPlace, flagPlace: flagPlace };
+  }
+
+  function flagLabelText(x, lawyer) {
+    let t = "⚠ " + label(KIND, x.kind);
+    if (lawyer && x.detail) t += ": " + x.detail;
+    return t;
+  }
+
+  function render(review) {
+    const lawyer = typeof review.original_text === "string";
+    const doc = buildBlocks(review, lawyer);
+    const placed = place(review, lawyer, doc);
+    const targets = new Map();
+    const cards = new Map();
+    const addTarget = (key, node) => {
+      if (!targets.has(key)) targets.set(key, []);
+      targets.get(key).push(node);
+    };
+
+    function flash(nodes) {
+      for (const n of nodes) n.classList.add("pulse");
+      setTimeout(() => { for (const n of nodes) n.classList.remove("pulse"); }, 1600);
+    }
+    function goToText(key) {
+      const nodes = targets.get(key);
+      if (!nodes || nodes.length === 0) return;
+      nodes[0].scrollIntoView({ behavior: "smooth", block: "center" });
+      flash(nodes);
+    }
+    function goToCard(key) {
+      const card = cards.get(key);
+      if (!card) return;
+      card.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      flash([card]);
+    }
+
+    function flagLabel(j) {
+      const x = review.injection_flags[j];
+      const s = el("span", "flabel", flagLabelText(x, lawyer));
+      s.addEventListener("click", (ev) => { ev.stopPropagation(); goToCard("x" + j); });
+      addTarget("x" + j, s);
+      return s;
+    }
+
+    /* Text of [from, to) with highlights split at every range boundary. */
+    function renderText(container, b) {
+      const from = b.start;
+      const to = b.end;
+      const local = placed.ranges.filter((r) => r.start < to && r.end > from);
+      const points = new Set([from, to]);
+      for (const r of local) {
+        points.add(Math.max(r.start, from));
+        points.add(Math.min(r.end, to));
+      }
+      for (const [p, js] of placed.labels) if (p > from && p <= to) points.add(p);
+      const pts = Array.from(points).sort((a, c) => a - c);
+      /* Sweep: every range end is a point, so a range active at p (start <= p < end) covers [p, q). */
+      const byStart = local.map((r, i) => i).sort((a, c) => local[a].start - local[c].start);
+      const byEnd = local.map((r, i) => i).sort((a, c) => local[a].end - local[c].end);
+      const active = new Set();
+      let si = 0;
+      let ei = 0;
+      for (let k = 0; k < pts.length; k++) {
+        const p = pts[k];
+        if (p > from && placed.labels.has(p)) {
+          for (const j of placed.labels.get(p)) container.appendChild(flagLabel(j));
+        }
+        if (k === pts.length - 1) break;
+        const q = pts[k + 1];
+        const text = b.chars.slice(p - b.base, q - b.base).join("");
+        while (si < byStart.length && local[byStart[si]].start <= p) active.add(byStart[si++]);
+        while (ei < byEnd.length && local[byEnd[ei]].end <= p) active.delete(byEnd[ei++]);
+        const covering = Array.from(active).sort((a, c) => a - c).map((i) => local[i]);
+        if (covering.length === 0) {
+          container.appendChild(document.createTextNode(text));
+          continue;
+        }
+        const span = el("span", "hl", text);
+        const keys = [];
+        for (const r of covering) {
+          for (const c of r.cls) span.classList.add(c);
+          keys.push(r.key);
+          addTarget(r.key, span);
+        }
+        span.title = keys
+          .map((key) => key[0] === "f"
+            ? review.findings[Number(key.slice(1))].rule_id
+            : label(KIND, review.injection_flags[Number(key.slice(1))].kind))
+          .join(", ");
+        span.addEventListener("click", () => goToCard(keys[0]));
+        container.appendChild(span);
+      }
+    }
+
+    const docBox = el("section", "doc");
+    const legend = el("div", "legend");
+    const sw = (cls, text) => {
+      const s = el("span");
+      const box = el("span", "sw " + cls);
+      s.appendChild(box);
+      s.appendChild(document.createTextNode(text));
+      legend.appendChild(s);
+    };
+    sw("hl q st-compliant", "Uygun alıntısı");
+    sw("hl q st-non_compliant", "Uygun değil alıntısı");
+    sw("hl q st-not_found", "Diğer");
+    legend.appendChild(el("span", null, "Turuncu dalgalı çizgi / etiket: enjeksiyon işareti"));
+    legend.appendChild(el("span", null, "Altı sarı çizgili: incelenmeli"));
+    docBox.appendChild(legend);
+
+    for (const b of doc.blocks) {
+      if (b.kind === "gap") {
+        const g = el("div", "gap text");
+        renderText(g, b);
+        docBox.appendChild(g);
+        continue;
+      }
+      const blk = el("div", "clause");
+      const head = el("div", "chead");
+      head.appendChild(el("span", "cno", clauseName(b.clause)));
+      for (const chip of b.chips) {
+        let c;
+        if (chip.finding) {
+          const f = chip.finding;
+          c = el("span", "chip st-" + f.status, f.rule_id + " · " + label(FINDING_STATUS, f.status));
+          if (f.needs_review) c.classList.add("nr");
+        } else {
+          c = el("span", "chip xchip", "⚠ " + label(KIND, chip.flag.kind));
+        }
+        c.addEventListener("click", () => goToCard(chip.key));
+        head.appendChild(c);
+      }
+      blk.appendChild(head);
+      if (b.wholeFindings.length > 0) {
+        blk.classList.add("whole");
+        const worst = b.wholeFindings.map((i) => review.findings[i].status);
+        const st = worst.includes("non_compliant") ? "non_compliant" : worst.includes("compliant") ? "compliant" : "not_found";
+        blk.classList.add("whole-st-" + st);
+        for (const i of b.wholeFindings) addTarget("f" + i, blk);
+      }
+      if (b.wholeFlags.length > 0) {
+        blk.classList.add("whole-x");
+        for (const j of b.wholeFlags) {
+          const note = el("div");
+          note.appendChild(flagLabel(j));
+          note.appendChild(document.createTextNode(" " + WHOLE_FLAG_NOTE));
+          blk.appendChild(note);
+          addTarget("x" + j, blk);
+        }
+      }
+      const body = el("div", "text");
+      renderText(body, b);
+      blk.appendChild(body);
+      docBox.appendChild(blk);
+    }
+
+    const panel = el("aside", "panel");
+    const nrCount = review.findings.filter((f) => f.needs_review).length;
+    panel.appendChild(el("h2", null, "Bulgular"));
+    const sum = el("div", "summary");
+    sum.appendChild(el("b", null, String(review.findings.length)));
+    sum.appendChild(document.createTextNode(" bulgu, "));
+    sum.appendChild(el("b", null, String(nrCount)));
+    sum.appendChild(document.createTextNode(" incelenmeli, "));
+    sum.appendChild(el("b", null, String(review.injection_flags.length)));
+    sum.appendChild(document.createTextNode(" enjeksiyon işareti"));
+    panel.appendChild(sum);
+
+    const filterBox = el("label", "filter");
+    const onlyNr = el("input");
+    onlyNr.type = "checkbox";
+    filterBox.appendChild(onlyNr);
+    filterBox.appendChild(document.createTextNode("Yalnızca incelenmesi gerekenler"));
+    panel.appendChild(filterBox);
+
+    const list = el("div");
+    review.findings.forEach((f, i) => {
+      const key = "f" + i;
+      const where = placed.findingPlace[i];
+      const card = el("div", "card");
+      if (f.needs_review) card.classList.add("nr");
+      const top = el("div", "top");
+      top.appendChild(el("span", "rule", f.rule_id));
+      top.appendChild(el("span", "badge st-" + f.status, label(FINDING_STATUS, f.status)));
+      if (f.needs_review) top.appendChild(el("span", "badge nr", "İncelenmeli"));
+      if (f.final_status) top.appendChild(el("span", "badge dec", "Son: " + label(FINDING_STATUS, f.final_status)));
+      card.appendChild(top);
+      const clause = f.clause_id ? doc.byClause.get(f.clause_id) : undefined;
+      row(card, "Madde", clause ? clauseName(clause.clause) : f.clause_id ? f.clause_id + " (metinde yok)" : "—");
+      if (where === "whole") card.appendChild(el("div", "note", WHOLE_NOTE));
+      if (where === "none") card.appendChild(el("div", "row k", "Maddesi yok; yalnızca listede görünür."));
+      if (f.quote) card.appendChild(el("div", "quote", f.quote));
+      if (f.value !== null && f.value !== undefined) row(card, "Değer", String(f.value) + (f.unit ? " " + f.unit : ""));
+      if (f.needs_review && f.review_reasons.length > 0) {
+        card.appendChild(el("div", "row k", "İnceleme sebepleri:"));
+        const ul = el("ul", "reasons");
+        for (const r of f.review_reasons) ul.appendChild(el("li", null, label(REASONS, r)));
+        card.appendChild(ul);
+      }
+      row(card, "Gerekçe", f.reasoning);
+      row(card, "Yönlendirme sebebi", f.escalation_reason);
+      if (f.no_finding_reason) row(card, "Sonuç yok", label(NO_FINDING, f.no_finding_reason));
+      if (f.interrupted_by) row(card, "Yarıda kesen", label(NO_FINDING, f.interrupted_by));
+      if (f.proposal) {
+        const p = el("div", "box");
+        p.appendChild(el("div", "row k", "Değişiklik taslağı"));
+        p.appendChild(el("div", null, f.proposal.proposed_text));
+        row(p, "Gerekçe", f.proposal.rationale);
+        if (f.proposal.code_check) row(p, "Kod kontrolü", label(CODE_CHECK, f.proposal.code_check));
+        card.appendChild(p);
+      }
+      if (f.action || f.proposal_action || f.edited_text) {
+        const d = el("div", "box");
+        d.appendChild(el("div", "row k", "Avukat kararı"));
+        if (f.action) row(d, "Bulgu", label(ACTION, f.action));
+        if (f.proposal_action) row(d, "Taslak", label(PROPOSAL_ACTION, f.proposal_action));
+        if (f.edited_text) {
+          d.appendChild(el("div", "row k", "Düzenlenmiş metin:"));
+          d.appendChild(el("div", null, f.edited_text));
+        }
+        card.appendChild(d);
+      }
+      if (targets.has(key)) {
+        card.addEventListener("click", () => goToText(key));
+      } else {
+        card.classList.add("static");
+      }
+      card.dataset.nr = f.needs_review ? "1" : "0";
+      cards.set(key, card);
+      list.appendChild(card);
+    });
+    if (review.findings.length === 0) list.appendChild(el("div", "summary", "Bulgu yok."));
+    panel.appendChild(list);
+
+    onlyNr.addEventListener("change", () => {
+      for (const card of list.children) {
+        if (card.dataset && card.dataset.nr === "0") card.style.display = onlyNr.checked ? "none" : "";
+      }
+    });
+
+    panel.appendChild(el("h2", null, "Enjeksiyon işaretleri"));
+    if (review.injection_flags.length === 0) panel.appendChild(el("div", "summary", "İşaret yok."));
+    review.injection_flags.forEach((x, j) => {
+      const key = "x" + j;
+      const card = el("div", "card flagitem");
+      const top = el("div", "top");
+      top.appendChild(el("span", "badge x", "⚠ " + label(KIND, x.kind)));
+      const b = doc.byClause.get(x.clause_id);
+      top.appendChild(el("span", null, b ? clauseName(b.clause) : x.clause_id));
+      card.appendChild(top);
+      if (lawyer && x.detail) row(card, "Karakterler", x.detail);
+      if (placed.flagPlace[j] === "whole") card.appendChild(el("div", "note", WHOLE_FLAG_NOTE));
+      if (x.phrase) card.appendChild(el("div", "quote phrase", x.phrase));
+      if (targets.has(key)) card.addEventListener("click", () => goToText(key));
+      else card.classList.add("static");
+      cards.set(key, card);
+      panel.appendChild(card);
+    });
+
+    const wrap = el("div");
+    const meta = el("div", "meta");
+    const m = (k, v) => {
+      if (v === null || v === undefined || v === "") return;
+      const s = el("span", null, k + ": ");
+      s.appendChild(el("b", null, v));
+      meta.appendChild(s);
+    };
+    m("İnceleme", review.review_id);
+    m("Durum", label(REVIEW_STATUS, review.status));
+    m("Oluşturuldu", review.created_at);
+    m("Son karar", review.contract_decision ? label(CONTRACT_DECISION, review.contract_decision) : null);
+    m("Karar zamanı", review.decided_at);
+    m("Karar veren", review.decided_by);
+    m("Görünüm", lawyer ? "avukat (asıl metin, maskesiz)" : "izleyici (maskeli madde metinleri)");
+    wrap.appendChild(meta);
+    const layout = el("div", "layout");
+    layout.appendChild(docBox);
+    layout.appendChild(panel);
+    wrap.appendChild(layout);
+    clearOut(wrap);
+  }
+
+  function shapeOk(r) {
+    return r && typeof r === "object" && typeof r.review_id === "string" &&
+      Array.isArray(r.clauses) && Array.isArray(r.injection_flags) && Array.isArray(r.findings) &&
+      r.findings.every((f) => f && typeof f.rule_id === "string" && Array.isArray(f.review_reasons));
+  }
+
+  async function load() {
+    const key = keyInput.value;
+    const id = idInput.value.trim();
+    if (!key || !id) {
+      setMessage("Anahtar ve inceleme kimliği gerekli.", true);
+      return;
+    }
+    const mine = ++requestNo;
+    setMessage("Yükleniyor…", false);
+    let response;
+    try {
+      response = await fetch("/reviews/" + encodeURIComponent(id), {
+        method: "GET",
+        headers: { "X-API-Key": key },
+        cache: "no-store",
+        credentials: "omit",
+        redirect: "error"
+      });
+    } catch (e) {
+      if (mine !== requestNo) return;
+      clearOut(null);
+      setMessage("Sunucuya ulaşılamadı.", true);
+      return;
+    }
+    if (mine !== requestNo) return;
+    if (!response.ok) {
+      clearOut(null);
+      const code = String(response.status);
+      setMessage(code + ": " + (ERRORS.has(code) ? ERRORS.get(code) : "İstek başarısız oldu."), true);
+      return;
+    }
+    let review;
+    try {
+      review = await response.json();
+    } catch (e) {
+      review = null;
+    }
+    if (mine !== requestNo) return;
+    if (!shapeOk(review)) {
+      clearOut(null);
+      setMessage("Yanıt beklenen biçimde değil.", true);
+      return;
+    }
+    render(review);
+    setMessage("", false);
+  }
+
+  document.getElementById("load").addEventListener("click", load);
+  for (const input of [keyInput, idInput]) {
+    input.addEventListener("keydown", (ev) => { if (ev.key === "Enter") load(); });
+  }
+  document.getElementById("clear").addEventListener("click", () => {
+    requestNo++;
+    keyInput.value = "";
+    clearOut(null);
+    setMessage("Anahtar silindi.", false);
+  });
+})();
+</script>
+</body>
+</html>

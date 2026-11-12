@@ -218,7 +218,28 @@
   kapsam kararıdır. (5) Elle denemede kapanmış inceleme gerekirse gerçek `data/`'da yok; kopyada
   karar verilerek üretilir. (6) Alt-agent'a iş verilirse satır sonu LF kalmalı; teslimde
   `git diff --stat` ile bakılır.
-- **Sıradaki:** Adım 15 — Arayüz.
+  Adım 15: `src/static/index.html` (tek dosya, yalnızca `GET /reviews/{id}` çağırır) ve `GET /`
+  rotası yazıldı; kararlar (U1–U7) aşağıda Adım 15 bölümünde. Yukarıdaki (3) numaralı not geçersiz
+  kaldı: `lawyer` görünümünde alıntı açılmış madde metninde değil, maddenin **asıl metin diliminde**
+  birebir aranır; tam bir kez bulunmazsa maddenin tamamı işaretlenir (U6). Dokümanları ana oturum,
+  kodu bir alt-agent yazdı; üç bağımsız inceleme (güvenlik, çizim mantığı, testlerin kanıt gücü)
+  üç bulgu verdi, her biri ayrıca çürütülmeye çalışıldı, ikisi doğrulanıp düzeltildi: (1) CSP özeti
+  ham baytlardan hesaplanıyordu, CRLF'li bir checkout'ta tarayıcının özeti tutmaz ve script
+  çalışmazdı (özet artık satır sonları LF'e çevrilerek hesaplanır; testi var); (2) vurgu parçalama
+  madde başına işaret sayısında kareseldi (40 bin işarette ~9–17 sn; süpürme ile ~0,1 sn).
+  Reddedilen: yasak sözcük taraması büyük/küçük harfe duyarlı (bugünkü sayfada kusur üretmiyor).
+  Elle deneme `data/`'nın bir kopyasında, test anahtarları ve senaryolu modelle, uygulama içi
+  tarayıcıda yapıldı: `lawyer` görünümünde her maddenin çizilen metni asıl metin dilimiyle birebir
+  aynı (kopyadaki gerçek bir acme incelemesinde ve alıntıdan önce üç emoji ile iki `U+E004x`
+  etiket karakteri taşıyan bir metinde), alıntılar ve işaretler doğru aralıkta; alıntı maddede
+  bulunamayınca madde işaretlendi; `viewer` görünümünde yer tutucular duruyor, gerçek ad yok, asıl
+  metin ve aralık yok; 401 ve 404 yalnızca kod ve sabit mesaj gösteriyor; inceleme kimliği URL'ye
+  kodlanarak giriyor; depolama ve çerez boş; konsolda CSP hatası yok. **Elle denenmeyenler:** karar
+  verilmiş inceleme (karar alanlarının kartta görünmesi) ve çok işaretli metinde gerçek tarayıcı
+  süresi. JS mantığının otomatik testi yok (bilinen sınır).
+  Adım 16 için not: `viewer` görünümünde gizli karakter işaretleri her zaman madde düzeyinde
+  görünür (ifade, karakterleri çıkarılmış madde metninde aranamaz); kusur değil, kuralın sonucu.
+- **Sıradaki:** Adım 16 — Eval dataset'i.
 - Bu bölüm her adımın commit'inde güncellenir; sıradaki adım, aşağıdaki ilk işaretsiz kutudur.
 
 ## Bağlam
@@ -816,15 +837,33 @@ gereksiz yönlendirme satırları bunu gösterir.
   `lawyer` maskesiz — düzenlenmiş metin dahil).
 - **Commit:** `feat: add JSON review report`
 
-### [ ] Adım 15 — Arayüz
+### [x] Adım 15 — Arayüz
 - **Ne:** Tek statik sayfa: anahtar girilir, inceleme API'den çekilir; alıntılar ve enjeksiyon
   işaretleri sözleşme metni üzerinde gösterilir. Karar arayüzden verilmez.
   Konumlar Python karakter (kod noktası) ofsetidir; BMP dışı karakterler (ör. `U+E0000` etiket
   karakterleri) JavaScript'te iki birim sayıldığı için sayfa metni kod noktalarına göre dilimler
   (`Array.from(text)`).
-- **Dosyalar:** `src/static/index.html`, `src/api.py` (`GET /`), `tests/test_api.py`
-- **Doğrulama:** Test: `GET /` anahtarsız 200 döner ve veri içermez. Elle: tarayıcıda `lawyer`
-  anahtarıyla maskesiz, `viewer` anahtarıyla maskeli görünüm.
+- **Kararlar** (dokümanların boş bıraktığı noktalar; kodlamadan önce `architecture.md` §3 "Arayüz",
+  `code_standards.md` "Güvenlik" ve `evals.md` §2'ye işlendi; kullanıcı 2026-11-12'de onayladı):
+  (U1) Sayfa `StaticFiles` ile değil `GET /` `APIRoute`'u olarak sunulur; dosya `create_app`'te bir
+  kez okunur, yoksa uygulama başlamaz.
+  (U2) Tek dosya: CSS ve JS içeride, dış kaynak yok.
+  (U3) Sözleşme metni güvenilmeyen girdidir: DOM yalnızca `createElement` / `textContent` ile
+  kurulur; yanıt, script'in SHA-256 özetine izin veren bir CSP taşır.
+  (U4) Anahtar yalnızca JS belleğinde; depolama, çerez, URL yok.
+  (U5) Sayfa yalnızca `GET /reviews/{id}` çağırır; inceleme başlatma formu, karar, rapor ve audit
+  yok (kullanıcı formu açıkça reddetti).
+  (U6) `lawyer`: asıl metin kod noktasına göre dilimlenir; madde ve işaretler ofsetle gösterilir.
+  Alıntı maddenin asıl metin diliminde birebir aranır; tam bir kez bulunmazsa **maddenin tamamı**
+  işaretlenir (kullanıcı kararı: hizalamayla uğraşılmaz).
+  (U7) `viewer`: maskeli madde metinleri alt alta; alıntı ve işaret ifadesi aynı kuralla aranır.
+- **Dosyalar:** `src/static/index.html`, `src/api.py` (`GET /`), `tests/test_api.py`,
+  `docs/architecture.md`, `docs/code_standards.md`, `docs/evals.md`, `CLAUDE.md`
+- **Doğrulama:** Testler: `evals.md` §2 *Arayüz sayfası* (anahtarsız 200 ve veri içermez; başlıklar
+  ve CSP özeti; kaynakta yasak API ve dış adres yok; rota listesinde `GET /`). Elle: `data/`
+  kopyası ve sahte anahtarlarla sunucu; tarayıcıda `lawyer` anahtarıyla maskesiz, `viewer`
+  anahtarıyla maskeli görünüm; BMP dışı karakter içeren metinde ofsetler. JS mantığının otomatik
+  testi yok (sınır).
 - **Commit:** `feat: add single-page UI showing findings on the contract text`
 
 ### [ ] Adım 16 — Eval dataset'i

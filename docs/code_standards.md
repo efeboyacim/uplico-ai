@@ -188,6 +188,17 @@
 - Bilinen tenant listesi `data_dir/tenants/` altında `rules.yaml`'ı olan klasör adlarıdır;
   `tenant_id` bu kümede birebir aranır ve eşleşmeden yol kurulmaz.
 - `GET` uçları audit log'a yazmaz.
+- **Arayüz sayfası (`src/static/index.html`):** sözleşme metni güvenilmeyen girdidir ve avukatın
+  anahtarının durduğu sayfada gösterilir.
+  - DOM yalnızca `createElement` / `textContent` / `createTextNode` ile kurulur; `innerHTML`,
+    `outerHTML`, `insertAdjacentHTML`, `document.write`, `eval` ve `new Function` kullanılmaz.
+  - Sayfa tek dosyadır: CSS ve JS içindedir, dış kaynak (CDN, font, resim, harici istek) yoktur.
+  - API anahtarı yalnızca JS belleğinde durur; `localStorage`, `sessionStorage`, çerez ve URL'ye
+    yazılmaz. İstekler `cache: "no-store"` ile, anahtar `X-API-Key` başlığında gider.
+  - Sayfa yalnızca `GET` isteği atar; inceleme başlatma ya da karar formu eklenmez.
+  - `GET /` yanıtı CSP başlığı taşır; `script-src` yalnızca sayfadaki tek `<script>` bloğunun
+    başlangıçta hesaplanan SHA-256 özetine izin verir (`'unsafe-inline'` script için yazılmaz).
+  - Sayfa `StaticFiles` ile bağlanmaz; `GET /` bir `APIRoute`'tur (rota dolaşan testler onu görür).
 
 ## Git
 - Conventional commits: `feat:`, `fix:`, `docs:`, `test:`, `chore:`.

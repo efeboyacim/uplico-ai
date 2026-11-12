@@ -1,5 +1,8 @@
+import base64
+import hashlib
 import json
 import logging
+import re
 import sqlite3
 import threading
 import uuid
@@ -310,6 +313,7 @@ def test_routes_walk_covers_the_known_endpoints(app: FastAPI) -> None:
     assert ("GET", "/reviews/{review_id}/audit") in routes
     assert ("GET", "/reviews/{review_id}/report") in routes
     assert ("POST", "/reviews/{review_id}/decision") in routes
+    assert ("GET", "/") in routes
 
 
 def test_all_write_endpoints_viewer_key_forbidden(
@@ -356,6 +360,115 @@ def test_all_endpoints_missing_or_unknown_key_unauthorized(
         assert _review_ids(Store(data_dir, tenant)) == []
     assert "unknown-key-123" not in caplog.text
     assert "K-ACME-LAWYER" not in caplog.text
+
+
+# --- UI page (GET /) ------------------------------------------------------------------------------
+
+PAGE_FORBIDDEN = (
+    "http://",
+    "https://",
+    "innerHTML",
+    "outerHTML",
+    "insertAdjacentHTML",
+    "document.write",
+    "eval(",
+    "new Function",
+    "localStorage",
+    "sessionStorage",
+    "document.cookie",
+    "POST",
+    "PUT",
+    "PATCH",
+    "DELETE",
+    "<form",
+)
+# A resource address starting with `//` (protocol-relative): in an attribute, a string or url().
+PROTOCOL_RELATIVE = re.compile(r"""(?:=|["'(])\s*//""")
+SCRIPT_BLOCK = re.compile(r"<script>(.*?)</script>", re.DOTALL)
+
+
+def _page_bytes() -> bytes:
+    return api_module.PAGE_PATH.read_bytes()
+
+
+def test_ui_page_any_key_ok_same_bytes_no_data_no_audit(
+    client: TestClient, settings: Settings
+) -> None:
+    _install_model(settings, "acme")
+    review = _post_ok(client, ACME_LAWYER)
+    store = Store(settings.data_dir, "acme")
+    audit_before = _audit_count(store)
+    page = _page_bytes()
+    for headers in ({}, {"X-API-Key": "unknown-key-123"}, ACME_LAWYER, ACME_VIEWER, GLOBEX_LAWYER):
+        response = client.get("/", headers=headers)
+        assert response.status_code == 200, headers
+        assert response.content == page
+        body = response.content.decode("utf-8")
+        assert review["review_id"] not in body
+        for value in ("acme", "globex", *KEYS):
+            assert value not in body
+        assert SUSPICIOUS_SENTENCE_START not in body
+        for clause in review["clauses"]:
+            assert clause["text"] not in body
+    assert _audit_count(store) == audit_before
+
+
+def test_ui_page_headers_and_csp_script_hash(client: TestClient) -> None:
+    response = client.get("/")
+    assert response.headers["content-type"] == "text/html; charset=utf-8"
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["referrer-policy"] == "no-referrer"
+    assert response.headers["cache-control"] == "no-store"
+    [script] = SCRIPT_BLOCK.findall(_page_bytes().decode("utf-8"))
+    # The browser hashes the script after turning CRLF / lone CR into LF.
+    browser_script = re.sub(r"\r\n?", "\n", script)
+    digest = base64.b64encode(hashlib.sha256(browser_script.encode("utf-8")).digest()).decode(
+        "ascii"
+    )
+    csp = response.headers["content-security-policy"]
+    assert csp == (
+        "default-src 'none'; connect-src 'self'; style-src 'unsafe-inline'; "
+        f"script-src 'sha256-{digest}'; base-uri 'none'; form-action 'none'; "
+        "frame-ancestors 'none'"
+    )
+    [script_src] = [d for d in csp.split(";") if d.strip().startswith("script-src")]
+    assert "'unsafe-inline'" not in script_src
+
+
+def test_ui_page_csp_hash_ignores_crlf_checkout() -> None:
+    # A Windows checkout with core.autocrlf=true gives the page CRLF (or a stray lone CR); the
+    # browser still hashes the LF text, so the header must not change.
+    lf_page = _page_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    expected = api_module.page_headers(lf_page)["Content-Security-Policy"]
+    crlf_page = lf_page.replace(b"\n", b"\r\n")
+    assert b"\r" in crlf_page
+    assert api_module.page_headers(crlf_page)["Content-Security-Policy"] == expected
+    cr_page = lf_page.replace(b"\n", b"\r")
+    assert api_module.page_headers(cr_page)["Content-Security-Policy"] == expected
+
+
+def test_ui_page_source_no_forbidden_api_or_external_address() -> None:
+    source = _page_bytes().decode("utf-8")
+    for token in PAGE_FORBIDDEN:
+        assert token not in source, token
+    assert PROTOCOL_RELATIVE.search(source) is None
+    # Exactly one script block, inline, without a src attribute.
+    assert source.count("<script") == 1
+    assert len(SCRIPT_BLOCK.findall(source)) == 1
+    assert "src=" not in source
+
+
+def test_ui_page_post_method_not_allowed(client: TestClient) -> None:
+    assert client.post("/").status_code == 405
+    assert client.post("/", headers=ACME_LAWYER).status_code == 405
+
+
+def test_create_app_missing_page_raises(
+    settings: Settings, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(api_module, "PAGE_PATH", tmp_path / "missing" / "index.html")
+    with pytest.raises(ConfigError):
+        create_app(settings)
 
 
 def test_post_review_malformed_json_without_key_unprocessable(

@@ -1,4 +1,4 @@
-"""HTTP API: start a review, read it and its audit log, take the lawyer's decision.
+"""HTTP API: start a review, read it and its audit log, take the lawyer's decision; serve the page.
 
 Design (`docs/architecture.md` §3, `docs/agent_design.md` §6 and §7):
 
@@ -12,9 +12,14 @@ Design (`docs/architecture.md` §3, `docs/agent_design.md` §6 and §7):
 - The decision endpoint runs under the tenant's decision lock: re-read the record, check the
   status (409) and the record checks (422), only then mask `edited_text` and resume the graph.
 - Synchronous endpoints only (`SqliteSaver` has no async support).
+- `GET /` is the one endpoint without a key: the static page, read once at startup, the same bytes
+  for every request, with a CSP that allows only the hash of its single `<script>` block.
 """
 
+import base64
+import hashlib
 import logging
+import re
 import sys
 import threading
 from collections.abc import Callable, Mapping, Sequence
@@ -24,7 +29,7 @@ from typing import Annotated, Any, Self
 import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from src.config import ConfigError, Principal, Settings, load_settings_or_exit
@@ -90,6 +95,10 @@ _MSG_NOT_AWAITING = "İnceleme avukat kararı beklemiyor."
 _MSG_NOT_DECIDED = "İnceleme için son karar henüz verilmedi."
 _MSG_DECISION_FAILED = "Karar kaydedilemedi: beklenmeyen bir hata oluştu."
 _RESUMABLE_NEXT = (("human_review",), ("finalize",))
+
+# The UI page (`docs/architecture.md` §3 "Arayüz"). Read once by `create_app`; missing -> no start.
+PAGE_PATH = Path(__file__).resolve().parent / "static" / "index.html"
+_SCRIPT_BLOCK = re.compile(r"<script>(.*?)</script>", re.DOTALL)
 
 
 # --- Request model --------------------------------------------------------------------------------
@@ -684,8 +693,40 @@ def _check_tenants(settings: Settings) -> None:
             ) from None
 
 
+def page_headers(page: bytes) -> dict[str, str]:
+    """Response headers of `GET /`; the CSP allows only the SHA-256 of the page's one script."""
+    text = page.decode("utf-8")
+    blocks = _SCRIPT_BLOCK.findall(text)
+    if len(blocks) != 1 or text.count("<script") != 1:
+        raise ConfigError("Arayüz sayfasında tam bir <script> bloğu olmalı.")
+    # The browser normalises CRLF / lone CR to LF before hashing the script (HTML input stream).
+    script = blocks[0].replace("\r\n", "\n").replace("\r", "\n")
+    digest = hashlib.sha256(script.encode("utf-8")).digest()
+    script_hash = base64.b64encode(digest).decode("ascii")
+    csp = (
+        "default-src 'none'; connect-src 'self'; style-src 'unsafe-inline'; "
+        f"script-src 'sha256-{script_hash}'; base-uri 'none'; form-action 'none'; "
+        "frame-ancestors 'none'"
+    )
+    return {
+        "Content-Security-Policy": csp,
+        "X-Content-Type-Options": "nosniff",
+        "Referrer-Policy": "no-referrer",
+        "Cache-Control": "no-store",
+    }
+
+
+def _load_page(path: Path) -> tuple[bytes, dict[str, str]]:
+    try:
+        page = path.read_bytes()
+    except OSError:
+        raise ConfigError(f"Arayüz sayfası okunamadı: {path}") from None
+    return page, page_headers(page)
+
+
 def create_app(settings: Settings) -> FastAPI:
     _check_tenants(settings)
+    page, headers = _load_page(PAGE_PATH)
     app = FastAPI(
         title="Sözleşme inceleme",
         docs_url=None,
@@ -767,6 +808,11 @@ def create_app(settings: Settings) -> FastAPI:
             _audit_entry(r).model_dump(mode="json") for r in store.list_audit(record.review_id)
         ]
         return JSONResponse(entries)
+
+    @app.get("/")
+    def index() -> Response:
+        # No key, no data: the same bytes for every caller; the page fetches the review itself.
+        return Response(content=page, media_type="text/html; charset=utf-8", headers=headers)
 
     return app
 

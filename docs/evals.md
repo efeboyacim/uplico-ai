@@ -39,6 +39,18 @@
   `lawyer` anahtarıyla gövdeye `reviewer: "başkası"` eklenir → audit log'daki aktör
   (`lawyer:<ad>`) ve kayıttaki `decided_by` anahtarın adıdır.
 - **Anahtar yok / tanınmıyor:** `GET /` (veri içermeyen arayüz sayfası) dışındaki her uç 401 döner.
+- **Arayüz sayfası:** `GET /` anahtarsız, geçersiz anahtarla ve geçerli anahtarla **200** döner;
+  üç yanıtın gövdesi `src/static/index.html` ile bayt bayt aynıdır (veri içermez: bir inceleme
+  oluşturulduktan sonra da gövdede inceleme kimliği, tenant adı, anahtar ya da sözleşme metni yok)
+  ve audit'e satır eklenmez. Rota `APIRoute`'tur ve bilinen rota listesinde `("GET", "/")` vardır;
+  `POST /` 405 döner. Yanıt `text/html; charset=utf-8`'dir ve `architecture.md` §3 "Arayüz"deki
+  başlıkları taşır; CSP'deki `sha256-…` değeri testte sayfadaki tek `<script>` bloğundan yeniden
+  hesaplanan özetle eşleşir (özet satır sonları LF'e çevrilerek hesaplanır; sayfanın LF, CRLF ve
+  yalnız CR'li kopyaları aynı CSP'yi verir, çünkü tarayıcı da özeti öyle hesaplar) ve CSP'nin `script-src` yönergesinde `'unsafe-inline'` yoktur. Sayfa
+  kaynağında şunlar geçmez: `http://`, `https://`, `//` ile başlayan kaynak adresi, `innerHTML`,
+  `outerHTML`, `insertAdjacentHTML`, `document.write`, `eval(`, `new Function`, `localStorage`,
+  `sessionStorage`, `document.cookie`, `POST`, `PUT`, `PATCH`, `DELETE`, `<form`; tam bir `<script>`
+  bloğu vardır ve `src` özniteliği taşımaz. Sayfa dosyası yoksa `create_app` hata fırlatır.
 - **Sağlayıcı anahtarı yoksa başlamaz:** `LLM_PROVIDER=groq` ve boş `GROQ_API_KEY` ile config
   yüklenir → açık hata fırlar; mesaj `GROQ_API_KEY` adını ve `LLM_PROVIDER=ollama` seçeneğini içerir.
   `LLM_PROVIDER=ollama` iken `GROQ_API_KEY` olmadan config yüklenir → hata yok.

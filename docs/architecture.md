@@ -127,7 +127,40 @@ flowchart LR
 | `GET /reviews/{id}` | Durum, maddeler, enjeksiyon işaretleri, bulgular, taslaklar; `lawyer` için ayrıca asıl sözleşme metni | `lawyer` ya da `viewer` |
 | `GET /reviews/{id}/report` | Son karardan sonra rapor (yalnızca JSON) | `lawyer` ya da `viewer` |
 | `GET /reviews/{id}/audit` | İncelemenin audit kayıtları | `lawyer` ya da `viewer` |
-| `GET /` | Basit arayüz (veri içermez; veriyi yukarıdaki uçlardan çeker) | — |
+| `GET /` | Basit arayüz (veri içermez; veriyi `GET /reviews/{id}`'den çeker) | — |
+
+**Arayüz (`GET /`).** Sayfa `src/static/index.html` dosyasıdır; `create_app` onu bir kez okur
+(dosya yoksa uygulama başlamaz) ve her istekte aynı baytları `text/html; charset=utf-8` olarak
+döner. Anahtar istemez, isteğe göre değişmez, veri içermez. Yanıt başlıkları:
+`Content-Security-Policy: default-src 'none'; connect-src 'self'; style-src 'unsafe-inline';
+script-src 'sha256-…'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'` (özet sayfadaki
+tek `<script>` bloğunun içeriğinden başlangıçta hesaplanır), `X-Content-Type-Options: nosniff`,
+`Referrer-Policy: no-referrer`, `Cache-Control: no-store`.
+
+- **Yalnızca okur.** Kullanıcı anahtarı ve inceleme kimliğini girer; sayfa yalnızca
+  `GET /reviews/{id}` çağırır. İnceleme başlatma, karar, rapor ve audit gösterimi sayfada yoktur
+  (karar yalnızca API ucundan verilir). Hata durumunda (401 / 404 / ağ) yalnızca durum kodu ve
+  sabit bir mesaj gösterilir.
+- **Rolü yanıttan anlar:** yanıtta `original_text` varsa `lawyer` görünümü, yoksa `viewer` görünümü
+  çizilir. Sayfada rol seçimi yoktur.
+- **`lawyer` görünümü** asıl metni (`original_text`) gösterir. Konumlar Python kod noktası
+  ofsetidir; sayfa metni `Array.from(text)` ile kod noktalarına göre dilimler. Madde sınırları
+  `clauses[].start` / `end` ile, enjeksiyon işaretleri `injection_flags[].start` / `end` ile
+  işaretlenir; işaretin `kind` ve `detail` değeri yanında etiket olarak yazılır (gizli karakter
+  görünmez olduğu için aralığın yanına görünür bir etiket konur). Alıntı (`quote`), bulgunun
+  maddesinin asıl metin diliminde **birebir** aranır: tam bir kez bulunursa o aralık, aksi halde
+  (bulunamadı, birden çok kez geçti, araya gizli karakter girdi, maske açılınca yazım değişti)
+  **maddenin tamamı** işaretlenir ve bulgu kartında "alıntının yeri gösterilemedi, madde
+  işaretlendi" yazar. Hizalama denenmez; yanlış yere vurgu yapılmaz.
+- **`viewer` görünümü** maskeli madde metinlerini (`clauses[].text`) alt alta gösterir. Alıntı ve
+  işaretin `phrase` değeri madde metninde aynı kuralla aranır (tam bir kez → aralık, değilse madde).
+- İki görünümde de yanda bulgu listesi vardır: kural, sonuç, son sonuç ve karar alanları (varsa),
+  `needs_review` ve sebepleri, gerekçe, taslak (`proposed_text`, `rationale`, `code_check`,
+  `edited_text`). Maddesi olmayan bulgu (`not_found`, `no_finding`) yalnızca listede görünür.
+  Çakışan vurgular (alıntı ile işaret) sınır noktalarına göre parçalanır; bir parça birden çok sınıf
+  taşıyabilir.
+- **Sınır:** sayfanın JS mantığı otomatik testle sınanmaz (yığında JS test koşucusu yok); tarayıcıda
+  elle denenir. Sunucu tarafı (başlıklar, veri içermeme, yasak API'lerin kaynakta geçmemesi) testlidir.
 
 Bulgu ve taslak kararlarını değiştiren tek uç `/decision`'dır; avukat aşaması bilerek bu tek uçla
 kurulur. Kural uç adına değil yönteme bağlıdır: **`GET` dışındaki her uç `lawyer` rolü ister.**
