@@ -7,11 +7,14 @@ rule's `check` and writes `needs_review` / `review_reasons` from scratch on ever
 Design (`docs/agent_design.md` §5 "Doğrulama katmanı"):
 
 - `extract` is the one reader of values. It returns the values it read, the value expressions
-  it could not read and the span of every expression. A number followed (directly or one word
-  later) by a word that starts with a unit stem of the rule's kind is never silently dropped: it
-  becomes a value or an unreadable expression. A masking placeholder ("[TCKN_1]") is one word,
-  never a number. A word that starts with a number word but is not one ("beşer", "üçüncü"),
-  standing where the number would be, is an unreadable expression too.
+  it could not read and the span of every expression. A number written in the text (digits or
+  number words) followed (directly or one word later) by a word that starts with a unit stem of
+  the rule's kind is never silently dropped: it becomes a value or an unreadable expression. A
+  masking placeholder ("[TCKN_1]") is one word, never a number: a number the masker took for
+  personal data is neither a value nor an unreadable expression. `masked_value_in_clause` makes
+  up for it: a `compliant` finding whose clause holds a TCKN or TELEFON placeholder is queued.
+  A word that starts with a number word but is not one ("beşer", "üçüncü"), standing where the
+  number would be, is an unreadable expression too.
 - What continues a number (a multiplier or fraction word, a slash, a space-grouped digit run) is
   folded into the number's token when the text is tokenized, and `_readable` - the one gate every
   value passes - never accepts such a token. No reading path can read part of a number.
@@ -145,6 +148,8 @@ _TOKEN_RE = re.compile(
     + _TL_SYMBOL
     + "€£¥])"
 )
+# Placeholder kinds that can stand for a number taken for personal data (masked_value_in_clause).
+_NUMBER_PLACEHOLDERS = ("[TCKN_", "[TELEFON_")
 # Dot is the thousands separator, comma the decimal separator, in every kind.
 _DIGITS_RE = re.compile(r"\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:,\d+)?")
 # A number as a quote match may not cut it: digits joined by single dots or commas.
@@ -883,6 +888,14 @@ def _outside_reasons(check: Check, clause_text: str, start: int, end: int) -> se
     return reasons
 
 
+def _masked_number(clause_text: str) -> bool:
+    """The masked clause holds a TCKN or TELEFON placeholder, which may stand for a number that is
+    not personal data. The kind is read from the placeholder itself; the PII map is never seen."""
+    return any(
+        m.group().startswith(_NUMBER_PLACEHOLDERS) for m in PLACEHOLDER.finditer(clause_text)
+    )
+
+
 def _proposal_check(text: str, check: Check | None) -> CodeCheck:
     if check is None:
         return "unverifiable"
@@ -926,6 +939,9 @@ def _verify_one(
                     if not numeric and finding.status == "compliant":
                         numeric = _outside_reasons(rule.check, clause.text, start, end)
                     reasons |= numeric
+            # The whole clause, whatever the quote matched: a narrow quote cannot leave it out.
+            if finding.status == "compliant" and clause is not None and _masked_number(clause.text):
+                reasons.add("masked_value_in_clause")
         elif finding.no_finding_reason is None:
             reasons.add("unverified_not_found")
             if rule.severity == "critical":

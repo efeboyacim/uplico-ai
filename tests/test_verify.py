@@ -12,6 +12,7 @@ from src.models import (
     Rule,
     Severity,
 )
+from src.prepare.pii import mask
 from src.verify import Extraction, Kind, Quantity, align, extract, verify
 
 # --- Helpers --------------------------------------------------------------------------------------
@@ -627,7 +628,8 @@ def test_extract_placeholder_one_word_not_a_number(text: str, expected: Extracti
 
 def test_verify_placeholder_digit_not_read_as_value() -> None:
     finding = _finding("[TELEFON_2] gün içinde bildirilir")
-    assert _reasons(finding, AT_MOST_60_DAYS) == ["numeric_mismatch"]
+    # The placeholder is not read; the compliant finding's clause holds a TELEFON placeholder.
+    assert _reasons(finding, AT_MOST_60_DAYS) == ["numeric_mismatch", "masked_value_in_clause"]
     assert extract("%[TCKN_1] faiz", "percent") == Extraction((), ())
     assert extract("₺[IBAN_3] ceza", "amount") == Extraction((), ())
 
@@ -1466,3 +1468,172 @@ def test_verify_outside_quote_not_checked_when_disabled() -> None:
     clause = "Ödeme 30 gün içinde, gecikme halinde 90 güne kadar yapılır."
     out = verify([_finding("30 gün içinde")], [AT_MOST_60_DAYS], [_clause(clause)], False, False)
     assert out[0].review_reasons == []
+
+
+# --- A masked number in the clause (masked_value_in_clause) --------------------------------------
+#
+# The masker can mistake a number that is not personal data for a phone number or a TCKN; the
+# placeholder is one word, never a number, so the value is not read. A `compliant` finding whose
+# clause holds a TCKN or TELEFON placeholder goes to the lawyer. The masked clause is written with
+# the placeholder directly here, so these tests do not depend on the masker.
+
+LIABILITY_CAP = _rule()  # no fixed threshold
+INSURANCE_MINIMUM = _rule(">=", 1_000_000, "TL")
+PAYMENT_TERM = AT_MOST_45_DAYS
+MASKED = "masked_value_in_clause"
+
+
+@pytest.mark.parametrize(
+    ("clause", "quote", "rule", "expected"),
+    [
+        pytest.param(
+            "Tedarikçinin toplam sorumluluğu [TELEFON_1] TL ile sınırlıdır.",
+            None,
+            LIABILITY_CAP,
+            [MASKED],
+            id="1-liability-no-threshold",
+        ),
+        pytest.param(
+            "Tedarikçi, [TELEFON_1] TL teminatlı mesleki sorumluluk sigortası yaptırır.",
+            None,
+            INSURANCE_MINIMUM,
+            ["numeric_mismatch", MASKED],
+            id="2-insurance-no-value-read",
+        ),
+        pytest.param(
+            "Alıcı faturayı 30 gün içinde, gecikme halinde [TCKN_1] güne kadar öder.",
+            None,
+            PAYMENT_TERM,
+            [MASKED],
+            id="3-payment-masked-in-quote",
+        ),
+        pytest.param(
+            "Alıcı faturayı 30 gün içinde öder, gecikme halinde 90 güne kadar öder.",
+            "Alıcı faturayı 30 gün içinde öder",
+            PAYMENT_TERM,
+            ["numeric_mismatch"],
+            id="4-payment-unmasked-outside-quote",
+        ),
+        pytest.param(
+            "Alıcı faturayı 30 gün içinde öder, gecikme halinde [TCKN_1] güne kadar öder.",
+            "Alıcı faturayı 30 gün içinde öder",
+            PAYMENT_TERM,
+            [MASKED],
+            id="5-payment-masked-outside-quote",
+        ),
+        pytest.param(
+            "Tedarikçi 2.000.000 TL teminatlı sigorta yaptırır. "
+            "Alt yükleniciler için teminat [TELEFON_1] TL olur.",
+            "Tedarikçi 2.000.000 TL teminatlı sigorta yaptırır.",
+            INSURANCE_MINIMUM,
+            [MASKED],
+            id="6-insurance-masked-second-sentence",
+        ),
+        pytest.param(
+            "Tedarikçinin toplam sorumluluğu sözleşme bedeli ile sınırlıdır. "
+            "Bu sınır hiçbir halde [TELEFON_1] TL tutarını aşamaz.",
+            "Tedarikçinin toplam sorumluluğu sözleşme bedeli ile sınırlıdır.",
+            LIABILITY_CAP,
+            [MASKED],
+            id="7-liability-masked-second-sentence",
+        ),
+    ],
+)
+def test_verify_compliant_masked_number_in_clause_queued(
+    clause: str, quote: str | None, rule: Rule, expected: list[str]
+) -> None:
+    result = _run(_finding(quote if quote is not None else clause), rule, clause)
+    assert result.review_reasons == expected
+    assert result.needs_review is True
+
+
+def test_verify_masked_number_in_another_clause_not_queued() -> None:
+    # Case 8, a known limit: only the clause the finding points to is looked at (as for unmasked
+    # values). The masked value in c2 does not reach a finding that points to c1.
+    shown = "Tedarikçinin toplam sorumluluğu 1.000.000 TL ile sınırlıdır."
+    other = "Alt yükleniciler için sorumluluk [TELEFON_1] TL olur."
+    clauses = [_clause(shown, "c1"), _clause(other, "c2")]
+    (result,) = verify([_finding(shown)], [LIABILITY_CAP], clauses, False)
+    assert result.review_reasons == []
+    assert result.needs_review is False
+
+
+def test_verify_masked_number_reason_after_numeric_reasons_before_injection() -> None:
+    clause = "Tedarikçinin toplam sorumluluğu [TELEFON_1] TL ile sınırlıdır."
+    result = _run(_finding(clause), LIABILITY_CAP, clause, injection=True)
+    assert result.review_reasons == [MASKED, "injection_suspected"]
+
+
+@pytest.mark.parametrize("placeholder", ["[IBAN_1]", "[KISI_1]", "[EPOSTA_1]"])
+def test_verify_other_placeholder_kinds_not_masked_number(placeholder: str) -> None:
+    clause = f"Tedarikçinin toplam sorumluluğu {placeholder} adına sınırlıdır."
+    assert _reasons(_finding(clause), LIABILITY_CAP, clause) == []
+
+
+@pytest.mark.parametrize("lookalike", ["[TCKN]", "TCKN_1", "[TELEFON_x]", "[tckn_1]"])
+def test_verify_placeholder_lookalike_not_masked_number(lookalike: str) -> None:
+    clause = f"Tedarikçinin toplam sorumluluğu {lookalike} TL ile sınırlıdır."
+    assert _reasons(_finding(clause), LIABILITY_CAP, clause) == []
+
+
+def test_verify_non_compliant_masked_number_not_signalled() -> None:
+    clause = "Tedarikçinin toplam sorumluluğu [TELEFON_1] TL ile sınırlıdır."
+    finding = _finding(clause, status="non_compliant", proposal=_proposal("Sınır kaldırılır."))
+    assert _reasons(finding, LIABILITY_CAP, clause) == []
+
+
+def test_verify_masked_number_not_signalled_when_disabled() -> None:
+    clause = "Tedarikçinin toplam sorumluluğu [TELEFON_1] TL ile sınırlıdır."
+    result = _run(_finding(clause), LIABILITY_CAP, clause, enabled=False)
+    assert result.review_reasons == []
+    assert result.needs_review is False
+
+
+def test_verify_masked_number_unknown_clause_id_no_signal_no_error() -> None:
+    clause = "Tedarikçinin toplam sorumluluğu [TELEFON_1] TL ile sınırlıdır."
+    finding = _finding(clause, clause_id="c9")
+    assert _reasons(finding, LIABILITY_CAP, clause) == ["quote_not_found"]
+
+
+def test_verify_masked_number_signalled_when_quote_not_found() -> None:
+    # The whole clause is looked at whether or not the quote matched
+    # (agent_design.md, 'Maskelenmiş sayı').
+    clause = "Tedarikçinin toplam sorumluluğu [TELEFON_1] TL ile sınırlıdır."
+    result = _run(_finding("uydurma alıntı"), LIABILITY_CAP, clause)
+    assert result.review_reasons == ["quote_not_found", MASKED]
+    assert result.needs_review is True
+
+
+def test_verify_masked_number_not_signalled_for_not_found_with_clause_id() -> None:
+    # A not_found finding may carry a clause_id; the code does not treat it as evidence.
+    clause = "Tedarikçinin toplam sorumluluğu [TELEFON_1] TL ile sınırlıdır."
+    result = _run(_finding(clause, status="not_found"), LIABILITY_CAP, clause)
+    assert MASKED not in result.review_reasons
+    assert result.review_reasons == ["unverified_not_found"]
+
+
+@pytest.mark.parametrize(
+    ("raw", "placeholder", "rule"),
+    [
+        # Step 17b's two documented false positives, through the real masker.
+        (
+            "Tedarikçinin toplam sorumluluğu 500 000 00 00 TL ile sınırlıdır.",
+            "[TELEFON_1]",
+            LIABILITY_CAP,
+        ),
+        (
+            "Alıcı faturayı 30 gün içinde, gecikme halinde 405 11 05 2020 güne kadar öder.",
+            "[TCKN_1]",
+            PAYMENT_TERM,
+        ),
+    ],
+    ids=["phone-shaped-amount", "tckn-shaped-numbers"],
+)
+def test_verify_after_real_mask_false_positive_queued(
+    raw: str, placeholder: str, rule: Rule
+) -> None:
+    masked, mapping = mask(raw, {})
+    assert placeholder in masked
+    assert list(mapping) == [placeholder]
+    result = _run(_finding(masked), rule, masked)
+    assert result.review_reasons == [MASKED]

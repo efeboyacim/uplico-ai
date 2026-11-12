@@ -81,7 +81,9 @@ flowchart LR
    okur, `submit_finding` ile bildirir; gerekiyorsa `propose_change` ya da `escalate_to_lawyer` çağırır.
    Her model ve tool çağrısı audit log'a yazılır.
 5. **verify:** Kod her bulguyu ve taslağı kontrol eder; `needs_review` işaretini ve sebep listesini
-   koyar (LLM değil).
+   koyar (LLM değil). Sebep kodlarının tamamı ve koşulları `agent_design.md` §5 sinyal tablosundadır
+   (`models.ReviewReason` ile aynı sırada); "uygun" bulgunun gösterdiği maddede `TCKN` / `TELEFON`
+   yer tutucusu varsa `masked_value_in_clause` de bunlardandır (maskelenmiş bir sayı kodca okunamaz).
 6. **human_review:** Graph `interrupt()` ile durur. Graph döndükten sonra API doğrulanmış bulguları
    ve taslakları (maskeli) `reviews` tablosuna yazar, durumu `awaiting_lawyer` yapar, `awaiting_lawyer`
    audit satırını aynı transaction'da ekler, indeksi siler ve incelemeyi HTTP 200 ile döner (yanıt

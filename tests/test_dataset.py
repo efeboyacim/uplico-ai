@@ -1,4 +1,5 @@
 import json
+import re
 from functools import cache
 from pathlib import Path
 from typing import Any
@@ -52,6 +53,22 @@ def _masked_text(contract_id: str) -> str:
         masked, mapping = mask(strip_invisible(raw.text), mapping)
         parts.append(masked)
     return "\n".join(parts)
+
+
+@cache
+def _masked_clauses(contract_id: str) -> dict[str | None, str]:
+    """Masked text of each numbered clause, by clause number, masked as `_masked_text` does."""
+    text = _text(BY_ID[contract_id])
+    _, mapping = mask(strip_invisible(text), {})
+    out: dict[str | None, str] = {}
+    for raw in split_clauses(text):
+        masked, mapping = mask(strip_invisible(raw.text), mapping)
+        out[raw.clause_no] = masked
+    return out
+
+
+# The placeholders that make `verify` queue a compliant finding (masked_value_in_clause).
+_NUMBER_PLACEHOLDER = re.compile(r"\[(?:TCKN|TELEFON)_[0-9]+\]")
 
 
 def _rules(data_dir: Path, tenant_id: str) -> dict[str, str]:
@@ -145,6 +162,29 @@ def test_dataset_contract_05_step_17b_formats_masked_names_not() -> None:
     assert hidden == _CONTRACT_05_MASKED_SINCE_17B
     left = [best_effort[i] for i in range(5) if i not in hidden]
     assert all(" " in value and not any(ch.isdigit() for ch in value) for value in left)
+
+
+@pytest.mark.parametrize("contract_id", IDS)
+def test_dataset_compliant_expected_clause_has_no_tckn_or_phone_placeholder(
+    contract_id: str,
+) -> None:
+    # TCKN and phone numbers stand only outside the rule clauses (parties, signatures); otherwise
+    # masked_value_in_clause would queue a correct compliant finding in the eval.
+    clauses = _masked_clauses(contract_id)
+    for entry in BY_ID[contract_id]["expected"]:
+        if entry["status"] != "compliant":
+            continue
+        masked = clauses[entry["clause_no"]]
+        assert not _NUMBER_PLACEHOLDER.search(masked), (contract_id, entry["rule_id"], masked)
+
+
+def test_dataset_tckn_or_phone_placeholders_exist_outside_compliant_clauses() -> None:
+    # The test above is not vacuous: the dataset's TCKN / phone values do become placeholders.
+    assert any(
+        _NUMBER_PLACEHOLDER.search(masked)
+        for contract_id in IDS
+        for masked in _masked_clauses(contract_id).values()
+    )
 
 
 @pytest.mark.parametrize("contract_id", IDS)

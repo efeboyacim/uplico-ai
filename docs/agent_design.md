@@ -234,6 +234,7 @@ yoktur.**
 | `numeric_mismatch` | Kuralda `check` var ve: kod alıntıdan kuralın birim türünde bir değer çıkaramıyor, ya da kodun hesabı modelin `status`'üyle çelişiyor, ya da modelin verdiği `value` kodun çıkardığından farklı, ya da bulgu `compliant` iken maddenin alıntı dışında kalan kısmında kuralı çiğneyen bir değer var (aşağıda "Alıntının dışında kalan değerler"). `ambiguous_value` varsa eklenmez |
 | `ambiguous_value` | Kuralda `check` var ve alıntıda aynı türden birden çok farklı değer geçiyor, ya da okunan en az bir değerin yanında kodun okuyamadığı bir değer ifadesi var (aşağıda "Okunamayan değer ifadesi") |
 | `unit_conversion_uncertain` | Kuralda `check` var ve süre çevirmesinin uçları `check`'te aynı sonucu vermiyor ("1 ay" ile "en az 30 gün": 28–31) |
+| `masked_value_in_clause` | Bulgu `compliant` ve gösterilen maddenin (`clause_id`) maskeli metninde en az bir `TCKN` ya da `TELEFON` yer tutucusu var (`[TCKN_1]`, `[TELEFON_2]`); kuralda `check` olsun olmasın (aşağıda "Maskelenmiş sayı") |
 | `unverified_not_found` | `status` `not_found` ise her zaman (kanıtsız sonuç avukatsız geçmez) |
 | `critical_not_found` | `severity: critical` bir kural `not_found` çıktı. Yalnızca sebep etiketidir; kuyruğa ayrıca etkisi yoktur |
 | `missing_proposal` | `non_compliant` ama değişiklik taslağı yok |
@@ -244,7 +245,8 @@ yoktur.**
 | `injection_suspected` | Sözleşmede enjeksiyon şüphesi var (o sözleşmenin tüm bulguları) |
 
 - Alıntı ve sayı sinyalleri (`quote_not_found`, `numeric_mismatch`, `ambiguous_value`,
-  `unit_conversion_uncertain`) yalnızca `compliant` / `non_compliant` bulgularda çalışır.
+  `unit_conversion_uncertain`) yalnızca `compliant` / `non_compliant` bulgularda çalışır;
+  `masked_value_in_clause` yalnızca `compliant` bulgularda.
 - **Alıntı eşleştirme:** İki tarafta aynı normalleştirme: NFKC, sıfır genişlikli karakterleri sil,
   boşlukları tekilleştir, tırnak/tire türlerini eşitle. `casefold()` kullanılmaz (Türkçe İ/ı bozulur).
   - Normalleştirmenin yok saydıkları: Unicode yazım biçimleri, sıfır genişlikli karakterler, boşluk,
@@ -281,7 +283,11 @@ yoktur.**
     okunamayandır: "yüzde on beşi" 10 okunmaz; "yüzde beşi", "beşer gün" ve "birkaç gün" okunamayan
     değer ifadesidir.
   - **Yer tutucular sayı değildir:** maskeleme yer tutucusu (`[TCKN_1]`, `[TELEFON_2]`) tek bir
-    sözcük sayılır; içindeki rakam sayı olarak okunmaz ("[TELEFON_2] gün" değer değildir).
+    sözcük sayılır; içindeki rakam sayı olarak okunmaz ("[TELEFON_2] gün" değer değildir). Yer
+    tutucunun yerinde maskelenmiş bir sayı durabilir (maskeleyicinin bilinen yanlış pozitifleri,
+    §5 "Girdi güvenliği": `500 000 00 00` → `[TELEFON_n]`, `405 11 05 2020` → `[TCKN_n]`); kod o
+    sayıyı okuyamaz ve onu ne değer ne de okunamayan değer ifadesi olarak sayar. Bunu telafi eden
+    `masked_value_in_clause` sinyalidir (aşağıda "Maskelenmiş sayı").
   - **Sayıyı sürdüren komşu ifadeyi okunamayan yapar.** Okunan bir sayı, yazıldığı sayının tamamı
     olmalıdır; kod bir sayının parçasını değer olarak okumaz. Önekli (`%`, `yüzde`, `₺`, `TL`) ya da
     sonekli her biçimde, sayıya bitişik şunlardan biri varsa ifade okunamayandır:
@@ -309,7 +315,10 @@ yoktur.**
     ("30 takvim günü" 30 gündür).
   - `%` ve `TL` ayrı türlerdir. `TL` türü `TL`, `₺` ve `lira` köküyle ("Türk Lirası") okunur.
     Yalnızca kuralın `check.unit`'iyle aynı türdeki değerlere bakılır (süre / yüzde / tutar).
-  - **Okunamayan değer ifadesi — kod sayı içeren bir ifadeyi sessizce atmaz.** Bir sayıdan sonra,
+  - **Okunamayan değer ifadesi — kod metinde yazılı bir sayı içeren ifadeyi sessizce atmaz.** Bu
+    güvence yalnızca metinde rakam ya da sayı sözcüğü olarak duran sayılar içindir; maskelenmiş bir
+    sayı artık yer tutucudur (bir sözcük) ve bu kuralın dışında kalır ("Yer tutucular sayı
+    değildir"; telafisi `masked_value_in_clause`). Bir sayıdan sonra,
     hemen ya da tek sözcük arayla, kuralın türündeki bir birim köküyle **başlayan** bir sözcük
     geliyorsa ve ifade yukarıdaki kurallarla okunamıyorsa, ifade "okunamayan" sayılır: listede
     olmayan ek ("5 ayrı"), araya giren sözcük ("5 iş günü", "bir buçuk ay", "1 milyon TL"), biçimi
@@ -371,6 +380,32 @@ yoktur.**
   - **Bilinen sınır:** yalnızca gösterilen maddeye bakılır. Kuralı çiğneyen değer başka bir
     maddedeyse (süre Madde 8'de, istisnası Madde 14'te) kod görmez; bu aramaya, modele ve avukata
     kalır.
+- **Maskelenmiş sayı (`masked_value_in_clause`).** Maskeleyici kişisel veri olmayan bir sayıyı
+  yanlışlıkla maskeleyebilir (telefon biçimli tutar `500 000 00 00`, birlikte 11 hane edip
+  checksum'ı tutan ayrı sayılar `405 11 05 2020`). Yer tutucu sayı olarak okunmadığından böyle bir
+  değer kodun gözünden kaçar ve "uygun" bulgu avukatsız geçebilirdi. Kural:
+  - Bulgu `compliant` ise ve gösterdiği maddenin (`clause_id`) maskeli metninde `TCKN` ya da
+    `TELEFON` türünde en az bir yer tutucu varsa bulgu `masked_value_in_clause` ile kuyruğa düşer.
+  - **Kapsam maddenin tamamıdır**, yalnızca alıntı değil ("Alıntının dışında kalan değerler" ile
+    aynı kapsam): dar alıntı maskelenmiş değeri dışarıda bırakamaz. Kuralda `check` olup olmaması
+    fark etmez; alıntının eşleşip eşleşmediğine de bakılmaz (eşleşmezse bulgu zaten kuyruktadır).
+    Var olan sebepler aynen üretilir, bu sebep onlara eklenir (alıntıdan değer okunamayınca
+    `numeric_mismatch` ile birlikte durur).
+  - **Neden yalnızca iki tür:** yanlışlıkla sayı yutabilen kalıplar yalnızca bunlardır. `IBAN`
+    `TR` öneki ve mod-97 ister, bir tutarın IBAN sayılması pratikte mümkün değildir; `KISI` ve
+    `EPOSTA` sayı taşımaz. Tür yer tutucunun kendisinden okunur (`[TCKN_3]`); `verify` saftır ve
+    PII eşlemesini görmez, eşleme açılmaz.
+  - **Neden yalnızca `compliant`:** `non_compliant` bulguda model zaten sorun bildirmiştir ve bulgu
+    taslakla avukata gider ("alıntı dışına bakılmaz" kuralıyla aynı gerekçe); `not_found` /
+    `no_finding` bulguları bir maddeyi kanıt olarak öne sürmez (model `clause_id` verse bile kod onu
+    kanıt saymaz) ve zaten `unverified_not_found` / `no_finding` sebebiyle kuyruğa düşer; sinyal
+    yalnızca `compliant` bulguda, `clause_id` dolu olsa da diğer durumlarda bakılmaz.
+  - **Kalan sınırlar:** (a) maskelenen değer bulgunun gösterdiği maddede değil başka bir maddedeyse
+    sinyal çalışmaz (maskesiz değerler için de sınır aynıdır, yukarıda); (b) `non_compliant`
+    bulguda uygulanmaz; (c) `IBAN` / `KISI` / `EPOSTA` yer tutucuları tetiklemez; (d) bedeli: bir
+    kural maddesinde gerçekten TCKN ya da telefon geçiyorsa o maddeye dayanan her "uygun" bulgu
+    kuyruğa düşer (hata güvenli yöndedir); (e) `enabled=False` (eval'in "önce" ölçümü) bu sinyali
+    üretmez.
 - **Taslak kontrolü (`proposal.code_check`):**
 
   | Durum | `code_check` | Kuyruğa etkisi |
@@ -490,8 +525,10 @@ yoktur.**
     bırakacak güvenilir bir kural yok (checksum yok; `500` gibi tek bir öneki dışlamak sorunu yalnızca
     bir sonraki sayıya taşır). Bedeli sınırlıdır: tutarlar üçlü gruplanır (`500 000 000`), 3-3-2-2
     geçerli bir tutar yazımı değildir; böyle maskelenen bir sayı yer tutucu olur ve kod onu sayı
-    olarak okumaz ("Yer tutucular sayı değildir"), yani yanlış bir değer olarak okunmaz. Fazla
-    maskeleme yönünde hata, PII sızıntısı yönündekinden tercih edilir.
+    olarak okumaz ("Yer tutucular sayı değildir"), yani yanlış bir değer olarak okunmaz; okunamayan
+    değeri, bulgu "uygun" ise ve yer tutucu gösterilen maddedeyse, `masked_value_in_clause` avukata
+    götürür (§5 "Maskelenmiş sayı"). Fazla maskeleme yönünde hata, PII sızıntısı yönündekinden
+    tercih edilir.
   - Bilinen yanlış pozitif (bilinçli, testle sabitlenmiştir): tek boşlukla ayrılmış ayrı sayılar
     birlikte 11 hane ediyor, `1`–`9` ile başlıyor ve binlik gruplanmış değilse (`10 30 120 10 20`)
     checksum tuttuğunda (yaklaşık yüzde bir) TCKN olarak maskelenir. Haneler arasındaki boşluk

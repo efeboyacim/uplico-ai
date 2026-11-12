@@ -330,8 +330,23 @@
   yer tutucu olur ve `verify` onu sayı olarak okumaz; "uygun" bulgu, maskelenen değer alıntıda da
   alıntının dışında da olsa, eşiksiz kuralda ya da görünen değer kuralı sağlıyorsa avukata gitmez
   (denendi). Adım 17b'den önce bir tutarın maskelenmesi pratikte mümkün değildi.
-- **Sıradaki:** `verify`'a madde düzeyinde "maskelenmiş sayı" sinyali (kendi `fix:` commit'i),
-  sonra Adım 18.
+  Adım 17b sonrası (`masked_value_in_clause`): `verify`, "uygun" bir bulgunun gösterdiği maddenin
+  maskeli metninde `TCKN` ya da `TELEFON` yer tutucusu varsa bulguyu avukata gönderir. Kapsam
+  alıntı değil maddenin tamamıdır; alıntının eşleşip eşleşmediğine bakılmaz. `IBAN`, ad ve e-posta
+  tetiklemez; "uygun değil" ve "bulunamadı" bulgularında ve doğrulama kapalıyken (eval "önce")
+  üretilmez. Yukarıdaki boşluğun yedi durumu ve kapatılmayan durum (değer başka maddede: kuyruğa
+  düşmez) testle sabit. `agent_design.md`'deki "sayı içeren ifade sessizce atılmaz" güvencesi
+  yalnızca metinde yazılı sayılar için geçerli olacak şekilde düzeltildi; kalan sınırlar orada.
+  Dataset testi: etiketi "uygun" olan hiçbir kuralın maddesinde bu iki yer tutucu yok (sinyal
+  eval'de gereksiz yönlendirme üretmez). Tek inceleme turu (kullanıcı kararı): testler ve
+  dokümanlar merceği iki küçük bulgu verdi, ikisi düzeltildi (alıntı eşleşmese de sinyalin
+  üretildiğini sabitleyen test; bir doküman gerekçesi). Doğruluk merceği bulgu bildirmedi, ama neyi
+  denediğini de raporlamadı; ana oturum yedi durumu gerçek `mask()` ile kendisi yeniden çalıştırdı.
+  **Denenmedi:** eski ve yeni `verify`'ın geniş girdide karşılaştırması bağımsız olarak
+  doğrulanmadı (dayanak: mevcut 421 doğrulama testinden yalnızca birinin beklentisi, kural gereği,
+  değişti).
+- **Sıradaki:** Adım 18 — İlk eval koşusu ve kalibrasyon. `src/` değiştiği için imaj yeniden
+  kurulmalı; önbellek özeti de değişti.
 - Bu bölüm her adımın commit'inde güncellenir; sıradaki adım, aşağıdaki ilk işaretsiz kutudur.
 
 ## Bağlam

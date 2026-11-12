@@ -215,6 +215,10 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   uvicorn worker). Çok süreçli dağıtımda yalnızca veritabanındaki durum şartı kalır.
 - **Düzenlenmiş taslak metninin uzunluğu:** `edited_text` 20.000 karakterle sınırlıdır; aşan karar
   422 alır.
+- **Yanlışlıkla maskelenen sayı:** maskeleyici kişisel veri olmayan bir sayıyı TCKN ya da telefon
+  sanıp maskeleyebilir ve kod yer tutucuyu sayı olarak okuyamaz. Telafisi: "uygun" bulgunun
+  gösterdiği maddede böyle bir yer tutucu varsa bulgu avukata gider (`masked_value_in_clause`);
+  yer tutucu başka bir maddedeyse ya da bulgu "uygun değil" ise bu telafi çalışmaz.
 
 ## 9. Varsayımlar ve bağımlılıklar
 - İki kurgusal şirket: `acme` ve `globex`; her birinin ~5 kurallık seti var. Her kural `critical` ya

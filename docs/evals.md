@@ -99,6 +99,21 @@
   Alıntı dışında "5 iş günü" → `ambiguous_value`; "1 ay" ("en az 30 gün") →
   `unit_conversion_uncertain`. Kuralı sağlayan değer kuyruğa düşürmez: "45 gün vade … 10 gün
   itiraz", kural "en fazla 45 gün" → sebep yok. `non_compliant` bulguda alıntı dışına bakılmaz.
+- **Maskelenmiş sayı (`masked_value_in_clause`):** madde metni testte doğrudan yer tutucuyla kurulur,
+  model her durumda `compliant` der. Kuyruğa düşer (yeni sebeple): eşiksiz sorumluluk kuralında
+  "[TELEFON_1] TL ile sınırlıdır"; "en az 1.000.000 TL" sigorta kuralında "[TELEFON_1] TL
+  teminatlı" (`numeric_mismatch` ile birlikte); "en fazla 45 gün" vade kuralında alıntının içinde
+  ya da dışında "[TCKN_1] güne kadar"; alıntı dışındaki ikinci cümlede "[TELEFON_1] TL" (sigorta ve
+  sorumluluk). Aynı madde maskesiz "90 güne kadar" ile → yalnızca `numeric_mismatch`, yeni sebep
+  yok. Sabitlenen sınır: yer tutucu bulgunun gösterdiği maddede değil başka maddedeyse kuyruk yok.
+  Olumsuzlar: yalnızca `[IBAN_1]` / `[KISI_1]` / `[EPOSTA_1]`, `non_compliant` bulgu, `enabled=False`,
+  bilinmeyen `clause_id` (istisna yok), yer tutucuya benzeyen metin (`[TCKN]`, `TCKN_1`,
+  `[TELEFON_x]`) → yeni sebep yok. Uçtan uca: `500 000 00 00` ve `405 11 05 2020` gerçek `mask()`'ten
+  geçer, `verify` yeni sebebi ekler. Graph düzeyinde: sahte model böyle bir maddeye `compliant` der
+  → inceleme `awaiting_lawyer`, `verification` audit satırında sebep var, karar ucu bulgu için
+  `action` ister. Dataset testi: hiçbir sözleşmede `compliant` etiketli bir kuralın beklenen
+  maddesinin maskeli metninde `TCKN` / `TELEFON` yer tutucusu yoktur (sinyal eval'de gereksiz
+  yönlendirme üretmez).
 - **Kritik kural:** `normal` kuralın `not_found` sonucu da `critical` kuralınki de kuyruğa düşer
   (`unverified_not_found`); `critical` olanda ek sebep `critical_not_found`.
 - **Taslak kontrolü:** "en az 30 gün" kuralı için "15 gün" yazan taslak → `code_check=failed`,

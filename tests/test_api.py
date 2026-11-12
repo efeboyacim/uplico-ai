@@ -1260,6 +1260,58 @@ def test_clean_contract_queues_only_the_not_found_rules(
     assert queued == {"late_penalty_cap", "insurance_minimum", "liability_cap"}
 
 
+def test_compliant_finding_on_clause_with_masked_number_queued_and_needs_action(
+    client: TestClient, settings: Settings
+) -> None:
+    # A phone-shaped amount (step 17b's known false positive) is masked as a phone number in the
+    # governing-law clause; the model calls that clause compliant. The code cannot read the
+    # masked number, so the finding goes to the lawyer and the decision needs its action.
+    text = CLEAN_TEXT.replace(
+        "İstanbul mahkemeleri yetkilidir.",
+        "İstanbul mahkemeleri yetkilidir; dava masrafı 500 000 00 00 TL ile sınırlıdır.",
+    )
+    assert text != CLEAN_TEXT
+    _install_model(settings, "acme", _clean_scripts())
+    response = client.post("/reviews", json={"text": text}, headers=dict(ACME_LAWYER))
+    assert response.status_code == 200, response.text
+    review = response.json()
+    review_id = review["review_id"]
+    store = Store(settings.data_dir, "acme")
+    _assert_no_model_error(store, review_id)
+    assert review["status"] == "awaiting_lawyer"
+
+    record = store.get_review(review_id)
+    assert record is not None
+    [law_clause] = [c for c in record.clauses if c.clause_id == "c3"]
+    assert "[TELEFON_" in law_clause.text and "500 000 00 00" not in law_clause.text
+    findings = {f["rule_id"]: f for f in review["findings"]}
+    law = findings["governing_law"]
+    assert law["status"] == "compliant"
+    assert law["needs_review"] is True
+    assert law["review_reasons"] == ["masked_value_in_clause"]
+    rows = [
+        r.payload
+        for r in store.list_audit(review_id)
+        if r.event == "verification" and r.payload["rule_id"] == "governing_law"
+    ]
+    assert [row["review_reasons"] for row in rows] == [["masked_value_in_clause"]]
+
+    body = _queue_decision(review)
+    assert "governing_law" in {entry["rule_id"] for entry in body["findings"]}
+    without = {
+        **body,
+        "findings": [e for e in body["findings"] if e["rule_id"] != "governing_law"],
+    }
+    before = _snapshot(settings, "acme", review_id)
+    rejected = _decide(client, review_id, without)
+    assert rejected.status_code == 422
+    assert [d["type"] for d in rejected.json()["detail"]] == ["missing_action"]
+    assert _snapshot(settings, "acme", review_id) == before
+
+    ok = _decide(client, review_id, body)
+    assert ok.status_code == 200, ok.text
+
+
 # Roles and identity
 
 

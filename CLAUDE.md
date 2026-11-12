@@ -34,7 +34,9 @@ tablosunu basar, `--limit N` ve `--prepare-only` seçenekleri var; Docker'da Gro
 sözleşmelik koşu denendi, tam koşu Adım 18'de).
 Adım 17 sonrası: `--resume` (içerik özetli önbellek) ve Adım 17b (maskeleyici üç biçim daha
 yakalar; garanti edilmeyen PII 5 / 5 → 2 / 5).
-Sıradaki: `verify`'a madde düzeyinde "maskelenmiş sayı" sinyali (`docs/plan.md`), sonra Adım 18.
+Ardından `verify`'a `masked_value_in_clause` sinyali eklendi ("uygun" bulgunun maddesinde TCKN /
+telefon yer tutucusu varsa avukata gider).
+Sıradaki: Adım 18 — İlk eval koşusu ve kalibrasyon.
 
 ## Komutlar
 ```bash

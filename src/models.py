@@ -18,6 +18,7 @@ ReviewReason = Literal[
     "numeric_mismatch",
     "ambiguous_value",
     "unit_conversion_uncertain",
+    "masked_value_in_clause",
     "unverified_not_found",
     "critical_not_found",
     "missing_proposal",
