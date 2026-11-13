@@ -1463,6 +1463,163 @@ def test_verify_compliant_value_outside_quote(
     assert _reasons(_finding(quote), rule, clause) == expected
 
 
+# The clause is read as a whole: a number that takes its unit from a connector is seen although
+# the neighbour that gives it the unit stands inside the quote.
+@pytest.mark.parametrize(
+    ("clause", "quote", "rule", "expected"),
+    [
+        (
+            "Taraflar sözleşmeyi 15-30 gün önceden yazılı bildirimle feshedebilir.",
+            "30 gün önceden yazılı bildirimle feshedebilir",
+            AT_LEAST_30_DAYS,
+            ["numeric_mismatch"],
+        ),
+        (
+            "Taraflar sözleşmeyi 15 ila 30 gün önceden yazılı bildirimle feshedebilir.",
+            "30 gün önceden yazılı bildirimle feshedebilir",
+            AT_LEAST_30_DAYS,
+            ["numeric_mismatch"],
+        ),
+        (
+            "Taraflar sözleşmeyi 15 veya 30 gün önceden yazılı bildirimle feshedebilir.",
+            "30 gün önceden yazılı bildirimle feshedebilir",
+            AT_LEAST_30_DAYS,
+            ["numeric_mismatch"],
+        ),
+        # The unit-less number stands after the quote.
+        (
+            "Fesih bildirimi 30 gün veya 15 önceden yapılır.",
+            "Fesih bildirimi 30 gün",
+            AT_LEAST_30_DAYS,
+            ["numeric_mismatch"],
+        ),
+        (
+            "Ödeme 45 gün veya 90 içinde yapılır.",
+            "Ödeme 45 gün",
+            AT_MOST_45_DAYS,
+            ["numeric_mismatch"],
+        ),
+        (
+            "Gecikme cezası sözleşme bedelinin %10-25 arasındadır.",
+            "Gecikme cezası sözleşme bedelinin %10",
+            _rule("<=", 10, "%"),
+            ["numeric_mismatch"],
+        ),
+        (
+            "Gecikme cezası sözleşme bedelinin %10 ila 25 arasındadır.",
+            "Gecikme cezası sözleşme bedelinin %10",
+            _rule("<=", 10, "%"),
+            ["numeric_mismatch"],
+        ),
+        (
+            "Teminat 500.000 ila 1.000.000 TL arasındadır.",
+            "1.000.000 TL arasındadır",
+            _rule(">=", 1_000_000, "TL"),
+            ["numeric_mismatch"],
+        ),
+        # The linked expression cannot be read.
+        (
+            "Fesih bildirimi 30 gün veya 15 bin önceden yapılır.",
+            "Fesih bildirimi 30 gün",
+            AT_LEAST_30_DAYS,
+            ["ambiguous_value"],
+        ),
+        # The conversion of the linked value is not exact.
+        (
+            "Bildirim 1 veya 2 ay önceden, en az 45 gün önceden yapılır.",
+            "en az 45 gün önceden yapılır",
+            AT_LEAST_30_DAYS,
+            ["unit_conversion_uncertain"],
+        ),
+        # A unit-less number inside the quote takes its unit from outside it.
+        (
+            "Bildirim 30 gün, acil halde 10 veya 45 gün önceden yapılır.",
+            "Bildirim 30 gün, acil halde 10",
+            AT_LEAST_30_DAYS,
+            ["numeric_mismatch"],
+        ),
+        # A linked range that satisfies the rule changes nothing.
+        (
+            "Taraflar sözleşmeyi 45-60 gün önceden yazılı bildirimle feshedebilir.",
+            "60 gün önceden yazılı bildirimle feshedebilir",
+            AT_LEAST_30_DAYS,
+            [],
+        ),
+        (
+            "Ödeme 30 ila 45 gün içinde yapılır.",
+            "45 gün içinde yapılır",
+            AT_MOST_45_DAYS,
+            [],
+        ),
+    ],
+)
+def test_verify_compliant_linked_value_outside_quote(
+    clause: str, quote: str, rule: Rule, expected: list[str]
+) -> None:
+    assert _reasons(_finding(quote), rule, clause) == expected
+
+
+def test_verify_non_compliant_linked_value_outside_quote_not_checked() -> None:
+    clause = "Taraflar sözleşmeyi 15-30 gün önceden yazılı bildirimle feshedebilir."
+    finding = _finding(
+        "30 gün önceden yazılı bildirimle feshedebilir",
+        status="non_compliant",
+        proposal=_proposal("45 gün"),
+    )
+    # The quote's own value satisfies the rule; nothing outside it is looked at.
+    assert _reasons(finding, AT_LEAST_30_DAYS, clause) == ["numeric_mismatch"]
+
+
+def test_verify_compliant_narrow_quote_never_hides_a_clause_value_seeded() -> None:
+    """Whatever the quote, a `compliant` finding whose quote matched is queued when the cited
+    clause, read as a whole, holds a value of the rule's kind that breaks the rule, converts
+    inexactly or cannot be read."""
+    rng = random.Random(20261113)
+    cases: list[tuple[Rule, list[str]]] = [
+        (
+            AT_LEAST_30_DAYS,
+            ["15", "30", "45", "60", "otuz", "on beş", "gün", "gün", "günlük", "ay", "hafta",
+             "ila", "ile", "veya", "-", "(", ")", ",", ".", "takvim", "iş", "içinde", "süre",
+             "Ayrıca", "bin", "buçuk", "önceden"],
+        ),
+        (
+            _rule("<=", 10, "%"),
+            ["%", "yüzde", "5", "10", "15", "25", "on", "beş", "ila", "ile", "veya", "-", "(",
+             ")", ",", ".", "oranında", "ceza", "Ayrıca", "buçuk"],
+        ),
+        (
+            _rule(">=", 1_000_000, "TL"),
+            ["500.000", "1.000.000", "2.500.000", "TL", "TL", "₺", "lira", "ila", "ile", "veya",
+             "-", "(", ")", ",", ".", "bedel", "milyon", "USD", "Türk", "Ayrıca"],
+        ),
+    ]  # fmt: skip
+    matched = queued_by_outside = 0
+    for rule, vocab in cases:
+        assert rule.check is not None
+        kind: Kind = {"gün": "duration", "%": "percent", "TL": "amount"}[rule.check.unit]  # type: ignore[assignment]
+        for _ in range(250):
+            text = " ".join(rng.choice(vocab) for _ in range(rng.randint(3, 7)))
+            text = text.replace(" ,", ",").replace(" .", ".").replace("( ", "(")
+            text = text.replace(" )", ")")
+            whole = extract(text, kind)
+            bad = bool(whole.unreadable) or any(
+                verify_module._evaluate([value], rule.check) is not True for value in whole.values
+            )
+            words = [(m.start(), m.end()) for m in re.finditer(r"\S+", text)]
+            for i, (start, _) in enumerate(words):
+                for _, end in words[i:]:
+                    result = _run(_finding(text[start:end]), rule, text)
+                    if "quote_not_found" in result.review_reasons:
+                        continue
+                    matched += 1
+                    if bad:
+                        assert result.needs_review, (text, text[start:end])
+                        queued_by_outside += 1
+    # The generator must reach both branches, or the test proves nothing.
+    assert matched > 2000
+    assert queued_by_outside > 500
+
+
 def test_verify_non_compliant_outside_quote_not_checked() -> None:
     clause = "Satıcı 15 gün önceden, Alıcı 5 gün önceden bildirir."
     finding = _finding(

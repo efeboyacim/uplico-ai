@@ -128,6 +128,17 @@
   Alıntı dışında "5 iş günü" → `ambiguous_value`; "1 ay" ("en az 30 gün") →
   `unit_conversion_uncertain`. Kuralı sağlayan değer kuyruğa düşürmez: "45 gün vade … 10 gün
   itiraz", kural "en fazla 45 gün" → sebep yok. `non_compliant` bulguda alıntı dışına bakılmaz.
+  Madde bütün olarak okunur; birimini bağlaçtan alan sayı, komşusu alıntının içinde kalsa da
+  görülür: madde "… 15-30 gün önceden …" ya da "… 15 ila 30 gün önceden …", alıntı "30 gün
+  önceden …", kural "en az 30 gün" → `numeric_mismatch`; "30 gün veya 15", alıntı "… 30 gün" →
+  `numeric_mismatch`; "45 gün veya 90" ("en fazla 45 gün"), "%10-25" ("en fazla %10"), "500.000
+  ila 1.000.000 TL" ("en az 1.000.000 TL") de öyle; "30 gün veya 15 bin", alıntı "… 30 gün" →
+  `ambiguous_value`; alıntının içindeki birimsiz sayı birimini dışarıdan alıyorsa ("30 gün, acil
+  halde 10 veya 45 gün", alıntı "… 30 gün, acil halde 10") → `numeric_mismatch`. Sağlayan aralık
+  kuyruğa düşürmez: "45-60 gün", alıntı "60 gün önceden", kural "en az 30 gün" → sebep yok.
+  Değişmez, tohumlu rastgele üretimle sınanır: alıntısı eşleşen `compliant` bir bulguda, maddenin
+  bütün okumasında kuralı çiğneyen, çevirmesi belirsiz ya da okunamayan bir değer varsa bulgu
+  kuyruktadır.
 - **Maskelenmiş sayı (`masked_value_in_clause`):** madde metni testte doğrudan yer tutucuyla kurulur,
   model her durumda `compliant` der. Kuyruğa düşer (yeni sebeple): eşiksiz sorumluluk kuralında
   "[TELEFON_1] TL ile sınırlıdır"; "en az 1.000.000 TL" sigorta kuralında "[TELEFON_1] TL

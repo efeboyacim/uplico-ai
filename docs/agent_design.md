@@ -245,7 +245,7 @@ yoktur.**
 | Sinyal | Koşul |
 |---|---|
 | `quote_not_found` | Alıntı, gösterilen maddenin maskeli metninde geçmiyor. Bu durumda sayı çıkarılmaz ve `numeric_mismatch` eklenmez |
-| `numeric_mismatch` | Kuralda `check` var ve: kod alıntıdan kuralın birim türünde bir değer çıkaramıyor, ya da kodun hesabı modelin `status`'üyle çelişiyor, ya da modelin verdiği `value` kodun çıkardığından farklı, ya da bulgu `compliant` iken maddenin alıntı dışında kalan kısmında kuralı çiğneyen bir değer var (aşağıda "Alıntının dışında kalan değerler"). `ambiguous_value` varsa eklenmez |
+| `numeric_mismatch` | Kuralda `check` var ve: kod alıntıdan kuralın birim türünde bir değer çıkaramıyor, ya da kodun hesabı modelin `status`'üyle çelişiyor, ya da modelin verdiği `value` kodun çıkardığından farklı, ya da bulgu `compliant` iken maddenin alıntı dışında kalan kısmında kuralı çiğneyen bir değer var (madde bütün olarak okunur; aşağıda "Alıntının dışında kalan değerler"). `ambiguous_value` varsa eklenmez |
 | `ambiguous_value` | Kuralda `check` var ve alıntıda aynı türden birden çok farklı değer geçiyor, ya da okunan en az bir değerin yanında kodun okuyamadığı bir değer ifadesi var (aşağıda "Okunamayan değer ifadesi") |
 | `unit_conversion_uncertain` | Kuralda `check` var ve süre çevirmesinin uçları `check`'te aynı sonucu vermiyor ("1 ay" ile "en az 30 gün": 28–31) |
 | `masked_value_in_clause` | Bulgu `compliant` ve gösterilen maddenin (`clause_id`) maskeli metninde en az bir `TCKN` ya da `TELEFON` yer tutucusu var (`[TCKN_1]`, `[TELEFON_2]`); kuralda `check` olsun olmasın (aşağıda "Maskelenmiş sayı") |
@@ -413,12 +413,23 @@ yoktur.**
   - **Alıntının dışında kalan değerler (yalnızca `compliant`).** Model alıntıyı dar tutup kuralı
     çiğneyen değeri dışarıda bırakabilir ("30 gün içinde, gecikme halinde 90 güne kadar" yazan
     maddeden yalnızca "30 gün içinde"). Bu yüzden bulgu `compliant` ise, kuralda `check` varsa ve
-    alıntı kendi kontrollerinden sebepsiz geçtiyse, kod gösterilen maddenin eşleşmenin öncesinde ve
-    sonrasında kalan metninden de aynı türdeki değerleri çıkarır ve her birini `check` ile tek tek
-    karşılaştırır:
+    alıntı kendi kontrollerinden sebepsiz geçtiyse, kod gösterilen maddenin **tamamını bir kez,
+    bütün olarak** okur ve aynı türdeki bütün değerlerini `check` ile tek tek karşılaştırır
+    (alıntının içindekiler aynı kontrolden az önce geçmiştir; sonucu değiştirebilenler alıntının
+    dışında kalanlardır):
     - değer kuralı çiğniyorsa `numeric_mismatch` (kodun hesabı `status` ile çelişiyor),
     - süre çevirmesi kesin sonuç vermiyorsa `unit_conversion_uncertain`,
     - okunamayan bir değer ifadesi varsa `ambiguous_value` (bu durumda `numeric_mismatch` eklenmez).
+
+    **Madde alıntıdan bölünüp parça parça okunmaz.** Birimini bağlaçla ("ila / ile / – / veya")
+    komşusundan alan sayı yalnızca komşusunun yanında değerdir; madde eşleşmenin öncesi ve sonrası
+    diye iki parçaya ayrılsaydı, komşusu alıntının içinde kalan sayı birimsiz kalır ve hiç
+    okunmazdı. Bütün okumada "15-30 gün önceden" yazan maddeden alınan "30 gün önceden" alıntısı
+    15 günü gizleyemez ("en az 30 gün" kuralında `numeric_mismatch`); "%10-25" yazan maddede "%10",
+    "500.000 ila 1.000.000 TL" yazan maddede "1.000.000 TL" alıntısı da böyledir. Bağlaç alıntının
+    içindeki birimsiz bir sayıya birimini dışarıdan veriyorsa ("30 gün, acil halde 10 veya 45 gün"
+    yazan maddede "30 gün, acil halde 10" alıntısı) o sayı da karşılaştırılır. Bağlaçla bağlı
+    olmayan değerlerde sonuç, parçaların ayrı ayrı okunmasıyla aynıdır.
 
     Kuralı sağlayan değer kuyruğa düşürmez ("en fazla 45 gün" kuralında "45 gün vade … 10 gün
     itiraz süresi": 10 sağlar). `non_compliant` bulgularda bakılmaz: model zaten sorun bildirmiştir.
