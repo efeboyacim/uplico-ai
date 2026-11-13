@@ -213,6 +213,17 @@
   bölmez); `Tel: 533 555 05 30-info@ornek.com` (ve `.`, `_` ile ya da ayraçsız yapışık varyantları)
   `Tel: 533 555 05 [EPOSTA_1]` olur, Adım 17b öncesiyle aynı. İkisinde de yeniden maskeleme bir şey
   değiştirmez ve maske açma metni aynen geri verir.
+- **Parantezli alan kodlu telefon:** önekli telefon, alan kodu parantez içinde yazılınca da
+  maskelenir: `0 (532) 123 45 67`, `0(532)1234567`, `+90 (533) 555 05 30`, `+90 (0532) 123 45 67`,
+  `(0212) 555 12 34`, `(0 212) 555 12 34` (nokta ve tire ayraçlı varyantlarıyla); maske açma metni
+  aynen geri verir, yeniden maskeleme bir şey değiştirmez, aynı yazım aynı yer tutucuyu alır.
+  Maskelenmez: öneksiz `(532) 123 45 67` ve `(212) 555 12 34`; hanesi eksik ya da fazla, çift
+  ayraçlı, parantezin içinde boşlukla başlayan yazımlar; önünde rakam ya da `+`, ardında rakam
+  olanlar (`10 (532) 123 45 67`); parantezli tutar, süre, oran ve madde atıfları ("otuz (30) gün",
+  "(1.250.000) TL", "Madde 10 (123) uyarınca 456 78 90"). Biçim zayıftır: `(0212)123 0532 123 45
+  67` içinde önekli telefon tek `[TELEFON_1]` kalır, `(0212) 555 12 34-info@ornek.com` e-postayı
+  bölmez. Aynı değişmez (eski kalıpların bulduğu değer yer kaybetmez) parantezli yazımların
+  karıştığı ayrı bir tohumlu üretimle (3.000 girdi) sınanır.
 - **Tutar, süre ve tarih maskelenmez:** "1.250.000 TL", "5.000.000,00 TL", "90 gün", "otuz (30) gün",
   "01.01.2026", "2026-01-01", "%15", "Madde 12" ve yan yana yazılmış "01.01.2026 1.250 TL" içeren
   metin maskelemeden aynen çıkar. Telefon kalıbı bunların hiçbirini yakalamaz; "+90 532 123 45 67"
@@ -377,11 +388,13 @@ görüldükten sonra alındı (2026-11-12); plandaki istisna yalnızca madde 9'u
 ```
 `pii_values`: maskelenmesi garanti edilenler (bitişik ya da boşluklu TCKN, binlik gibi gruplanmış
 `dd ddd ddd ddd` yazımı hariç; bitişik, dörtlü ya da serbest gruplu (karakterler arasında en fazla
-birer boşluk ya da bölünemez boşluk) tek satırlık IBAN; önekli telefon; 3-3-2-2 ayraçla (boşluk,
+birer boşluk ya da bölünemez boşluk) tek satırlık IBAN; önekli telefon, alan kodu parantez içinde
+yazılmış olsa da; 3-3-2-2 ayraçla (boşluk,
 nokta ya da tire) yazılmış öneksiz cep telefonu; e-posta; taraf/imza bloğundaki adlar).
 `pii_best_effort`: maskelenmesi **garanti edilmeyen** her kimlik bilgisi (gövdede geçen ad, etiketsiz
 imza satırındaki ad, satıra bölünmüş, tireli ya da çift boşluklu IBAN, ayraçsız ya da bölünemez
-boşlukla gruplanmış öneksiz cep numarası, öneksiz sabit hat, binlik gibi gruplanmış TCKN).
+boşlukla gruplanmış öneksiz cep numarası, öneksiz sabit hat, öneksiz yazılmış parantezli alan kodu,
+binlik gibi gruplanmış TCKN).
 Değerler maskeleyicinin onları yakalayıp yakalamadığına göre değil, ne olduklarına göre etiketlenir.
 **Bilinçli istisna:** sözleşme 5'teki boşluklu TCKN (`214 738 739 60`), düzensiz IBAN
 (`TR18 00010 00406 02833 88480 99`) ve öneksiz cep telefonu (`533 555 05 30`) Adım 17b'den sonra

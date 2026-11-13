@@ -451,11 +451,11 @@ model adını basan `python -m src.config` eklenir.
 |---|---|---|
 | Asıl sözleşme metni | Makinede kalır (tenant `app.db`) | Makinede kalır |
 | PII eşlemesi (yer tutucu → gerçek değer) | Makinede kalır (tenant `app.db`) | Makinede kalır |
-| Bitişik ya da boşluklu TCKN, tek satırda yazılmış IBAN (bitişik, dörtlü ya da serbest gruplu), önekli telefon, 3-3-2-2 ayraçla yazılmış öneksiz cep telefonu, e-posta, taraf/imza bloğundaki adlar | Gitmez (maskeli) | Gitmez |
+| Bitişik ya da boşluklu TCKN, tek satırda yazılmış IBAN (bitişik, dörtlü ya da serbest gruplu), önekli telefon (alan kodu parantez içinde yazılmış olsa da), 3-3-2-2 ayraçla yazılmış öneksiz cep telefonu, e-posta, taraf/imza bloğundaki adlar | Gitmez (maskeli) | Gitmez |
 | Maskeli madde metni, kural metni, agent mesajları | **Groq'a gider** | Makinede kalır |
 | Tutarlar, fiyatlar, süreler, tarihler, ticari şartlar, şirket adları | **Groq'a gider** (maskelenmez; kurallar bunlara ihtiyaç duyar) | Makinede kalır |
 | Avukatın düzenlediği taslak metni | Modele gitmez (karar agent çalıştıktan sonra verilir); maskeli saklanır | Makinede kalır |
-| Maskelemenin kaçırdığı kimlik bilgileri (gövdede geçen ad, etiketsiz imza satırındaki ad, satıra bölünmüş, tireli ya da çift boşluklu IBAN, ayraçsız ya da bölünemez boşlukla gruplanmış öneksiz cep numarası, öneksiz sabit hat, binlik gibi gruplanmış TCKN) | **Groq'a gidebilir** | Makinede kalır |
+| Maskelemenin kaçırdığı kimlik bilgileri (gövdede geçen ad, etiketsiz imza satırındaki ad, satıra bölünmüş, tireli ya da çift boşluklu IBAN, ayraçsız ya da bölünemez boşlukla gruplanmış öneksiz cep numarası, öneksiz sabit hat, öneksiz yazılmış parantezli alan kodu, binlik gibi gruplanmış TCKN) | **Groq'a gidebilir** | Makinede kalır |
 | Trace (yalnızca `LANGSMITH_API_KEY` varsa) | LangSmith'e gider, maskeli | Kapalı tutulur |
 | Eval (yalnızca `LANGSMITH_API_KEY` varsa ve koşu kısmi değilse): `contract_id`, `tenant_id`, beklenen bulgular, etiketler, kural satırları (kimlik, durum kodu, madde numarası, bayrak, sayı), sayımlar, sağlayıcı ve model adı; ayrıca SDK'nın kendi eklediği ortam bilgisi (`evals.md` §7) | LangSmith'e gider. Sözleşme metni, alıntı, taslak, gerekçe ve PII listeleri gitmez | Kapalı tutulur |
 

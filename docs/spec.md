@@ -29,7 +29,8 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
 - **Kaçırılan uygunsuzluk ≤ %20** (uygun değil → uygun/bulunamadı denmesi). **Yanlış bulgu ≤ %20.**
 - **Model sağlayıcıya giden PII sayısı = 0** — bitişik ya da boşluklu TCKN (binlik gibi gruplanmış
   `dd ddd ddd ddd` yazımı hariç), TR + 24 hane, karakterler arasında en fazla birer boşluk ya da
-  bölünemez boşlukla tek satırda yazılmış IBAN, önekli telefon, 3-3-2-2 ayraçla (boşluk, nokta ya da
+  bölünemez boşlukla tek satırda yazılmış IBAN, önekli telefon (alan kodu parantez içinde yazılmış
+  olsa da: `0 (532) 123 45 67`, `(0212) 555 12 34`), 3-3-2-2 ayraçla (boşluk, nokta ya da
   tire) yazılmış öneksiz cep telefonu, e-posta ve taraf/imza
   bloğundaki adlar için. Maskelenmesi garanti edilmeyen kimlik bilgilerinin
   sızıntısı (`pii_best_effort`) ayrıca raporlanır (eşik yok).
@@ -153,7 +154,8 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
     maskelenmeyen her şey dahildir: tutarlar, fiyatlar, ticari şartlar, şirket adları ve maskelemenin
     kaçırdığı kimlik bilgileri (gövdede geçen ad, etiketsiz imza satırındaki ad, satıra bölünmüş,
     tireli ya da çift boşluklu IBAN, ayraçsız ya da bölünemez boşlukla gruplanmış öneksiz cep
-    numarası, öneksiz sabit hat, binlik gibi gruplanmış TCKN).
+    numarası, öneksiz sabit hat, öneksiz yazılmış parantezli alan kodu, binlik gibi gruplanmış
+    TCKN).
   - **"Veri makineden çıkmaz" yalnızca çevrimdışı mod (`LLM_PROVIDER=ollama`, LangSmith kapalı) için
     doğrudur.**
   - Arama her iki modda yereldir (yalnızca BM25, süreç içinde). PII eşlemesi ve ham sözleşme hiçbir
@@ -238,9 +240,11 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
 - Sözleşmeler "Madde N" başlıklarıyla yazılmış, 5–30 sayfa arası.
 - Kişi adı maskeleme en iyi çabadır (taraf/imza blokları); gövdede geçen adlar, satıra bölünmüş,
   tireli ya da çift boşluklu IBAN, ayraçsız ya da bölünemez boşlukla gruplanmış öneksiz cep
-  numarası, öneksiz sabit hat ve binlik gibi gruplanmış TCKN (`21 473 873 960`; tutardan
-  ayrılamadığı için bilerek) kaçabilir. Boşluklu TCKN, serbest gruplu IBAN ve 3-3-2-2 ayraçla
-  yazılmış öneksiz cep numarası yakalanır. İki bilinen yanlış pozitif vardır (`agent_design.md` "PII
+  numarası, öneksiz sabit hat, öneksiz yazılmış parantezli alan kodu (`(532) 123 45 67`) ve binlik
+  gibi gruplanmış TCKN (`21 473 873 960`; tutardan
+  ayrılamadığı için bilerek) kaçabilir. Boşluklu TCKN, serbest gruplu IBAN, 3-3-2-2 ayraçla
+  yazılmış öneksiz cep numarası ve alan kodu parantez içinde yazılmış önekli telefon
+  (`0 (532) 123 45 67`, `+90 (533) 555 05 30`, `(0212) 555 12 34`) yakalanır. İki bilinen yanlış pozitif vardır (`agent_design.md` "PII
   maskeleme"): öneksiz cep kalıbı checksum'sızdır ve `5` ile başlayan 3-3-2-2 gruplu bir sayıyı
   (`500 000 00 00`) telefon sayar; tek boşlukla ayrılmış ayrı sayılar birlikte 11 hane edip
   checksum'ı tutarsa (`10 30 120 10 20`, yaklaşık yüzde bir) TCKN sayılır.

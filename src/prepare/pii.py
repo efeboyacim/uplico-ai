@@ -80,6 +80,25 @@ _PHONE = re.compile(
     + _SEP
     + r"[0-9]{2}(?![0-9])"
 )
+# The same number with the area code in parentheses: after the prefix ("0 (532) 123 45 67",
+# "+90 (533) 555 05 30") or with the "0" inside them ("(0212) 555 12 34", "(0 212) 555 12 34").
+# The prefix is still required: "(532) 123 45 67" is not matched. A pattern of its own, and weak
+# (see `_is_weak`): it never takes text from a value `_PHONE` finds ("(0212)123 0532 123 45 67").
+_PHONE_PARENS = re.compile(
+    r"(?<![0-9+])(?:(?:\+90|0)"
+    + _SEP
+    + r"\((?:0"
+    + _SEP
+    + r")?[0-9]{3}\)|\(0"
+    + _SEP
+    + r"[0-9]{3}\))"
+    + _SEP
+    + r"[0-9]{3}"
+    + _SEP
+    + r"[0-9]{2}"
+    + _SEP
+    + r"[0-9]{2}(?![0-9])"
+)
 # A mobile number without prefix: "5" and 3-3-2-2 digits with exactly one space, dot or hyphen
 # between the groups ("533 555 05 30"). It has no checksum, so the pattern stays narrow: not inside
 # a longer number (no digit, "+", or digit and one separator before or after it; this also keeps it
@@ -457,15 +476,16 @@ def _iban_valid(iban: str) -> bool:
 
 
 def _is_weak(kind: str, value: str) -> bool:
-    """A spelling first found in step 17b: a spaced TCKN, a freely grouped IBAN or a mobile number
-    without prefix. It only takes text that no strict value covers (see `_resolve`), so a value the
-    older patterns find (e-mail, compact or standard-grouped IBAN, prefixed phone, compact TCKN,
-    name) never loses its place to one."""
+    """A spelling added after the first patterns: a spaced TCKN, a freely grouped IBAN, a mobile
+    number without prefix or a phone number with its area code in parentheses. It only takes text
+    that no strict value covers (see `_resolve`), so a value the older patterns find (e-mail,
+    compact or standard-grouped IBAN, prefixed phone, compact TCKN, name) never loses its place to
+    one."""
     if kind == "TCKN":
         return not value.isdigit()
     if kind == "IBAN":
         return _IBAN_STANDARD.fullmatch(value) is None
-    return kind == "TELEFON" and value.startswith("5")
+    return kind == "TELEFON" and (value.startswith("5") or "(" in value)
 
 
 def _discover(text: str) -> Iterator[tuple[str, str]]:
@@ -475,6 +495,7 @@ def _discover(text: str) -> Iterator[tuple[str, str]]:
         (_EMAIL, "EPOSTA"),
         (_IBAN, "IBAN"),
         (_PHONE, "TELEFON"),
+        (_PHONE_PARENS, "TELEFON"),
         (_PHONE_BARE, "TELEFON"),
     ):
         for m in pattern.finditer(text):

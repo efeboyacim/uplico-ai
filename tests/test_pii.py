@@ -121,6 +121,127 @@ def test_mask_phone_double_separator_or_no_prefix_not_masked(text: str) -> None:
     assert _mask(text) == (text, {})
 
 
+# The area code in parentheses: after the prefix, or with the "0" inside the parentheses.
+@pytest.mark.parametrize(
+    "phone",
+    [
+        "0 (532) 123 45 67",
+        "0(532) 123 45 67",
+        "0 (532) 1234567",
+        "0(532)1234567",
+        "0 (212) 555 12 34",
+        "+90 (533) 555 05 30",
+        "+90(533) 555 05 30",
+        "+90 (212) 555 12 34",
+        "+90 (533) 555-05-30",
+        "+90 (533) 555.05.30",
+        "+90 (0532) 123 45 67",
+        "(0532) 123 45 67",
+        "(0212) 555 12 34",
+        "(0212) 5551234",
+        "(0212)5551234",
+        "(0 212) 555 12 34",
+        "(0-212) 555 12 34",
+    ],
+)
+def test_mask_phone_area_code_in_parentheses_masked(phone: str) -> None:
+    text = f"Tel: {phone}, faks yok."
+    masked, mapping = _mask(text)
+    assert masked == "Tel: [TELEFON_1], faks yok."
+    assert mapping == {"[TELEFON_1]": phone}
+    assert unmask(masked, mapping) == text
+    # Masking the masked text again finds nothing new.
+    assert mask(masked, mapping) == (masked, mapping)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # No prefix: the parentheses alone do not make a phone number (documented limit).
+        "Tel: (532) 123 45 67",
+        "Tel: (212) 555 12 34",
+        # Not the 3-3-2-2 shape, a double separator, or a separator inside the parentheses.
+        "Tel: 0 (532) 123 45",
+        "Tel: 0 (53) 123 45 67",
+        "Tel: 0 (5321) 123 45 67",
+        "Tel: 0  (532) 123 45 67",
+        "Tel: 0 (532)  123 45 67",
+        "Tel: 0 ( 532) 123 45 67",
+        "Tel: (0  212) 555 12 34",
+        "Tel: 0 (532)) 123 45 67",
+        # A digit or "+" right before the number, or a digit right after it.
+        "Ref: 10 (532) 123 45 67",
+        "Ref: 7(0212) 555 12 34",
+        "Ref: +(0212) 555 12 34",
+        "Ref: (0212) 555 12 345",
+        # Amounts, clause references and dates written with parentheses.
+        "Bedel 0 (sıfır) TL, ceza 100 (yüz) TL olur.",
+        "Tutar (1.250.000) TL, vade (30) gün, oran (%15).",
+        "Madde 10 (123) uyarınca 456 78 90 adet teslim edilir.",
+        "Süre otuz (30) gün; teslim 01.01.2026 (15) 100 20 30.",
+        "Toplam (0100) 200 30 TL.",
+    ],
+)
+def test_mask_parentheses_without_a_prefixed_phone_shape_unchanged(text: str) -> None:
+    assert _mask(text) == (text, {})
+
+
+def test_mask_phone_in_parentheses_next_to_other_values() -> None:
+    text = (
+        "Yetkili: Ahmet Yılmaz, TCKN 10000000146, GSM 0 (532) 123 45 67, "
+        "faks (0212) 555 12 34, cep 533 555 05 30, e-posta ahmet@ornek.com."
+    )
+    masked, mapping = _mask(text)
+    assert masked == (
+        "Yetkili: [KISI_1], TCKN [TCKN_1], GSM [TELEFON_1], "
+        "faks [TELEFON_2], cep [TELEFON_3], e-posta [EPOSTA_1]."
+    )
+    assert mapping["[TELEFON_1]"] == "0 (532) 123 45 67"
+    assert mapping["[TELEFON_2]"] == "(0212) 555 12 34"
+    assert unmask(masked, mapping) == text
+
+
+def test_mask_phone_in_parentheses_same_spelling_same_placeholder_other_spelling_new() -> None:
+    text = "Tel 0 (532) 123 45 67; yine 0 (532) 123 45 67; ayrıca 0532 123 45 67."
+    masked, mapping = _mask(text)
+    assert masked == "Tel [TELEFON_1]; yine [TELEFON_1]; ayrıca [TELEFON_2]."
+    assert mapping == {"[TELEFON_1]": "0 (532) 123 45 67", "[TELEFON_2]": "0532 123 45 67"}
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # A parenthesized spelling that would start earlier and end inside a prefixed phone.
+        ("(0212)123 0532 123 45 67", "(0212)123 [TELEFON_1]"),
+        ("(0 212) 212 0532 123 45 67", "(0 212) 212 [TELEFON_1]"),
+        ("0 (212) 555 +905321234567", "0 (212) 555 [TELEFON_1]"),
+        # ... or inside an e-mail address.
+        ("(0212) 555 12 34-info@ornek.com", "(0212) 555 12 [EPOSTA_1]"),
+    ],
+)
+def test_mask_phone_in_parentheses_never_takes_text_from_an_older_value(
+    text: str, expected: str
+) -> None:
+    # The older patterns' value keeps its place; the result is the one before this spelling.
+    masked, mapping = _mask(text)
+    assert masked == expected
+    assert unmask(masked, mapping) == text
+
+
+def test_mask_phone_in_parentheses_is_a_weak_value() -> None:
+    assert pii._is_weak("TELEFON", "(0212) 555 12 34")
+    assert pii._is_weak("TELEFON", "0 (532) 123 45 67")
+    assert pii._is_weak("TELEFON", "+90 (533) 555 05 30")
+    assert not pii._is_weak("TELEFON", "0532 123 45 67")
+    assert not pii._is_weak("TELEFON", "+90 532 123 45 67")
+
+
+def test_mask_unclosed_parenthesis_before_a_phone_masked_as_before() -> None:
+    # Not a parenthesized area code; the older patterns still find the number after "(".
+    assert _mask("Tel: (0212 555 12 34")[0] == "Tel: ([TELEFON_1]"
+    assert _mask("Tel: 0 (532 123 45 67")[0] == "Tel: 0 ([TELEFON_1]"
+
+
 # --- IBAN ---------------------------------------------------------------------------------------
 
 
@@ -1079,6 +1200,7 @@ _OLD_PATTERNS = {
     ),
     "_TCKN": re.compile(r"(?<![0-9])(?=([1-9][0-9]{10})(?![0-9]))"),
     "_PHONE_BARE": re.compile(r"(?!)"),
+    "_PHONE_PARENS": re.compile(r"(?!)"),
 }
 
 
@@ -1196,3 +1318,51 @@ def test_mask_new_formats_never_take_place_of_old_value(monkeypatch: pytest.Monk
         new = _masked_spans(text, new_masked, new_mapping)
         assert old <= new, (text, sorted(old - new))
         assert unmask(new_masked, new_mapping) == text
+
+
+def _gen_phone_in_parens(rng: random.Random) -> str:
+    def sep() -> str:
+        return rng.choice(["", " ", " ", ".", "-"])
+
+    area = f"{rng.choice([5, 2, 3, 4])}{rng.randint(0, 99):02d}"
+    groups = [
+        f"{rng.randint(0, 999):03d}",
+        f"{rng.randint(0, 99):02d}",
+        f"{rng.randint(0, 99):02d}",
+    ]
+    rest = groups[0] + sep() + groups[1] + sep() + groups[2]
+    shape = rng.randrange(4)
+    if shape == 0:
+        return f"{rng.choice(['+90', '0'])}{sep()}({area}){sep()}{rest}"
+    if shape == 1:
+        return f"(0{sep()}{area}){sep()}{rest}"
+    if shape == 2:
+        return f"+90{sep()}(0{area}){sep()}{rest}"
+    return f"({area}){sep()}{rest}"  # no prefix: not a phone number for the masker
+
+
+def test_mask_phone_in_parentheses_never_takes_place_of_old_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The same invariant with parenthesized area codes mixed into the text: whatever is masked
+    # with every later spelling switched off is masked identically with them switched on.
+    rng = random.Random(2613)
+    found = 0
+    for _ in range(3_000):
+        parts = [
+            _gen_phone_in_parens(rng) if rng.random() < 0.4 else _gen_token(rng)
+            for _ in range(rng.randint(2, 7))
+        ]
+        text = "".join(part + rng.choice(_JOINTS) for part in parts)
+        with monkeypatch.context() as patched:
+            for name, pattern in _OLD_PATTERNS.items():
+                patched.setattr(pii, name, pattern)
+            old_masked, old_mapping = mask(text, {})
+        new_masked, new_mapping = mask(text, {})
+        old = _masked_spans(text, old_masked, old_mapping)
+        new = _masked_spans(text, new_masked, new_mapping)
+        assert old <= new, (text, sorted(old - new))
+        assert unmask(new_masked, new_mapping) == text
+        found += sum("(" in value for _, _, value in new - old)
+    # The generator must produce the spelling under test, or the test proves nothing.
+    assert found > 500

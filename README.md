@@ -426,8 +426,10 @@ Tam tablo: `docs/architecture.md` §6 "Veri nereye gidiyor".
   bağımsız bir incelemeden geçmedi (yalnızca eski sürümle 30.000 rastgele girdide karşılaştırıldı).
   Ayrıntı: `docs/agent_design.md` §5.
 - **Maskelenmeyen kimlik bilgileri.** Gövdede geçen ad, etiketsiz imza satırındaki ad, satıra
-  bölünmüş, tireli ya da çift boşluklu IBAN, ayraçsız öneksiz cep numarası, öneksiz sabit hat ve
-  binlik gibi gruplanmış TCKN maskelenmez.
+  bölünmüş, tireli ya da çift boşluklu IBAN, ayraçsız öneksiz cep numarası, öneksiz sabit hat,
+  öneksiz yazılmış parantezli alan kodu (`(532) 123 45 67`) ve binlik gibi gruplanmış TCKN
+  maskelenmez. Önekli telefon, alan kodu parantez içinde yazılsa da maskelenir
+  (`0 (532) 123 45 67`, `(0212) 555 12 34`).
 - **Adım 17b'nin bilinen yanlış yakalamaları.** `5` ile başlayan her 3-3-2-2 sayı telefon sayılır
   (`500 000 00 00`); tek boşlukla ayrılmış ayrı sayılar 11 haneye denk gelip checksum'ı tutarsa
   (yaklaşık yüzde bir) TCKN sayılır. Telafi: "uygun" bulgunun maddesinde TCKN ya da telefon yer

@@ -544,7 +544,11 @@ yoktur.**
   - **Öncelik (değişmez):** eski kalıpların bulduğu bir değer, yeni biçimler yüzünden asla yer
     kaybetmez. Adım 17b'nin üç yeni biçimi **zayıftır**: boşluklu TCKN, standart kalıba (bitişik ya
     da `TR` + 2 hane ve dörtlü gruplar, gruplar arasında en fazla birer boşluk) uymayan serbest
-    gruplu IBAN ve öneksiz cep telefonu. **Katı** olanlar Adım 17b'den önce de bulunanlardır:
+    gruplu IBAN ve öneksiz cep telefonu. Sonradan eklenen dördüncü biçim, alan kodu parantez içinde
+    yazılmış telefon da zayıftır: parantezli bir yazım, kendisinden sonra başlayan önekli bir
+    telefonun hanelerini ödünç alıp onu bölemez (`(0212)123 0532 123 45 67` →
+    `(0212)123 [TELEFON_1]`, bu biçim eklenmeden öncekiyle aynı). **Katı** olanlar Adım 17b'den
+    önce de bulunanlardır:
     e-posta, bitişik ya da standart gruplu IBAN, `+90` / `0` önekli telefon, bitişik TCKN, ad.
     Çakışan aralıklar iki turda çözülür: önce katı değerler arasında önce başlayan, eşit başlangıçta
     uzun olan kazanır (sonuç Adım 17b öncesiyle aynıdır); sonra zayıf değerler yalnızca katı bir
@@ -560,10 +564,20 @@ yoktur.**
   - E-posta: regex.
   - Numaralar metinde yazıldığı haliyle (boşluklarıyla) eşlemeye girer; maske açma metni aynen geri
     verir. TCKN ve IBAN'da ayraç yalnızca boşluk ya da bölünemez boşluktur; telefonda (önekli ve
-    öneksiz) yalnızca boşluk, nokta ya da tiredir. Bölünemez boşluk telefonda ayraç değildir; diğer
+    öneksiz) yalnızca boşluk, nokta ya da tiredir; önekli telefonda alan kodu ayrıca parantez içinde
+    yazılabilir (aşağıda). Bölünemez boşluk telefonda ayraç değildir; diğer
     Unicode boşlukları, sekme ve satır sonu hiçbir kalıpta ayraç değildir.
   - Telefon, önekli: `+90` ya da `0` öneki ve ardından 3-3-2-2 haneli gruplar (`0XXX XXX XX XX`).
     Gruplar arasında en fazla tek bir boşluk, nokta ya da tire olabilir; grup içinde ayraç olmaz.
+  - Telefon, önekli ve alan kodu parantez içinde: önek parantezin dışında (`0 (532) 123 45 67`,
+    `0(532)1234567`, `+90 (533) 555 05 30`, `+90 (0532) 123 45 67`) ya da `0` parantezin içinde
+    (`(0212) 555 12 34`, `(0 212) 555 12 34`). Parantezin içinde yalnızca üç hane, başında
+    isteğe bağlı `0` ve `0`'dan sonra en fazla tek bir ayraç olur; parantezden sonraki 3-2-2
+    haneli gruplar ve ayraç kuralı önekli telefonla aynıdır. Önek yine zorunludur: parantez tek
+    başına telefon yapmaz (`(532) 123 45 67`, `(212) 555 12 34` yakalanmaz; aşağıda "Sınır"), bu
+    yüzden "otuz (30) gün", "(1.250.000) TL" ya da "Madde 10 (123)" gibi parantezli sayılar
+    eşleşmez. Önünde rakam ya da `+` olamaz (`10 (532) 123 45 67`), ardında rakam olamaz. Ayrı bir
+    kalıptır ve zayıftır (yukarıda "Öncelik"); önekli telefon kalıbının kendisi değişmemiştir.
   - Telefon, öneksiz cep: `5` ile başlayan 10 hane, 3-3-2-2 gruplanmış, gruplar arasında **zorunlu**
     tek bir ayraç (boşluk, nokta ya da tire; karışık olabilir): `533 555 05 30`, `533.555.05.30`,
     `533 555-05.30`. Checksum'ı olmadığı için kalıp dar tutulur: önünde rakam, `+` ya da rakam + tek
@@ -644,12 +658,16 @@ yoktur.**
     yakalanmaz; `viewer` onu inceleme yanıtında, raporda ve audit'te görebilir (bilinen sınır).
   - Sınır: maskelenmesi garanti edilmeyenler kaçabilir: gövdede geçen ad, etiketsiz imza satırındaki
     ad, satıra bölünmüş, tireli ya da çift boşluklu IBAN, ayraçsız öneksiz cep numarası
-    (`5335550530`), öneksiz sabit hat (`212 555 12 34`), çift boşluklu ya da sekmeyle ayrılmış
+    (`5335550530`), öneksiz sabit hat (`212 555 12 34`), öneksiz yazılmış parantezli alan kodu
+    (`(532) 123 45 67`, `(212) 555 12 34`), ülke kodundan sonra parantez içinde tek başına sıfır
+    taşıyan sabit hat (`+90 (0) 212 555 12 34`; cep numarasında `+90 (0) 532 123 45 67` yazımının
+    yalnızca `532 123 45 67` kısmı öneksiz cep olarak maskelenir), çift boşluklu ya da sekmeyle ayrılmış
     numaralar, gruplar arasında bölünemez boşluk olan telefon numaraları, binlik gibi
     gruplanmış TCKN (`dd ddd ddd ddd`, ör. `21 473 873 960`; tutardan ayrılamadığı için bilerek
     yakalanmaz) ve önünde boşluksuz rakam + nokta ya da virgül olan boşluklu TCKN (`1.214 738 739 60`;
     o rakam bulunmuş bir değerin son hanesi değilse). Bir e-postaya ya da başka bir katı değere
-    boşluksuz yapışık yazılmış yeni biçimli değer (boşluklu TCKN, serbest gruplu IBAN, öneksiz cep)
+    boşluksuz yapışık yazılmış yeni biçimli değer (boşluklu TCKN, serbest gruplu IBAN, öneksiz cep,
+    parantezli alan kodlu telefon)
     maskelenmeyebilir: `Tel: 533 555 05 30-info@ornek.com` içinde e-posta `30-info@ornek.com`'dur ve
     telefonun yerini alır; sonuç Adım 17b öncesiyle aynıdır (`Tel: 533 555 05 [EPOSTA_1]`,
     telefonun ilk haneleri ham kalır; `.`, `_` ya da ayraçsız yapışmada da). Değerler birbirine
