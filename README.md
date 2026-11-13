@@ -73,6 +73,9 @@ Değerler Adım 12'de (2026-11-12) ölçüldü; ölçülmeyen ayrıca belirtildi
 `qwen3.5:9b` hiç denenmedi (geliştirme makinesinin ekran kartı 4 GB).
 
 ### Geliştirme komutları
+Gereken: [uv](https://docs.astral.sh/uv/) (Python 3.12'yi ve bağımlılıkları ilk `uv run`
+kendisi kurar). Docker gerekmez.
+
 ```bash
 uv run pytest                                            # test (gerçek LLM ve ağ yok)
 uv run ruff check . && uv run ruff format --check .      # lint + format
@@ -103,7 +106,7 @@ Ayrıntı: `docs/architecture.md` §3. Aşağıdaki örneklerde `$LAWYER_KEY`, `
 `TENANT_API_KEYS` içinde `acme` / `lawyer` kaydına verdiğin anahtardır.
 
 **1. İnceleme başlat.** İstek inceleme bitene kadar bekler (örnek sözleşme Groq'ta
-`MAX_CONCURRENCY=1` ile 112 sn sürdü).
+`MAX_CONCURRENCY=1` ile 112 sn sürdü). Windows'ta `python3` yerine `python` yaz.
 
 ```bash
 python3 -c 'import json, sys
@@ -325,10 +328,10 @@ docker compose run --rm app python -m evals.run --dataset-dir evals/holdout \
 `aa1e40e`): garanti edilen PII sızıntısı 0 / 18; garanti edilmeyen 4 / 4 (dördü de kişi
 adı); iki sözleşmede de enjeksiyon taraması işaret koymadı.
 
-**Sonuç** (`evals/results/holdout/20261113-085836_groq_openai-gpt-oss-120b.json`, commit `aa1e40e`; Groq `openai/gpt-oss-120b`). Koşu iki güne
-yayıldı: 1. sözleşme 2026-11-12'de tamamlandı, 2. sözleşme Groq limitine takıldı (çıkış kodu 2) ve
-2026-11-13'te `--resume` ile koşuldu. İlk sözleşme yeniden koşulmadı; araya kod, prompt ya da
-etiket değişikliği girmedi.
+**Sonuç** (`evals/results/holdout/20261113-085836_groq_openai-gpt-oss-120b.json`, commit
+`aa1e40e`; Groq `openai/gpt-oss-120b`). Koşu iki güne yayıldı: 1. sözleşme 2026-11-12'de
+tamamlandı, 2. sözleşme Groq limitine takıldı (çıkış kodu 2) ve 2026-11-13'te `--resume` ile
+koşuldu. İlk sözleşme yeniden koşulmadı; araya kod, prompt ya da etiket değişikliği girmedi.
 
 | Metrik | Önce (doğrulama kapalı) | Sonra |
 |---|---|---|
@@ -345,10 +348,12 @@ $0,0129.
 Kuyruğa düşen 4 satır:
 
 - 2 satır beklenen "bulunamadı" (`governing_law`, `confidentiality`): tasarım gereği.
-- 2 satır `numeric_mismatch` (1. sözleşme: `termination_notice` ve `late_penalty_cap`): sonuç ve
-  alıntı doğru, ama modelin `value` / `unit` alanına yazdığı değer kodun alıntıdan okuduğuyla
-  uyuşmadı. Kod iki maddeyi de doğru okuyor (2 hafta; %8). Modelin yazdığı değer kayıtlı olmadığı
-  için uyuşmazlığın ne olduğu bilinmiyor. Tek atış kuralı gereği düzeltilmedi.
+- 2 satır `numeric_mismatch` (1. sözleşme: `termination_notice` ve `late_penalty_cap`): sonuç
+  ve madde doğru, alıntı maddede geçiyor. Bu sebep iki yoldan gelebilir: modelin `value` /
+  `unit` alanına yazdığı değer kodun alıntıdan okuduğuyla uyuşmamıştır, ya da model maddenin
+  değeri içermeyen bir parçasını alıntılamıştır. Modelin alıntısı ve yazdığı değer kayıtlı
+  olmadığı için hangisi olduğu bilinmiyor. Kod iki maddenin tamamından değeri doğru okuyor
+  (2 hafta; %8). Tek atış kuralı gereği düzeltilmedi.
 
 **Ne gösterir, ne göstermez.** Taslak yönlendirmesi ve alıntı / madde bulma, ayar yapılırken
 görülmemiş iki sözleşmede de çalıştı; dolaylı yazılmış değerler ("iki hafta", "üç ay", "18 ay",
@@ -360,7 +365,7 @@ kullanmayan madde) ve enjeksiyonu sınamıyor. Doğrulama katmanı burada hiçbi
 
 ## Groq hız limiti
 
-Gözlemler (2026-11-12, aynı anahtar):
+Gözlemler (2026-11-12 ve 2026-11-13, aynı anahtar):
 
 - Gün içinde sırasıyla tek sözleşmelik deneme (≈ 25K token), 1. tam koşu (206.387 token, 576 sn)
   ve 2. tam koşu (241.576 token, 813 sn) hiç 429 almadan bitti; ham hız dakikada ≈ 18–21K token,

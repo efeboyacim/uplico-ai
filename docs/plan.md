@@ -372,7 +372,8 @@
   koşusu ikinci sözleşmede durdu (aşağıda "Adım 18b durumu").
   "`verify` düzeltmesi tek tur" beklentisi de tutmadı: üç tasarım turu gerekti.
   **Denenmeyenler:** LangSmith'e yükleme (iki koşuda da `langsmith: "local"`, konteynerde anahtar
-  yoktu); gerçek limitte `--resume` ile devam (çıkış kodu 2 Adım 18b'de görüldü); çıkış kodu 3; Ollama ile eval; taslak
+  yoktu); çıkış kodu 3 (çıkış kodu 2 ve `--resume` gerçek limitte Adım 18b'de bir kez
+  görüldü); Ollama ile eval; taslak
   yönlendirmesinin başka modelde etkisi; 1 / 11 → 11 / 11 farkının ne kadarının tool yanıtından,
   ne kadarının prompt / açıklama değişikliğinden geldiği (ayrı ölçülmedi, tek koşu).
   İnceleme yan bulgusu (önceden de vardı, düzeltilmedi): `verify` taslağın `clause_id`'sini
@@ -405,12 +406,27 @@
 - **Adım 18b bitti (2026-11-13):** `--resume` ≈ 09:00 UTC'de kalan sözleşmeyi koştu (çıkış 0;
   ilk sözleşme önbellekten). Sonuç: 10 / 10 status doğru; doğru madde 8 / 8, arama isabeti
   8 / 8, alıntı geçerliliği 6 / 6, taslak 4 / 4 (kod kontrolü 4 / 4); güvensiz hata önce de
-  sonra da 0 / 10; yönlendirme 4 / 10 (2 beklenen `not_found`, 2 `numeric_mismatch`: modelin
-  `value` / `unit` alanı kodun okuduğuyla uyuşmadı, hangi değer olduğu kayıtlı değil);
+  sonra da 0 / 10; yönlendirme 4 / 10 (2 beklenen `not_found`, 2 `numeric_mismatch`: ya modelin
+  `value` / `unit` alanı kodun okuduğuyla uyuşmadı ya da alıntı değeri içermiyordu; alıntı ve
+  değer kayıtlı olmadığı için hangisi olduğu bilinmiyor);
   75.566 token. Hiçbir şey düzeltilmedi. Ayrıntı `evals.md` §4 "Görülmemiş iki sözleşme" ve
   README. Gerçek limitte çıkış kodu 2 ve `--resume` bu koşuda bir kez görüldü.
-- **Sıradaki:** Adım 18c (kullanıcı onayıyla); Adım 19'un kapanışı (temiz klonda README
-  doğrulaması, kutunun işaretlenmesi) 18c'den sonra.
+- **Sıra değişikliği (2026-11-13, kullanıcı):** "önce Adım 19'u kapat". Adım 19, 18c'den önce
+  kapatılır; 18c README'yi ve karar dokümanını değiştireceği için o adım ikisini yeniden açar
+  ve kendi doğrulamasında günceller (yukarıdaki "kutu 18c'den sonra işaretlenir" notunun
+  yerine geçer).
+- **Adım 19 kapanış doğrulaması (2026-11-13, model yok):** temiz klonda README adımları
+  izlendi: boş `GROQ_API_KEY` ile `app` tek satırlık hatayla çıkıyor ve yeniden başlamıyor;
+  sahte anahtarla yalnızca `app` kalkıyor, `GET /` 200, anahtarsız 401, başka inceleme 404,
+  `viewer` karar 403, `/docs` 404; `--prepare-only` 7 / 7 (PII 0 / 52, 2 / 5) ve holdout
+  (0 / 18, 4 / 4) README ile aynı; `uv run pytest` 1509 geçti, ruff ve mypy temiz;
+  `tests/test_holdout.py` klonda geçti (sha256'lar klonlamadan sonra aynı). İki küçük eksik
+  düzeltildi (uv gereksinimi, Windows'ta `python3`). Holdout'taki `numeric_mismatch`
+  açıklaması denetimde düzeltildi (iki olası kaynak). **Denenmedi:** temiz klonda model
+  çağıran adımlar (`POST /reviews`, karar, rapor; eval'in modelli koşusu); çevrimdışı modun
+  kalkması; arayüzün tarayıcıda kullanımı.
+- **Sıradaki:** Adım 19'un kutusu (temiz klonda modelli doğrulama kararı kullanıcıda), ardından
+  Adım 18c (kullanıcı onayıyla).
 - **Adım 19'a başlarken (Adım 18'in devri):** README'ye taşınacaklar:
   1. Asıl önce/sonra tablosu 2. koşudan (`evals.md` §5), altında dürüst not: farkın tamamı
      sözleşme 4'teki iki `not_found` satırından; tablo bu koşuda alıntı / sayı kontrolünün değerini
@@ -1194,7 +1210,8 @@ gereksiz yönlendirme satırları bunu gösterir.
 
 ### [x] Adım 18b — Görülmemiş iki sözleşmede tek koşu (holdout)
 - **Gerçekleşen:** `7166fd1` (koşucu seçeneği), `aa1e40e` (sözleşmeler ve etiketler), tek koşu
-  iki güne yayıldı (limit, `--resume`); sonuç `evals/results/holdout/20261113-085836_groq_openai-gpt-oss-120b.json`.
+  iki güne yayıldı (limit, `--resume`); sonuç
+  `evals/results/holdout/20261113-085836_groq_openai-gpt-oss-120b.json`.
   10 / 10 doğru, 4 / 10 avukata gitti; hiçbir şey düzeltilmedi.
 - **Karar (2026-11-12, kullanıcı):** Adım 18'de prompt ve `verify` 7 sözleşmeye bakılarak
   değiştirildi; o set artık geliştirme setidir. Projeyi hiç görmeyen ayrı bir oturuma, yalnızca

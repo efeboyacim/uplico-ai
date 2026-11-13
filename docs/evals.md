@@ -489,12 +489,15 @@ Groq `openai/gpt-oss-120b`, Docker, `MAX_CONCURRENCY=1`, 7 / 7 sözleşme, 35 ka
   $0,0129.
 - **Kuyruk (4 satır):** 2 beklenen `not_found` (`unverified_not_found`; biri ayrıca
   `critical_not_found`), tasarım gereği. 2 `numeric_mismatch` (`holdout-01`: `termination_notice`
-  `non_compliant`, `late_penalty_cap` `compliant`): status, madde ve alıntı doğru; modelin
-  `value` / `unit` alanı kodun alıntıdan okuduğuyla uyuşmadı. `verify` tek başına çalıştırıldı
-  (model yok): kod iki maddeyi doğru okuyor (2 hafta; %8) ve etiketteki alıntıyla, uyumlu ya da
-  boş `value` ile sebep üretmiyor; "yüzde" diye yazılmış birim ya da 14 ile "hafta" gibi bir
-  uyuşmazlık aynı sebebi veriyor. Modelin gerçekte yazdığı değer kayıtlı değil; hangisi olduğu
-  bilinmiyor. Düzeltilmedi (tek atış).
+  `non_compliant`, `late_penalty_cap` `compliant`): status ve madde doğru, alıntı maddede geçiyor
+  (`quote_valid`). Sebebin iki olası kaynağı var ve kayıt ikisini ayırt etmiyor (sonuç dosyası
+  alıntıyı ve `value`'yu taşımaz): (a) modelin `value` / `unit` alanı kodun alıntıdan okuduğuyla
+  uyuşmadı; (b) model maddenin değeri içermeyen bir parçasını alıntıladı. `verify` tek başına
+  çalıştırıldı (model yok): kod iki maddenin tamamından değeri doğru okuyor (2 hafta; %8) ve
+  etiketteki alıntıyla, uyumlu ya da boş `value` ile sebep üretmiyor; "yüzde" diye yazılmış
+  birim ya da 14 ile "hafta" gibi bir uyuşmazlık da, değeri içermeyen bir alıntı da ("kaydıyla
+  Sözleşme'yi feshedebilir", "Gecikme cezasının toplamı") aynı sebebi veriyor. Düzeltilmedi
+  (tek atış).
 - **Sınırı:** 10 karar, tek model, tek koşu. Sözleşmeleri yine bir LLM yazdı ve madde başlıkları
   kural sözcüklerini kullanıyor; aramanın bilinen sınırını ve enjeksiyonu sınamaz. Yanlış sonuç
   olmadığı için doğrulama katmanının yakaladığı bir hata yok; görünen yalnızca bedeli.
