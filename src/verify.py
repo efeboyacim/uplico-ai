@@ -940,29 +940,38 @@ def _numeric_reasons(finding: Finding, check: Check, quote: str) -> set[ReviewRe
     return reasons
 
 
-def _outside_reasons(check: Check, clause_text: str) -> set[ReviewReason]:
+def _outside_reasons(check: Check, clause_text: str, start: int, end: int) -> set[ReviewReason]:
     """Signals from the values of the rule's kind written in the clause outside the quote.
 
     Only for a `compliant` finding whose quote passed: a narrow quote must not hide a value that
     breaks the rule. Each value is compared with the check on its own; one that satisfies it
     changes nothing.
 
-    The clause is read once, as a whole, never as the text before and the text after the match.
-    A match cannot cut a value expression, but it can stand between a number and the neighbour
-    that gives it its unit through a connector ("15-30 gün", "%10 ila 25"): read apart, that
-    number has no unit and is not a value at all. The values inside the quote have just passed
-    the check, so comparing every value of the clause adds only what the quote left out.
+    Three readings, and a value any of them yields counts: the clause as a whole, the text
+    before the match and the text after it. Neither kind of reading sees everything the other
+    sees:
+
+    - A match cannot cut a value expression, but it can stand between a number and the neighbour
+      that gives it its unit through a connector ("15-30 gün", "%10 ila 25"). Read apart, that
+      number has no unit and is not a value at all; only the whole clause shows it.
+    - A unit word never crosses a sentence boundary, so in the whole clause a number before a
+      sentence that starts with a unit word reads nothing ("... veya 10. Aylık rapor ..."). When
+      the match starts at that sentence, the text before it ends at the number and reads it.
+
+    The values inside the quote have just passed the check, so the whole-clause reading adds
+    only what the quote left out.
     """
     reasons: set[ReviewReason] = set()
-    extraction = extract(clause_text, _KIND_OF_UNIT[check.unit])
-    if extraction.unreadable:
-        reasons.add("ambiguous_value")
-    for value in extraction.values:
-        verdict = _evaluate([value], check)
-        if verdict is None:
-            reasons.add("unit_conversion_uncertain")
-        elif not verdict:
-            reasons.add("numeric_mismatch")
+    for text in (clause_text, clause_text[:start], clause_text[end:]):
+        extraction = extract(text, _KIND_OF_UNIT[check.unit])
+        if extraction.unreadable:
+            reasons.add("ambiguous_value")
+        for value in extraction.values:
+            verdict = _evaluate([value], check)
+            if verdict is None:
+                reasons.add("unit_conversion_uncertain")
+            elif not verdict:
+                reasons.add("numeric_mismatch")
     if "ambiguous_value" in reasons:
         reasons.discard("numeric_mismatch")
     return reasons
@@ -1017,7 +1026,7 @@ def _verify_one(
                 if rule.check is not None and quote is not None and clause is not None:
                     numeric = _numeric_reasons(finding, rule.check, quote)
                     if not numeric and finding.status == "compliant":
-                        numeric = _outside_reasons(rule.check, clause.text)
+                        numeric = _outside_reasons(rule.check, clause.text, start, end)
                     reasons |= numeric
             # The whole clause, whatever the quote matched: a narrow quote cannot leave it out.
             if finding.status == "compliant" and clause is not None and _masked_number(clause.text):

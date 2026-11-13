@@ -1526,8 +1526,8 @@ def test_verify_compliant_value_outside_quote(
         ),
         # The conversion of the linked value is not exact.
         (
-            "Bildirim 1 veya 2 ay önceden, en az 45 gün önceden yapılır.",
-            "en az 45 gün önceden yapılır",
+            "Bildirim 1 veya 2 ay önceden yapılır.",
+            "2 ay önceden yapılır",
             AT_LEAST_30_DAYS,
             ["unit_conversion_uncertain"],
         ),
@@ -1570,54 +1570,133 @@ def test_verify_non_compliant_linked_value_outside_quote_not_checked() -> None:
     assert _reasons(finding, AT_LEAST_30_DAYS, clause) == ["numeric_mismatch"]
 
 
+# The text before or after the match, read on its own, sees what the whole clause drops at a
+# sentence boundary: a number whose unit word would stand across the boundary reads nothing in
+# the whole clause, and a quote that starts at that sentence must not hide it.
+@pytest.mark.parametrize(
+    ("clause", "quote", "rule"),
+    [
+        (
+            "Fesih bildirim süresi 30 gün veya 10. Aylık raporlama 60 gün içinde yapılır.",
+            "Aylık raporlama 60 gün içinde yapılır.",
+            AT_LEAST_30_DAYS,
+        ),
+        (
+            "Fesih bildirimi 60 gün önceden yapılır; acil halde 7 (10 gün). "
+            "Günlük raporlar 60 gün saklanır.",
+            "Günlük raporlar 60 gün saklanır.",
+            AT_LEAST_30_DAYS,
+        ),
+        (
+            "Sigorta bedeli 1.000.000 TL veya 500.000. "
+            "Lira cinsinden 2.000.000 TL teminat verilir.",
+            "Lira cinsinden 2.000.000 TL teminat verilir.",
+            _rule(">=", 1_000_000, "TL"),
+        ),
+    ],
+)
+def test_verify_compliant_value_before_sentence_boundary_seen_by_part_reading(
+    clause: str, quote: str, rule: Rule
+) -> None:
+    assert rule.check is not None
+    kind: Kind = "amount" if rule.check.unit == "TL" else "duration"
+    # The whole clause does not hold the breaking value; only the text before the quote does.
+    assert all(verify_module._evaluate([v], rule.check) for v in extract(clause, kind).values)
+    assert _reasons(_finding(quote), rule, clause) == ["numeric_mismatch"]
+
+
+def _breaks_or_unclear(text: str, kind: Kind, check: Check) -> bool:
+    """The text holds a value of the kind that does not clearly satisfy the check."""
+    reading = extract(text, kind)
+    return bool(reading.unreadable) or any(
+        verify_module._evaluate([value], check) is not True for value in reading.values
+    )
+
+
+def _seeded_clause(rng: random.Random, kind: Kind) -> str:
+    """A clause of two to four pieces; most pieces link two numbers with a connector or end a
+    sentence with a number before a capitalized unit word, so that a word-aligned quote can
+    start or end between the two."""
+    connectors = ("ila", "ile", "veya", "-")
+    fillers = ("Bildirim", "önceden yapılır", "acil halde", "süre", "ayrıca", "bedel", "ceza")
+    if kind == "duration":
+        numbers, units, capitals = ("10", "15", "30", "45", "60"), ("gün", "günlük"), ("Aylık",)
+    elif kind == "amount":
+        numbers, units, capitals = ("500.000", "1.000.000", "2.500.000"), ("TL",), ("Lira",)
+    else:
+        numbers, units, capitals = ("5", "10", "15", "25"), ("",), ()
+
+    def value(number: str) -> str:
+        return f"%{number}" if kind == "percent" else f"{number} {rng.choice(units)}"
+
+    def piece() -> str:
+        a, b, conn = rng.choice(numbers), rng.choice(numbers), rng.choice(connectors)
+        shape = rng.randrange(6)
+        if shape == 0:
+            return rng.choice(fillers)
+        if shape == 1:
+            return value(a)
+        if shape == 2:  # the unit-less number first
+            return f"%{a} {conn} {b}" if kind == "percent" else f"{a} {conn} {value(b)}"
+        if shape == 3:  # the unit-less number last
+            return f"{a} {conn} %{b}" if kind == "percent" else f"{value(b)} {conn} {a}"
+        if shape == 4:  # written without spaces: "15-30 gün", "%10-25"
+            return f"%{a}-{b}" if kind == "percent" else f"{a}-{value(b)}"
+        if not capitals:
+            return value(a)
+        capital = rng.choice(capitals)  # a sentence boundary before a capitalized unit word
+        if rng.random() < 0.5:
+            return (
+                f"{value(b)} veya {a}. {capital} rapor {value('60' if kind == 'duration' else b)}"
+            )
+        return f"{a} ({value(b)}). {capital} rapor"
+
+    return " ".join(piece() for _ in range(rng.randint(2, 4)))
+
+
 def test_verify_compliant_narrow_quote_never_hides_a_clause_value_seeded() -> None:
     """Whatever the quote, a `compliant` finding whose quote matched is queued when the cited
-    clause, read as a whole, holds a value of the rule's kind that breaks the rule, converts
-    inexactly or cannot be read."""
+    clause read as a whole, or the text before or after the match read on its own, holds a value
+    of the rule's kind that breaks the rule, converts inexactly or cannot be read."""
     rng = random.Random(20261113)
-    cases: list[tuple[Rule, list[str]]] = [
-        (
-            AT_LEAST_30_DAYS,
-            ["15", "30", "45", "60", "otuz", "on beş", "gün", "gün", "günlük", "ay", "hafta",
-             "ila", "ile", "veya", "-", "(", ")", ",", ".", "takvim", "iş", "içinde", "süre",
-             "Ayrıca", "bin", "buçuk", "önceden"],
-        ),
-        (
-            _rule("<=", 10, "%"),
-            ["%", "yüzde", "5", "10", "15", "25", "on", "beş", "ila", "ile", "veya", "-", "(",
-             ")", ",", ".", "oranında", "ceza", "Ayrıca", "buçuk"],
-        ),
-        (
-            _rule(">=", 1_000_000, "TL"),
-            ["500.000", "1.000.000", "2.500.000", "TL", "TL", "₺", "lira", "ila", "ile", "veya",
-             "-", "(", ")", ",", ".", "bedel", "milyon", "USD", "Türk", "Ayrıca"],
-        ),
-    ]  # fmt: skip
-    matched = queued_by_outside = 0
-    for rule, vocab in cases:
-        assert rule.check is not None
-        kind: Kind = {"gün": "duration", "%": "percent", "TL": "amount"}[rule.check.unit]  # type: ignore[assignment]
-        for _ in range(250):
-            text = " ".join(rng.choice(vocab) for _ in range(rng.randint(3, 7)))
-            text = text.replace(" ,", ",").replace(" .", ".").replace("( ", "(")
-            text = text.replace(" )", ")")
-            whole = extract(text, kind)
-            bad = bool(whole.unreadable) or any(
-                verify_module._evaluate([value], rule.check) is not True for value in whole.values
-            )
+    rules: list[tuple[Rule, Kind]] = [
+        (AT_LEAST_30_DAYS, "duration"),
+        (AT_MOST_45_DAYS, "duration"),
+        (_rule("<=", 10, "%"), "percent"),
+        (_rule(">=", 1_000_000, "TL"), "amount"),
+    ]
+    matched = only_whole = only_parts = 0
+    for rule, kind in rules:
+        check = rule.check
+        assert check is not None
+        for _ in range(40):
+            text = _seeded_clause(rng, kind)
+            clause = _clause(text)
+            whole_bad = _breaks_or_unclear(text, kind, check)
             words = [(m.start(), m.end()) for m in re.finditer(r"\S+", text)]
             for i, (start, _) in enumerate(words):
                 for _, end in words[i:]:
-                    result = _run(_finding(text[start:end]), rule, text)
-                    if "quote_not_found" in result.review_reasons:
+                    quote = text[start:end]
+                    span = verify_module._match_quote(quote, clause)
+                    if span is None:
                         continue
                     matched += 1
-                    if bad:
-                        assert result.needs_review, (text, text[start:end])
-                        queued_by_outside += 1
-    # The generator must reach both branches, or the test proves nothing.
-    assert matched > 2000
-    assert queued_by_outside > 500
+                    parts_bad = _breaks_or_unclear(
+                        text[: span[0]], kind, check
+                    ) or _breaks_or_unclear(text[span[1] :], kind, check)
+                    if not (whole_bad or parts_bad):
+                        continue
+                    finding = _finding(quote)
+                    assert _run(finding, rule, text).needs_review, (text, quote)
+                    # Only the outside check can queue a finding whose quote passes on its own.
+                    if not verify_module._numeric_reasons(finding, check, text[span[0] : span[1]]):
+                        only_whole += whole_bad and not parts_bad
+                        only_parts += parts_bad and not whole_bad
+    # The generator must build the cases each reading alone would miss, or the test proves
+    # nothing: `only_whole` are the ones a part-by-part reading does not queue.
+    assert matched > 3000
+    assert only_whole > 40
+    assert only_parts > 5
 
 
 def test_verify_non_compliant_outside_quote_not_checked() -> None:
