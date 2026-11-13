@@ -16,7 +16,8 @@ kanıt zaten madde düzeyinde isteniyor.
 sözleşme 4'te dolaylı yazılmış iki madde kaçtı, iki kural yanlış "bulunamadı" döndü. Her
 "bulunamadı" avukata gittiği için güvensiz hata 0 / 35 (doğrulama kapalıyken 2 / 35). Karşılığı
 avukat yükü: 12 / 35 karar kuyruğa düştü; 10'unda modelin sonucu zaten doğruydu (8'i tasarım
-gereği kuyrukta).
+gereği kuyrukta). Madde ilk satırları listesi denendi: Sonnet'te sonuç aynı, girdi +%24; geri
+alındı.
 **Dışarıda:** PDF/DOCX, kullanıcı hesapları, sözleşme sürümleri, kuyruk ve yatay ölçekleme,
 embedding, LLM-as-judge, tutar ve ticari şart maskeleme.
 **Zayıf yerler:** model alakasız ama sözleşmede gerçekten geçen bir alıntıyla "uygun" derse ve
@@ -66,9 +67,10 @@ sözleşmelerin maskeli trace'i dışarı gider. Üretimde izleme açıkken uygu
 reddetmesi eklenirdi; bu projede eklenmedi, koruma işletim kuralıdır.
 **Ölçülmeyen:** `qwen3.5:9b` denenmedi, Ollama ile eval koşulmadı. Tek sözleşmede `qwen3.5:4b`
 443 sn (GPU) ve 903 sn (CPU) sürdü; sayısal hatalarını `numeric_mismatch` kuyruğa aldı,
-`check`'siz bir kuralda iki koşuda farklı sonuç verdi. Ölçülen tek yapılandırma Groq
-`openai/gpt-oss-120b`'dir. Gemini'nin OpenAI uyumlu adreste tool döngüsü kırıldığı için "Google
-paketi yok" kararı geri alındı; bedeli herkese `langchain-core` 1.8.0 (ölçümler 1.7.7'de). Tek
+`check`'siz bir kuralda iki koşuda farklı sonuç verdi. Ölçülenler: Groq (üç koşu) ve
+Anthropic `claude-sonnet-5-5` (bir koşu; `LLM_TEMPERATURE=none` ile). Gemini'nin OpenAI
+uyumlu adreste tool döngüsü kırıldığı için "Google paketi yok" kararı geri alındı; bedeli herkese
+`langchain-core` 1.8.0 (Groq'ta ölçüldü). Tek
 Gemini koşusunda status 5'te 4 doğru, bir kural 429'la kesildi; ölçüm değil.
 **Eksik kalan:** anahtar döndürme ve kişi bazlı kimlik yok; audit log dosya düzeyinde korunmuyor
 (imza ya da hash zinciri yok).
@@ -82,9 +84,8 @@ var; bölme yalnızca `Madde N` başlığını tanır, iç içe numaralar ve ekl
 (başlıksız ek son maddeye eklenir). Modele yalnızca bulunan maddeler gittiği için token sayısı
 sayfa sayısıyla doğrudan büyümez.
 **Günde 5.000:** ilk kırılan işlem hacmidir. İstek bloklar, uygulama tek süreçtir, iş kuyruğu
-yoktur. Sözleşme başına ortalama 82–116 sn; sözleşme başına 23,5K–39,5K token (en düşük ve en
-yüksek). 5.000 sözleşme sırayla 114–161 saat ve ≈ 118–198 milyon token (alt ve üst sınır) eder.
-Ücretsiz katmanın belgelenen günlük sınırı (200K) 5–8 sözleşmedir; 2026-11-12'de ≈ 473K token'lık
-iki tam koşu ve denemeden sonra, aynı gün başlatılan küçük bir koşuda anahtar limite takıldı, hangi
-sınırın yol açtığı bilinmiyor. Ardından avukat kuyruğu: 12 / 35 oranı korunursa günde ≈ 8.600
+yoktur. Sözleşme başına ortalama 82–116 sn; sözleşme başına 23,5K–41,6K token. 5.000 sözleşme
+sırayla 114–161 saat ve ≈ 118–208 milyon token (alt ve üst sınır) eder. Ücretsiz katmanın
+belgelenen günlük sınırı (200K) 5–8 sözleşmedir; 2026-11-12'de ≈ 473K token'dan sonraki küçük
+koşuda limite takıldı, hangisi bilinmiyor. Ardından avukat kuyruğu: 12 / 35 oranı korunursa günde ≈ 8.600
 satır (35 karardan kaba tahmin).

@@ -6,7 +6,7 @@ Her kural için sonuç uygun / uygun değil / bulunamadı olur ve sözleşmeden 
 kanıtlanır; uygun olmayan maddeler için değişiklik taslağı yazılır, belirsiz bulgular avukata
 bırakılır. Python, LangChain `create_agent`, LangGraph ve LangSmith ile kurulur; varsayılan model
 sağlayıcısı Groq, çevrimdışı mod Ollama'dır; başka bir sağlayıcı yalnızca env ile seçilir (kod
-değişmez, ölçülen tek yapılandırma Groq'tur). İki kurgusal şirketin (tenant) verisi ayrı tutulur.
+değişmez; Groq üç, Anthropic `claude-sonnet-5-5` bir tam eval koşusuyla ölçüldü). İki kurgusal şirketin (tenant) verisi ayrı tutulur.
 
 ## Ana ilke
 **LLM önerir, kod karar verir, yalnızca avukat onaylar.**
@@ -30,7 +30,7 @@ Uygulama `docs/plan.md`'deki adımlarla, sırayla yazılır. Hangi adımda olund
 bölümünde ve adım kutularında yazar; bir oturuma başlarken önce oraya bak. Bir adım doğrulanıp
 commit edilince dur ve sıradaki adıma geçmeden önce kullanıcıdan onay al.
 
-**Şu an:** Adım 0–18 bitti (Adım 17: `evals/metrics.py` ve `evals/run.py`; tek komut önce/sonra
+**Şu an:** Adım 0–19b bitti (Adım 17: `evals/metrics.py` ve `evals/run.py`; tek komut önce/sonra
 tablosunu basar, `--limit N` ve `--prepare-only` seçenekleri var).
 Adım 17 sonrası: `--resume` (içerik özetli önbellek) ve Adım 17b (maskeleyici üç biçim daha
 yakalar; garanti edilmeyen PII 5 / 5 → 2 / 5).
@@ -45,21 +45,24 @@ hiçbir şey düzeltilmedi (`docs/evals.md` §4). Adım 19 bitti: README ve kara
 klonda modelsiz yürüyüş ve gerçek modelle tek uçtan uca akış doğrulandı.
 Ardından salt okunur kod incelemesinin bulduğu üç hata düzeltildi (2026-11-13): `verify` alıntı
 dışındaki değerleri maddeyi bütün ve parça parça okuyarak görür, alan kodu parantezli telefon
-maskelenir, BOM'dan sonraki ilk başlık tanınır. Modelli eval bu kodla yeniden koşulmadı (README'deki
-sayılar `4ccc03d` koduna aittir).
+maskelenir, BOM'dan sonraki ilk başlık tanınır.
 Adım 18c bitti (2026-11-13): sağlayıcı, model, anahtar ve adres yalnızca env ile seçilir
 (`LLM_PROVIDER` kapalı liste değildir; `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_TEMPERATURE`,
 `LLM_MAX_TOKENS`, build argümanı `LLM_EXTRAS`); Groq'a giden istek adımdan önceki koda göre
-değişmedi, eval yeniden koşulmadı. Ölçülen tek yapılandırma Groq `openai/gpt-oss-120b`'dir; Gemini ile elle deneme
-(OpenAI uyumlu adres) incelemeyi uçtan uca tamamlamadı (`docs/plan.md` Adım 18c "Elle deneme").
+değişmedi. Gemini ile elle deneme (OpenAI uyumlu adres) incelemeyi uçtan uca tamamlamadı (`docs/plan.md` Adım 18c "Elle deneme").
 Adım 18d bitti (2026-11-13): `google` paket grubu (`langchain-google-genai`) kilide ve varsayılan
 imaja girdi, `google_genai` bilinen sağlayıcı tablosunda; herkesin kurduğu `langchain-core`
 1.7.7 → 1.8.0 oldu (Groq / Ollama yolu sahte taşıyıcılarla karşılaştırıldı, fark yok). Gemini
 `google_genai` ile tek sözleşmede denendi, ölçülmedi: inceleme avukat kuyruğuna ulaştı, status
 5'te 4 doğru, bir kural ücretsiz katman hız limitiyle kesildi (`docs/plan.md` Adım 18d "Elle
-deneme"). Modelli eval 1.8.0 ile yeniden koşulmadı (README sayıları `4ccc03d` ve 1.7.7'ye
-aittir); koşulup koşulmayacağı kullanıcıya sorulacak.
-Sıradaki: Adım 20 — teslim. Ayrıntı `docs/plan.md` "Durum".
+deneme").
+Eval yeniden koşuldu (2026-11-13, bugünkü kod): Groq'ta üçüncü tam koşu (`langchain-core` 1.8.0;
+bütün sert eşikler tuttu, aynı iki yanlış satır) ve Anthropic `claude-sonnet-5-5` ile bir tam koşu
+(35 / 35; başka model, Groq'la karşılaştırılmaz). Sonnet varsayılan `LLM_TEMPERATURE` (0) ile
+çalışmaz, `none` ile çalıştı (başka değer denenmedi): 0 ile her çağrı yerelde `ValueError` verir, başlangıç kontrolü yakalamaz.
+Adım 19b (madde listesi denemesi) kullanıcının kararıyla geri alındı; iş `exp/clause-outline`
+dalında, `main`'de yok. Sonuçlar `docs/evals.md` §4, `docs/plan.md` Adım 18 "Ek koşular" ve 19b.
+Sıradaki: Adım 20 — teslim (kullanıcı onayıyla push). Ayrıntı `docs/plan.md` "Durum".
 
 ## Komutlar
 ```bash

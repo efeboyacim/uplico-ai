@@ -13,8 +13,9 @@ sözleşmeyi yalnızca `lawyer` rolündeki anahtarla, API üzerinden bir insan o
 Python, LangChain `create_agent`, LangGraph ve LangSmith (`evaluate()`) ile kuruldu. Varsayılan
 model sağlayıcısı Groq (`openai/gpt-oss-120b`), çevrimdışı mod Ollama'dır (`qwen3.5:9b`);
 LangChain'in tanıdığı başka bir sağlayıcı da env ile seçilebilir (entegrasyon paketi imajda
-kuruluysa). Ölçülen tek yapılandırma Groq `openai/gpt-oss-120b`'dir; Gemini (`google_genai`) tek
-sözleşmede denendi, ölçülmedi; OpenAI ve Anthropic denenmedi. Kararların gerekçesi: `docs/decisions.md`
+kuruluysa). Varsayılan Groq `openai/gpt-oss-120b` üç tam eval koşusuyla ölçüldü; Anthropic
+`claude-sonnet-5-5` bir tam koşuyla ölçüldü; Gemini (`google_genai`) tek sözleşmede denendi,
+ölçülmedi; OpenAI denenmedi. Kararların gerekçesi: `docs/decisions.md`
 (karar dokümanı) ve `docs/architecture.md` §7 (ADR'ler).
 
 **Hızlı yol:** [Kurulum](#kurulum-ve-çalıştırma) → `docker compose up` → [Kullanım](#adım-adım-ilk-inceleme-arayüz-karar)'daki
@@ -85,12 +86,13 @@ model `qwen3.5:9b`'dir (yedek: `qwen3.5:4b`). GPU'lu bir Windows makinede host't
 kullanılabilir: `OLLAMA_BASE_URL=http://host.docker.internal:11434` (`docs/tech_stack.md` "Deploy").
 
 ### Başka bir sağlayıcı
-Sağlayıcı, model, anahtar ve adres yalnızca `.env` ile seçilir; kod değişmez. **Ölçülen tek
-yapılandırma Groq `openai/gpt-oss-120b`'dir;** başka her sağlayıcı ve model yapısı gereği
-çalışması beklenen ama ölçülmemiş bir yapılandırmadır; çalışacağı garanti değildir (Gemini 3.x
-OpenAI uyumlu adresle çalışmadı). Gemini kendi entegrasyonuyla (`google_genai`) tek sözleşmede,
-tek koşuyla denendi; ölçülmedi ([Üçüncü bir sağlayıcıyla
-deneme](#üçüncü-bir-sağlayıcıyla-deneme-gemini)).
+Sağlayıcı, model, anahtar ve adres yalnızca `.env` ile seçilir; kod değişmez. **Varsayılan Groq
+`openai/gpt-oss-120b` üç tam koşuyla, Anthropic `claude-sonnet-5-5` bir tam koşuyla ölçüldü**
+([Eval sonuçları](#eval-sonuçları)); başka her sağlayıcı ve model yapısı gereği çalışması
+beklenen ama ölçülmemiş bir yapılandırmadır; çalışacağı garanti değildir (Gemini 3.x OpenAI
+uyumlu adresle çalışmadı; `claude-sonnet-5-5` varsayılan `LLM_TEMPERATURE` ile çalışmaz, aşağıda).
+Gemini kendi entegrasyonuyla (`google_genai`) tek sözleşmede, tek koşuyla denendi; ölçülmedi
+([Üçüncü bir sağlayıcıyla deneme](#üçüncü-bir-sağlayıcıyla-deneme-gemini)).
 
 | Değişken | Anlamı |
 |---|---|
@@ -98,20 +100,33 @@ deneme](#üçüncü-bir-sağlayıcıyla-deneme-gemini)).
 | `LLM_MODEL` | Model adı; boşsa `groq` ve `ollama`'nın varsayılanı, varsayılanı olmayan sağlayıcıda zorunlu |
 | `LLM_API_KEY` | Sağlayıcı anahtarı (`openai`, `anthropic` ve `google_genai` için zorunlu); `GROQ_API_KEY` eskisi gibi çalışır |
 | `LLM_BASE_URL` | Verilirse modelin adresi (OpenAI uyumlu serviste `openai`'de `/v1` gibi yol dahil); `ollama` ile verilirse başlangıç hatasıdır, Ollama adresi `OLLAMA_BASE_URL`'dir |
-| `LLM_TEMPERATURE` | Boşsa 0; `none` yazılırsa istekte alan gönderilmez (`groq` ile kullanılamaz). `gemini-3.5-flash-lite` ile entegrasyon değeri yok sayar |
+| `LLM_TEMPERATURE` | Boşsa 0; `none` yazılırsa istekte alan gönderilmez (`groq` ile kullanılamaz; Anthropic `claude-sonnet-5-5`'te 0 çalışmaz, `none` ile çalıştı). `gemini-3.5-flash-lite` ile entegrasyon değeri yok sayar |
 | `LLM_MAX_TOKENS` | Çağrı başına çıktı sınırı; boşsa 2048 |
 
 Yeni dört değişken (`LLM_API_KEY`, `LLM_BASE_URL`, `LLM_TEMPERATURE`, `LLM_MAX_TOKENS`)
 verilmediğinde varsayılan ve çevrimdışı mod önceki gibi çalışır; Groq'a giden istek bu adımdan
 hemen önceki kodunkiyle (`2dd77b6`) bayt bayt aynıdır (yan yana karşılaştırıldı: 64 ortamda model
-alanları, 36 senaryoda giden istek). Ölçülen kodun (`4ccc03d`) isteğiyle aynı olduğu söylenemez:
+alanları, 36 senaryoda giden istek). 2. Groq koşusunun kodunun (`4ccc03d`) isteğiyle aynı olduğu söylenemez:
 ondan sonraki düzeltmeler bazı sözleşmelerde maskeli metni değiştirir ([Eval
 sonuçları](#eval-sonuçları)). Adım 18d'de `google` grubu kilide girince herkesin kurduğu
 `langchain-core` 1.7.7 → 1.8.0 oldu (`tenacity` 9.2.1 → 9.1.4); Groq ve Ollama yolu iki sürümde
 sahte taşıyıcılarla karşılaştırıldı (istekler, ayrıştırılan yanıtlar, hata sınıfları, gerçek graph
-üzerinde bir inceleme): fark yok. Bu bir model koşusu değildir; modelli eval yeniden koşulmadı,
-ölçülen sayılar `4ccc03d` koduna ve `langchain-core` 1.7.7'ye aittir. Ayrıntı: `docs/tech_stack.md` "Ortam değişkenleri",
-`docs/architecture.md` ADR-012.
+üzerinde bir inceleme): fark yok. Ardından modelli eval bugünkü kodla ve `langchain-core` 1.8.0
+ile Groq'ta bir kez daha koşuldu (2026-11-13, [Eval sonuçları](#eval-sonuçları)). Ayrıntı:
+`docs/tech_stack.md` "Ortam değişkenleri", `docs/architecture.md` ADR-012.
+
+Anthropic (`langchain-anthropic` varsayılan imajdadır; ölçülen ayar budur):
+
+```bash
+LLM_PROVIDER=anthropic
+LLM_MODEL=claude-sonnet-5-5
+LLM_API_KEY=<Anthropic API anahtarı>
+LLM_TEMPERATURE=none
+```
+
+Bu modelde varsayılan 0 çalışmaz, `LLM_TEMPERATURE=none` ile çalıştı (başka değer denenmedi): 0 ile `langchain-anthropic` her
+çağrıyı istek göndermeden reddeder ve bütün kurallar "bulunamadı" olarak avukata gider; uygulama
+yine de başlar ([Bilinen sınırlar](#bilinen-sınırlar)).
 
 OpenAI uyumlu bir servis varsayılan imajda ek paket gerektirmez (`langchain-openai` imajdadır):
 
@@ -366,8 +381,8 @@ docker compose run --rm app python -m evals.run
 ```
 
 "Önce" ve "sonra" aynı model çıktısından hesaplanır: model sözleşme başına bir kez çalışır,
-doğrulama (`verify`) aynı ham bulgular üzerinde kapalı ve açık iki kez koşar. Tam koşu
-2026-11-12'de 206.387 ve 241.576 token tuttu (576 ve 813 sn).
+doğrulama (`verify`) aynı ham bulgular üzerinde kapalı ve açık iki kez koşar. Groq'ta tam koşu
+2026-11-12'de 206.387 ve 241.576 token (576 ve 813 sn), 2026-11-13'te 246.114 token (727 sn) tuttu.
 
 **Ücretsiz Groq anahtarıyla** tam eval limite takılabilir ([Groq hız limiti](#groq-hız-limiti)).
 Çalışacak komut ilk üç sözleşmeyi koşar (2. koşuda bu üç sözleşme ≈ 105K token tuttu):
@@ -399,19 +414,22 @@ Koşucu seçenekleri (`uv run python -m evals.run --help` model çağırmaz):
 - `src/` değiştiyse imaj yeniden kurulur: `docker compose build app` (imaj `src/`'yi kopyalar).
 - `LANGSMITH_API_KEY` verilirse tam koşu dataset'i ve `before` / `after` experiment'lerini
   LangSmith'e yükler (sözleşme metni, alıntı ve PII gitmez; `docs/evals.md` §7). Bu yol gerçek
-  sunucuya karşı **denenmedi**; iki koşu da `langsmith: "local"` ile yapıldı.
+  sunucuya karşı **denenmedi**; bütün koşular `langsmith: "local"` ile yapıldı.
 
 ## Eval sonuçları
 
-Groq `openai/gpt-oss-120b`, Docker, `MAX_CONCURRENCY=1`, 7 / 7 sözleşme, 35 karar, 2026-11-12.
-Aşağıdaki değerler 2. koşudandır: `evals/results/20261112-200616_groq_openai-gpt-oss-120b.json`
-(kod `4ccc03d`). Ayrıntı: `docs/evals.md` §4–§5.
+Groq `openai/gpt-oss-120b`, Docker, `MAX_CONCURRENCY=1`, 7 / 7 sözleşme, 35 karar.
+Aşağıdaki ilk tablolar 2. koşudandır (2026-11-12):
+`evals/results/20261112-200616_groq_openai-gpt-oss-120b.json` (kod `4ccc03d`, `langchain-core`
+1.7.7). Ayrıntı: `docs/evals.md` §4–§5.
 
 Bu koşudan sonra üç düzeltme yapıldı (2026-11-13: `verify`'da alıntı dışındaki değerlerin
-okunması, alan kodu parantezli telefonun maskelenmesi, BOM'dan sonraki ilk başlık). Modelli eval
-bu kodla **yeniden koşulmadı**; aşağıdaki sayılar düzeltmelerden önceki koda aittir. Modelsiz
-ölçüm (`--prepare-only`) düzeltmelerden sonra da aynıdır: garanti edilen PII sızıntısı 0 / 52,
-garanti edilmeyen 2 / 5.
+okunması, alan kodu parantezli telefonun maskelenmesi, BOM'dan sonraki ilk başlık), ardından
+sağlayıcı seçimi (Adım 18c / 18d) ve `langchain-core` 1.8.0 geldi. Bugünkü kod 2026-11-13'te
+Groq'ta bir kez daha koşuldu ([Üçüncü Groq koşusu](#üçüncü-groq-koşusu-bugünkü-kod)); aynı kod
+Anthropic `claude-sonnet-5-5` ile de bir kez koşuldu (ayrı bölüm; başka model, Groq sayılarıyla
+karşılaştırılmaz). Modelsiz ölçüm (`--prepare-only`) düzeltmelerden sonra da aynıdır: garanti
+edilen PII sızıntısı 0 / 52, garanti edilmeyen 2 / 5.
 
 ### Önce/sonra: doğrulama katmanı kapalı → açık
 
@@ -467,8 +485,8 @@ doğrulama sinyalidir (biri haklı, biri gürültü).
 | Süre (toplam / sözleşme ortalaması) | 813,4 sn / 116,2 sn | raporlanır |
 | Tahmini maliyet | $0,0411 | raporlanır |
 
-Bütün sert eşikler iki koşuda da tuttu; eşikler sonuca göre değiştirilmedi (küçük örneklem: bir
-satır 2,9 puan). Kaçırılan tek uygunsuzluk sözleşme 4 `termination_notice`'tir: arama maddeyi
+Bütün sert eşikler üç Groq koşusunda da tuttu; eşikler sonuca göre değiştirilmedi (küçük örneklem:
+bir satır 2,9 puan). Kaçırılan tek uygunsuzluk sözleşme 4 `termination_notice`'tir: arama maddeyi
 bulamadı, satır "bulunamadı" olarak avukata gitti. Sözleşme 7'deki (tarama kalıbında olmayan)
 gizli talimatı tarama yakalamadı, model de kanmadı.
 
@@ -521,6 +539,50 @@ ekledi; kalan ikisi adlardır (ad tanıma kapsam dışı). Sonuç deterministikt
 dataset'teki bilinen boşluklara (3 örnek) bakılarak yazıldı; tablonun gösterdiği şey eval → test →
 düzeltme döngüsüdür, maskelemenin genel kapsamı değil. Üç değer, kayıt görünür kalsın diye
 etikette "garanti edilmeyen" listesinde bırakıldı (`docs/evals.md` §3).
+
+### Üçüncü Groq koşusu (bugünkü kod)
+`evals/results/20261113-204859_groq_openai-gpt-oss-120b.json`: 2026-11-13, commit etiketi
+`51d9c44` (bugünkü `main` kaynağı), `langchain-core` 1.8.0 ile ilk koşu, koşu boyunca 429 yok.
+Tek koşu. Ayrıntı: `docs/evals.md` §4 "Üçüncü Groq koşusu".
+
+| Metrik | 2. koşu (`4ccc03d`) | 3. koşu (`51d9c44`) |
+|---|---|---|
+| Güvensiz hata, önce → sonra | 2 / 35 → 0 / 35 | 2 / 35 → 0 / 35 |
+| Kaçırılan uygunsuzluk / yanlış bulgu | 1 / 12 · 0 / 11 | 1 / 12 · 0 / 11 |
+| Etiket doğruluğu / arama isabeti | 33 / 35 · 30 / 32 | 33 / 35 · 30 / 32 |
+| Alıntı geçerliliği (bekçi; parantezde ham oran) | 23 / 23 (30 / 30) | 21 / 21 (30 / 30) |
+| Taslak oranı / öneri uygunluğu | 11 / 11 · 10 / 10 | 11 / 11 · 9 / 10 |
+| Avukata yönlendirme / gereksiz | 12 / 35 · 10 / 12 | 14 / 35 · 12 / 14 |
+| Token / süre / maliyet | 241.576 · 813,4 sn · $0,0411 | 246.114 · 726,8 sn · $0,0418 |
+
+Status'ler 2. koşuyla aynı; iki yanlış yine sözleşme 4'teki iki `not_found` (arama kaçışı). Kuyruğa
+iki satır eklendi: 02 `late_penalty_cap`'in taslağı kod kontrolünden geçmedi
+(`proposal_noncompliant`; sebebi incelenmedi) ve 03 `termination_notice` bulgudan sonraki bir
+model hatasıyla kesildi (`run_interrupted`, `llm_error`; status doğru, sebebi bilinmiyor). Bütün
+sert eşikler tuttu. Tek koşudur: farklar `langchain-core` 1.8.0'a ya da koda bağlanmaz; aynı
+sağlayıcı `temperature=0`'da da koşudan koşuya farklı çıktı verebilir.
+
+### Başka bir model: Anthropic claude-sonnet-5-5
+`evals/results/20261113-223738_anthropic_claude-sonnet-5-5.json`: 2026-11-13, commit etiketi
+`a9ad2ed` (bugünkü `main` kaynağı), `LLM_TEMPERATURE=none`, `MAX_CONCURRENCY=1`, `max_tokens` 2048.
+Tek koşu. **Başka model: Groq sayılarıyla karşılaştırılmaz**, `langchain-core` hakkında da bir şey
+söylemez. Ayrıntı: `docs/evals.md` §4 "Başka bir model".
+
+| Metrik (Anthropic `claude-sonnet-5-5`) | Önce | Sonra |
+|---|---|---|
+| Güvensiz hata | 0 / 35 | 0 / 35 |
+| Avukata yönlendirme | 3 / 35 | 13 / 35 |
+| Gereksiz yönlendirme | 3 / 3 | 13 / 13 |
+
+"Sonra": etiket doğruluğu 35 / 35, kaçırılan uygunsuzluk 0 / 12, yanlış bulgu 0 / 12, arama
+isabeti 32 / 32 (sözleşme 4'teki iki dolaylı madde bulundu), doğru madde 32 / 32, alıntı
+geçerliliği 22 / 22 (ham oran 32 / 32), taslak oranı 12 / 12, öneri uygunluğu 8 / 11 (1 taslak
+doğrulanamadı), enjeksiyon sonucu 0, PII 0 / 52 ve 2 / 5. Token 593.334 + 23.774 = 617.108;
+277,3 sn (sözleşme başına 39,6 sn); maliyet bilinmiyor (sağlayıcı tablosunda birim fiyat yok).
+Kuyruğun 13 satırında da status doğru: 3 beklenen "bulunamadı", 5 enjeksiyon şüphesi, 3 taslağı
+kod kontrolünden geçmeyen bulgu (02 ve 07 `late_penalty_cap`, 04 `payment_term`), 1
+`ambiguous_value`, 1 modelin kendi devrettiği bulgu. Bu koşuda doğrulamanın yakaladığı yanlış
+sonuç yok; görünen yalnızca bedeli. Bütün sert eşikler tuttu.
 
 ## Görülmemiş iki sözleşme (holdout)
 
@@ -599,6 +661,13 @@ Gözlemler (2026-11-12 ve 2026-11-13, aynı anahtar):
   `x-ratelimit-limit-tokens` 8000 (dakikalık token). Günlük token sınırı başlıklarda yok. O anda
   küçük istekler başarılı dönüyordu; istek sayacı sürekli dolan bir kova gibi davranıyordu (kalan
   919 / 1000).
+- 2026-11-13: üçüncü tam koşu (246.114 token, 727 sn) 429 almadan bitti. ≈ 22:00 UTC'de başka bir
+  tam koşu (`--fresh`; [geri alınan madde listesi denemesinin](#daha-fazla-vaktim-olsaydı) kodu)
+  1. sözleşmeyi tamamladı, 2. sözleşmenin 5 kuralının 5'i hız limitine takıldı: çıkış kodu 2,
+  tablo ve sonuç dosyası yok. Hemen ardından yoklama: durum 200,
+  `x-ratelimit-remaining-tokens` 4490 / 8000, `remaining-requests` 835 / 1000; günlük token
+  sınırı başlıklarda yine yok. O gün anahtarda ≈ 365K ham token harcanmıştı (önceki gün limit
+  ≈ 510K'da gelmişti). Hangi sınırın devreye girdiği bilinmiyor.
 
 Bilinmeyenler: limite hangi sınırın (dakikalık ya da günlük token) yol açtığı; ham token toplamının
 belgelenen 8K TPM / 200K TPD'yi neden aşabildiği (olası açıklama, önbelleğe alınan girdi
@@ -636,11 +705,15 @@ Tam tablo: `docs/architecture.md` §6 "Veri nereye gidiyor".
 - **Kanıtlı ama yanlış "uygun".** Model alakasız ama sözleşmede gerçekten geçen bir alıntıyla
   "uygun" derse ve kuralda sabit eşik (`check`) yoksa bulgu avukatsız geçer. Kod alıntının varlığını
   doğrular, konuyla ilgisini doğrulayamaz. Her "bulunamadı"yı kuyruğa almak bunu kapatmaz.
-- **Arama yalnızca BM25'tir.** Arama isabeti 30 / 32: sözleşme 4'te madde 9 ("Sır Saklama") ve
+- **Arama yalnızca BM25'tir.** Groq koşularında arama isabeti 30 / 32: sözleşme 4'te madde 9 ("Sır Saklama") ve
   madde 11 ("Sözleşmenin Sona Ermesi … bir ay önceden … haber vererek") kuralın sözcüklerini
   kullanmıyor ve bulunamadı; iki kural "bulunamadı" döndü ve avukata gitti. Dataset, tokenizer ve
   prompt buna göre ayarlanmadı (madde 11 için bu karar sonuçlar görüldükten sonra alındı;
-  `docs/evals.md` §3 "Sonuç").
+  `docs/evals.md` §3 "Sonuç"). Groq'ta aynı iki kaçış üçüncü kez görüldü (2026-11-13, sözleşme 4
+  tek başına); audit'teki sorgular "fesih bildirim süresi", "fesih", "bildirim süresi" ve
+  "gizlilik", "gizli bilgi", "confidential", "gizlilik yükümlülüğü"ydü: arama yalnızca anahtar
+  sözcükle çalışır, model aynı kökü değiştirerek dener. Anthropic `claude-sonnet-5-5` iki maddeyi
+  de buldu (başka model, tek koşu; Groq'la karşılaştırılmaz).
 - **Taslak yazımı kodla zorlanmıyor.** "Uygun değil" bulgudan sonra taslağı tool yanıtı, prompt ve
   tool açıklaması ister; model yazmazsa bulgu `missing_proposal` ile avukata gider.
 - **`verify` taslağın maddesini bulgunun maddesiyle karşılaştırmıyor.** Model fikir değiştirip başka
@@ -664,11 +737,14 @@ Tam tablo: `docs/architecture.md` §6 "Veri nereye gidiyor".
   bulgu "uygun değil" ise bu telafi çalışmaz.
 - **Madde numarası başlıktan maskelemeden önce okunur.** `Madde 12345678901` gibi bir başlık sayıyı
   eval satırına maskesiz taşır (veri kümesinde numaralar 1–14).
-- **Küçük örneklem.** 35 karar (bir satır 2,9 puan), tek model, aynı günün iki koşusu. Genel bir
-  Türkçe kalite ölçümü değildir.
+- **Küçük örneklem.** 35 karar (bir satır 2,9 puan); Groq'ta üç koşu (ikisi aynı gün), Anthropic
+  `claude-sonnet-5-5`'te bir koşu. Genel bir Türkçe kalite ölçümü değildir.
 - **Sabit eşiği olmayan kurallar** ("sorumluluk sınırı sözleşme bedelini aşamaz"): kod iki değeri
   karşılaştırmaz, yalnızca alıntıyı doğrular; sayısal olmayan kuralda taslak "kod doğrulayamadı"
-  etiketi alır.
+  etiketi alır. Bu etiket bulguyu avukata göndermez (eval'de sözleşme 5 `governing_law`).
+- **`late_penalty_cap` taslağı üç modelde kod kontrolünden geçmedi:** Groq 2026-11-13 (sözleşme
+  2), Gemini denemesi (sözleşme 2), Anthropic `claude-sonnet-5-5` (sözleşme 2 ve 7). Bulgu
+  `proposal_noncompliant` ile avukata gider; sebebi incelenmedi.
 - **Audit log dosya düzeyinde korunmaz.** Uygulama üzerinden değiştirilemez (`UPDATE` / `DELETE`'i
   reddeden tetikleyiciler), ama veritabanı dosyasına doğrudan erişen biri değiştirebilir; imza ya
   da hash zinciri yok.
@@ -688,14 +764,21 @@ Tam tablo: `docs/architecture.md` §6 "Veri nereye gidiyor".
     taşır.
   - `gemini-3.5-flash-lite` `temperature`'ı yok sayar (entegrasyonun uyarısı); bu modelde
     `LLM_TEMPERATURE` etkisizdir, koşuların tekrarlanabilir olması beklenmez.
+  - Anthropic `claude-sonnet-5-5` varsayılan `LLM_TEMPERATURE` (0) ile çalışmaz: her model
+    çağrısı istek gönderilmeden yerelde `ValueError` verir ("temperature is not supported for
+    claude-sonnet-5-5 at non-default values", `langchain-anthropic`). Sözleşme 4'te görüldü:
+    `POST /reviews` 0 sn'de 200, 0 token, 5 kuralın 5'i `not_found` (`no_finding`) ile avukat
+    kuyruğunda; audit'te hata tipi `ValueError`, durum kodu yok. Başlangıç kontrolü
+    (`check_chat_model`) bunu yakalamaz: hata kurulumda değil çağrıda çıkar. Çözüm
+    `LLM_TEMPERATURE=none` (200, 40 sn, 5 / 5 status).
 
 Tam liste: `docs/spec.md` §8 "Bilinen sınırlar".
 
 ## Denenmeyenler
 
 - LangSmith'e yükleme gerçek sunucuya karşı (yalnızca sahte anahtar ve yakalanan isteklerle).
-- Çıkış kodu 3 (yalnızca sahte modelle). Gerçek limitte çıkış kodu 2 ve `--resume` holdout
-  koşusunda bir kez görüldü.
+- Çıkış kodu 3 (yalnızca sahte modelle). Gerçek limitte çıkış kodu 2 iki kez (holdout koşusu ve
+  2026-11-13'teki yarım tam koşu), `--resume` bir kez (holdout) görüldü.
 - Ollama ile eval; varsayılan çevrimdışı model `qwen3.5:9b` (çevrimdışı mod yalnızca `qwen3.5:4b`
   ile, tek sözleşmede denendi).
 - Taslak yönlendirmesinin başka modelde etkisi; 1 / 11 → 11 / 11 farkının kaynağı.
@@ -708,11 +791,12 @@ Tam liste: `docs/spec.md` §8 "Bilinen sınırlar".
   yalnızca geliştirme sırasında kullanıldı.
 - Docker'da LangSmith experiment'ine git bilgisinin (uzak depo adresi, yazar adı ve e-postası)
   gitmediği konteynerde gerçek yüklemeyle doğrulanmadı (`docs/evals.md` §7).
-- OpenAI ve Anthropic'in kendisi (anahtar yok). Aşağıdaki iki Gemini denemesi dışında başka
-  sağlayıcıyla eval ya da inceleme yapılmadı. Çevrimdışı mod Adım 18c / 18d koduyla
-  çalıştırılmadı (mevcut Ollama testleri değiştirilmeden geçiyor).
-- Modelli eval `langchain-core` 1.8.0 ile (Groq dahil): Groq ve Ollama yolu yalnızca sahte
-  taşıyıcılarla karşılaştırıldı.
+- OpenAI'nin kendisi (anahtar yok). Gemini aşağıdaki iki denemeyle sınırlı (tek sözleşme, tek
+  koşu); Anthropic `claude-sonnet-5-5` bir tam eval koşusuyla ölçüldü, başka Anthropic modeli
+  denenmedi. Çevrimdışı mod Adım 18c / 18d koduyla çalıştırılmadı (mevcut Ollama testleri
+  değiştirilmeden geçiyor); Ollama yolu `langchain-core` 1.8.0'da yalnızca sahte taşıyıcılarla
+  karşılaştırıldı.
+- Holdout bugünkü kodla yeniden koşulmadı (tek atış kuralı).
 
 ### Üçüncü bir sağlayıcıyla deneme (Gemini)
 İki deneme yapıldı (2026-11-13), ikisi de Google Gemini ücretsiz katman anahtarıyla, tek eval
@@ -763,9 +847,22 @@ LLM_API_KEY=<Gemini API anahtarı>
 ## Daha fazla vaktim olsaydı
 
 - **Embedding ile arama (BM25 + vektör).** İlk eklenecek şey budur; sözleşme 4'teki iki kaçış bu
-  sınırdan geliyor. Uzun sözleşmede tek başına yetmez: kural başına tek madde ve tek alıntı, ilk 5
-  madde sınırı, kural başına 8 model çağrısı ve `Madde N` kalıbına uymayan iç içe numaralar da
-  değişmeli.
+  sınırdan geliyor (Groq'ta üç kez; model "fesih", "gizlilik" kökünü değiştirerek arıyor, madde
+  "Sona Ermesi", "Sır Saklama" diyor). Uzun sözleşmede tek başına yetmez: kural başına tek madde ve
+  tek alıntı, ilk 5 madde sınırı, kural başına 8 model çağrısı ve `Madde N` kalıbına uymayan iç
+  içe numaralar da değişmeli.
+- **Ucuz alternatif denendi ve geri alındı (madde listesi, 2026-11-13/14).** Fikir: her kuralın
+  ilk `search_contract` sonucu bütün maddelerin ilk satırını da listeler (80 karakter, en fazla 60
+  madde), başka sözcüklerle yazılmış madde de görünür. Groq'ta sözleşme 4 tek başına, erken bir
+  biçimle (liste her aramada) bir koşu: 5 / 5 status, kaçan iki madde bulundu, 50.854 token. Son
+  biçimin Groq'ta tam koşusu hız limitine takıldı ve tamamlanmadı; aynı modelde ölçümü eksik.
+  Anthropic `claude-sonnet-5-5` tam eval'de listesiz ve listeli: 35 kuralın 35'inde status, madde,
+  taslak sonucu ve kuyruk aynı (tek içerik farkı: sözleşme 4 `payment_term`'e listeli koşuda ek
+  `ambiguous_value`); arama çağrısı 89 → 80, girdi token'ı 593.334 → 733.345 (+%24), süre 277 →
+  261 sn. İncelemeler bir bedel de kaydetti: bir maddenin ilk satırındaki, taramanın yakalamadığı
+  bir talimat her kurala ulaşır. Maddeyi zaten bulan modelde faydası yok, bedeli girdi token'ının
+  yaklaşık dörtte biri, Groq'taki tek olumlu gözlem doğrulanmadı: geri alındı. İş
+  `exp/clause-outline` dalında duruyor (`docs/plan.md` "Adım 19b"); `main`'de yok.
 - **Taslağın maddesini bulgunun maddesiyle eşleştirmek** ve taslak yazımını kodla zorlamak.
 - **Ad tanıma** (gövdedeki adlar) ve maskeleyicinin kalan biçimleri.
 - **Daha büyük ve bağımsız bir eval seti**, birden çok koşu ve günle; yerel model ile büyük modelin

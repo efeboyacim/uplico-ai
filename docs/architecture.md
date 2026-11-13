@@ -444,7 +444,7 @@ model adını basan `python -m src.config` eklenir.
 |---|---|---|---|
 | Groq | Sohbet modeli (varsayılan mod) | `GROQ_API_KEY` (ya da `LLM_API_KEY`) | Maskeli metin gider. 429'da `max_retries=3`; limitler organizasyon başına. Eşzamanlılık `MAX_CONCURRENCY` ile sınırlı |
 | Ollama | Sohbet modeli (yalnızca çevrimdışı mod) | Yok (yerel ağ) | Varsayılan modda çalışmaz. Çevrimdışı modda `OLLAMA_NUM_PARALLEL=1`, `MAX_CONCURRENCY=1` |
-| Başka bir sağlayıcı (isteğe bağlı; ör. OpenAI, Anthropic, Gemini Developer API, OpenAI uyumlu bir servis) | Sohbet modeli (`LLM_PROVIDER` ile seçilirse) | `LLM_API_KEY` (çok kimlik bilgili sağlayıcılarda kendi env değişkenleri) | Maskeli metin gider. OpenAI, Anthropic gibi sağlayıcılar: çalışır, ölçülmedi. Gemini Developer API (`google_genai`): tek sözleşmede denendi (2026-11-13), ölçülmedi (`plan.md` Adım 18d "Elle deneme"). `max_retries=3`, 60 sn zaman aşımı; ADR-012 |
+| Başka bir sağlayıcı (isteğe bağlı; ör. OpenAI, Anthropic, Gemini Developer API, OpenAI uyumlu bir servis) | Sohbet modeli (`LLM_PROVIDER` ile seçilirse) | `LLM_API_KEY` (çok kimlik bilgili sağlayıcılarda kendi env değişkenleri) | Maskeli metin gider. OpenAI gibi sağlayıcılar: çalışır, ölçülmedi. Anthropic `claude-sonnet-5-5`: bir tam eval koşusuyla ölçüldü (2026-11-13; varsayılan 0 ile çalışmaz, `LLM_TEMPERATURE=none` ile çalıştı, başka değer denenmedi; 0 ile her çağrı yerelde reddedilir ve başlangıç kontrolü bunu yakalamaz; `tech_stack.md`). Gemini Developer API (`google_genai`): tek sözleşmede denendi (2026-11-13), ölçülmedi (`plan.md` Adım 18d "Elle deneme"). `max_retries=3`, 60 sn zaman aşımı; ADR-012 |
 | LangSmith | Eval + tracing (isteğe bağlı) | `LANGSMITH_API_KEY` | Trace'lere yalnızca maskeli veri gider. Eval yüklemesinde sözleşme metni, alıntı ve PII listesi gitmez; giden yalnızca kimlikler, beklenen bulgular, etiketler, kural satırları ve sayımlardır (`evals.md` §7). Anahtar yoksa hiçbir şey gitmez |
 
 ### Veri nereye gidiyor
@@ -482,7 +482,9 @@ insanlar okuyabilir. Maskeleme her sağlayıcıda graph'tan önce aynı şekilde
 - **Sonuç:** Kısa prompt, madde kimliğiyle kanıt; Groq modunda Ollama gerekmez. Risk: BM25 kuralın
   sözcüklerini kullanmayan dolaylı ifadeyi kaçırabilir. Arama maddeyi kaçırırsa "bulunamadı" her
   durumda avukata gider (her `not_found` kuyruğa düşer); risk "arama isabeti" metriğiyle ölçülür
-  (`evals.md` §4). İleride ilk eklenecek şey embedding'dir (hibrit arama).
+  (`evals.md` §4). İleride ilk eklenecek şey embedding'dir (hibrit arama). Daha ucuz bir önlem
+  (ilk arama sonucunda bütün maddelerin ilk satırlarının listesi) 2026-11-13/14'te denendi ve
+  geri alındı (`plan.md` "Adım 19b"); embedding yine ilk adımdır.
 
 ### ADR-002: Kural başına ayrı agent görevi
 - **Karar:** Graph `Send` ile her kural için aynı agent'ı ayrı çalıştırır.
@@ -593,8 +595,8 @@ insanlar okuyabilir. Maskeleme her sağlayıcıda graph'tan önce aynı şekilde
 - **Bağlam:** `LLM_PROVIDER` yalnızca `groq` ve `ollama` kabul ediyordu; başka bir sağlayıcıyı
   kullanmak isteyen kodu değiştirmek zorundaydı. Agent, graph, tool'lar, `verify` ve maskeleme
   zaten yalnızca `BaseChatModel` görür; sağlayıcıya bağlı olan yalnızca `src/config.py` ve
-  `src/llm.py`'dir. Ölçüm tek yapılandırmada (Groq `openai/gpt-oss-120b`) yapıldı ve Groq'a giden
-  istek değişmemelidir.
+  `src/llm.py`'dir. Ölçüm o sırada tek yapılandırmada (Groq `openai/gpt-oss-120b`) yapılmıştı ve
+  Groq'a giden istek değişmemelidir.
 - **Karar:**
   - `LLM_PROVIDER` `init_chat_model`'in `model_provider` değeridir (boşsa `groq`); config yalnızca
     biçimine bakar (LangChain gibi normalleştirilir, sonra `[a-z][a-z0-9_]*`). Kapalı liste yoktur.
@@ -640,13 +642,16 @@ insanlar okuyabilir. Maskeleme her sağlayıcıda graph'tan önce aynı şekilde
     `plan.md` Adım 18d "Elle deneme"); tek kilit, tek
     `langchain-core`.
 - **Sonuçlar / ödünleşimler:**
-  - "Ölçüldü" denebilen tek yapılandırma yine Groq `openai/gpt-oss-120b`'dir; diğerleri "çalışır,
-    ölçülmedi"dir; `google_genai` tek sözleşmede denendi (2026-11-13), ölçülmedi (`spec.md` §8
-    "Bilinen sınırlar", `plan.md` Adım 18d "Elle deneme").
+  - Varsayılan Groq `openai/gpt-oss-120b` üç tam eval koşusuyla, Anthropic `claude-sonnet-5-5`
+    bir tam koşuyla ölçüldü (2026-11-13; `evals.md` §4); diğerleri "çalışır, ölçülmedi"dir;
+    `google_genai` tek sözleşmede denendi (2026-11-13), ölçülmedi (`spec.md` §8 "Bilinen
+    sınırlar", `plan.md` Adım 18d "Elle deneme"). `claude-sonnet-5-5` `LLM_TEMPERATURE=none`
+    ister: varsayılan 0 ile her çağrı istek gönderilmeden `ValueError` verir; başlangıçtaki
+    model kontrolü bunu yakalamaz, çünkü hata kurulumda değil çağrıda çıkar.
   - Bilerek kabul edilen bedel (c): `google` grubu seçilmese de her kurulum `langchain-core`
     1.8.0 ve `tenacity` 9.1.4 alır. Groq'a giden istek değişmese de yanıtın ayrıştırılması
-    `langchain-core`'dadır; ölçülen sayılar 1.7.7'ye aittir ve modelli eval yeniden koşulana dek
-    öyle yazılır (`evals.md` §1).
+    `langchain-core`'dadır; bu yüzden modelli eval 1.8.0 ile yeniden koşuldu (2026-11-13, Groq,
+    tek koşu): sert eşikler tuttu, aynı iki yanlış satır geldi (`evals.md` §4).
   - Maskeli metin seçilen sağlayıcıya gider; sıfır veri saklama notu yalnızca Groq içindir, başka
     sağlayıcının koşulları kullanıcının sorumluluğundadır ("Veri nereye gidiyor"). Maskeleme, tenant
     ayrımı, yalnızca ekleme yapılan audit log ve onay tool'unun yokluğu sağlayıcıdan bağımsızdır.

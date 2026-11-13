@@ -236,10 +236,15 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   Eval'de (Adım 18) arama isabeti 30 / 32; sözleşme 4'te madde 9 ("Sır Saklama") ve madde 11
   ("Sözleşmenin Sona Ermesi … bir ay önceden … haber vererek") kaçtı, iki kural `not_found`
   döndü. Her `not_found` avukata gittiği için sessizce geçmez. Dataset ve tokenizer buna göre
-  ayarlanmadı.
-- **Groq `openai/gpt-oss-120b` dışındaki her yapılandırma "çalışır, ölçülmedi"dir (`google_genai`
-  tek sözleşmede denendi, ölçülmedi):** "ölçüldü"
-  denebilen tek yapılandırma budur (`evals.md` §4); Ollama da "ölçülmedi" tarafındadır. Gemini
+  ayarlanmadı. Groq'ta 2026-11-13'te üçüncü kez görüldü. Anthropic `claude-sonnet-5-5` iki maddeyi
+  buldu (başka model, tek koşu; Groq'la karşılaştırılmaz). Madde ilk satırlarının listesiyle ucuz bir önlem denendi ve geri alındı (`plan.md`
+  "Adım 19b").
+- **Groq `openai/gpt-oss-120b` (üç tam koşu) ve Anthropic `claude-sonnet-5-5` (bir tam koşu)
+  dışındaki her yapılandırma "çalışır, ölçülmedi"dir (`google_genai` tek sözleşmede denendi,
+  ölçülmedi):** ölçümler `evals.md` §4'tedir; iki model ayrı okunur. Ollama "ölçülmedi"
+  tarafındadır. `claude-sonnet-5-5` varsayılan `LLM_TEMPERATURE` (0) ile çalışmaz, `none` ile çalıştı (başka değer denenmedi): 0 ile
+  her çağrı istek gönderilmeden `ValueError` verir, bütün kurallar `no_finding` ile avukata gider
+  ve başlangıç kontrolü bunu yakalamaz (`tech_stack.md`). Gemini
   2026-11-13'te OpenAI uyumlu adresle denendi ve incelemeyi tamamlamadı (Gemini 3.x tool çağrısının düşünce
   imzasını ister, `langchain-openai` 1.7.4 göndermez: her kuralın ikinci isteği HTTP 400, bütün
   kurallar avukata gitti; 2.5 modelleri 404; README "Denenmeyenler"). Bu yüzden Gemini kendi
@@ -255,8 +260,8 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   Audit `review_started` sağlayıcı adını ve modeli yazar, `LLM_BASE_URL`'i yazmaz: OpenAI uyumlu
   bir adreste kayıtta `openai` görünür, isteğin gerçekte gittiği yer görünmez.
 - **`google` paket grubu her kurulumun çekirdeğini değiştirir:** grup seçilmese de `langchain-core`
-  1.7.7 → 1.8.0 ve `tenacity` 9.2.1 → 9.1.4 olur (ADR-012, bilerek kabul edildi). Ölçülen Groq
-  sayıları 1.7.7'ye aittir; modelli eval 1.8.0 ile yeniden koşulmadı, koşulana dek öyle yazılır.
+  1.7.7 → 1.8.0 ve `tenacity` 9.2.1 → 9.1.4 olur (ADR-012, bilerek kabul edildi). İlk iki Groq
+  koşusu 1.7.7'de, üçüncüsü 1.8.0'da yapıldı (2026-11-13, tek koşu; sert eşikler tuttu).
 - **Taslak yazımı kodla zorlanmaz:** `non_compliant` bulgudan sonra `propose_change`'i
   `submit_finding`'in yanıtı, prompt ve tool açıklaması ister; model çağırmazsa bulgu
   `missing_proposal` ile avukata gider. Eval'de 1 / 11 → 11 / 11 (tek model, tek koşu).

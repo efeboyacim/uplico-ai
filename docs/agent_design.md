@@ -14,7 +14,8 @@
   olağan yol 5 çağrıdır (ara → oku → bildir → taslak → bitir).
 - **Model:** Agent hangi modelle çalıştığını bilmez. Varsayılan Groq `openai/gpt-oss-120b`,
   çevrimdışı modda Ollama `qwen3.5:9b`; env ile seçilen başka bir sağlayıcıda da prompt ve tool'lar
-  aynıdır (`tech_stack.md`). Ölçülen tek yapılandırma Groq `openai/gpt-oss-120b`'dir.
+  aynıdır (`tech_stack.md`). Ölçülen yapılandırmalar Groq `openai/gpt-oss-120b` (üç tam eval
+  koşusu) ve Anthropic `claude-sonnet-5-5`'tir (bir tam koşu, `LLM_TEMPERATURE=none`; `evals.md` §4).
 
 ### Graph
 `START → review_rule × N (Send) → verify → human_review (interrupt) → finalize → END`
