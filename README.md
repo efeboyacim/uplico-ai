@@ -17,9 +17,12 @@ kuruluysa). Ölçülen tek yapılandırma Groq `openai/gpt-oss-120b`'dir; Gemini
 sözleşmede denendi, ölçülmedi; OpenAI ve Anthropic denenmedi. Kararların gerekçesi: `docs/decisions.md`
 (karar dokümanı) ve `docs/architecture.md` §7 (ADR'ler).
 
+**Hızlı yol:** [Kurulum](#kurulum-ve-çalıştırma) → `docker compose up` → [Kullanım](#adım-adım-ilk-inceleme-arayüz-karar)'daki
+5 adım (örnek sözleşmeyi incelet, bulguları tarayıcıda gör, avukat olarak karar ver, raporu oku).
+
 ## İçindekiler
 1. [Kurulum ve çalıştırma](#kurulum-ve-çalıştırma)
-2. [Kullanım](#kullanım)
+2. [Kullanım](#kullanım) ([adım adım: ilk inceleme, arayüz, karar](#adım-adım-ilk-inceleme-arayüz-karar))
 3. [Eval nasıl koşulur](#eval-nasıl-koşulur)
 4. [Eval sonuçları](#eval-sonuçları)
 5. [Görülmemiş iki sözleşme (holdout)](#görülmemiş-iki-sözleşme-holdout)
@@ -33,17 +36,36 @@ sözleşmede denendi, ölçülmedi; OpenAI ve Anthropic denenmedi. Kararların g
 ## Kurulum ve çalıştırma
 
 Gerekenler: Docker ve Docker Compose. Varsayılan mod için bir Groq API anahtarı; GPU gerekmez.
+[Kullanım](#kullanım)'daki örnek komutlar için ayrıca `curl` (Windows 10 ve sonrasında
+`curl.exe` olarak gelir) ve Python 3 (yalnızca JSON dosyası hazırlamak ve okumak için;
+`python --version`, macOS / Linux'ta `python3 --version`, `Python 3.…` yazmalı; Windows'ta
+"Python was not found" yazıyorsa Python'u python.org'dan kur).
 
 ```bash
-cp .env.example .env
-# .env içinde: GROQ_API_KEY'i yaz; TENANT_API_KEYS'teki dört "change-me-…" anahtarını
-# kendi değerlerinle değiştir (anahtar → tenant, rol, görünen ad).
+cp .env.example .env          # PowerShell: Copy-Item .env.example .env
+# .env içinde GROQ_API_KEY= satırını GROQ_API_KEY=gsk_... olarak doldur (tırnaksız, boşluksuz).
 docker compose up
 ```
 
-Uygulama `http://127.0.0.1:8000` adresinde açılır (port yalnızca `127.0.0.1`'e yayınlanır).
-Varsayılan modda `GROQ_API_KEY` ve `LLM_API_KEY` ikisi de boşsa `app` tek satırlık bir hatayla
-çıkar ve yeniden başlamaz.
+- **Varsayılan modda `.env`'de doldurulması zorunlu tek değer `GROQ_API_KEY`'dir** (ya da
+  `LLM_API_KEY`); diğer satırlar olduğu gibi kalabilir.
+- **`TENANT_API_KEYS`** anahtar → tenant, rol, görünen ad eşlemesidir. `.env.example`'daki dört
+  `change-me-…` anahtarı uygulama tarafından olduğu gibi kabul edilir: yalnızca kendi makinende
+  denemek için değiştirmeden kullanabilirsin (aşağıdaki örnekler bunları kullanır). Bu değerler
+  herkesçe bilinir; başka her kullanımda kendi değerlerinle değiştir.
+- **Ayakta mı?** İlk seferde imaj kurulur; hazır olunca `app` logunun son satırı
+  `Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)` olur (bu adres kapsayıcının
+  içidir). Tarayıcıda `http://127.0.0.1:8000` "Sözleşme inceleme" sayfasını açar; port yalnızca
+  `127.0.0.1`'e yayınlanır. Bu noktada sayfada yalnızca anahtar ve kimlik alanları vardır; içerik
+  ilk incelemeden sonra gelir: [Kullanım](#adım-adım-ilk-inceleme-arayüz-karar)'a geç (aradaki
+  bölümler varsayılan modda atlanabilir).
+- Varsayılan modda `GROQ_API_KEY` ve `LLM_API_KEY` ikisi de boşsa `app` tek satırlık bir hatayla
+  (`Yapılandırma hatası: …`) çıkar ve yeniden başlamaz.
+- **Durdurmak:** `docker compose up`'ın çalıştığı terminalde Ctrl+C, ya da başka bir terminalde
+  `docker compose down`.
+- **Veri nerede:** incelemeler, audit log ve checkpoint'ler `data/tenants/<tenant>/` altındaki
+  SQLite dosyalarındadır (`app.db`, `checkpoints.db`; klasör kapsayıcıya bağlanır, durdurmak
+  silmez, git'e girmez).
 
 ### Varsayılan mod (Groq)
 Yalnızca `app` servisi başlar; Ollama kapsayıcısı çalışmaz, model inmez. Sözleşmenin **maskeli**
@@ -132,12 +154,158 @@ Gereken: [uv](https://docs.astral.sh/uv/) (Python 3.12'yi ve bağımlılıkları
 kendisi kurar). Docker gerekmez.
 
 ```bash
-uv run pytest                                            # test (gerçek LLM ve ağ yok)
+uv run pytest                                            # test (gerçek LLM ve ağ yok; token harcamaz)
 uv run ruff check . && uv run ruff format --check .      # lint + format
 uv run mypy src evals                                    # type-check
 ```
 
+Test takımı geliştirme makinesinde ≈ 3,5 dk sürdü (1858 test, 2026-11-13).
+
 ## Kullanım
+
+### Adım adım: ilk inceleme, arayüz, karar
+
+Arayüz (`http://127.0.0.1:8000`) yalnızca okur: inceleme listesi yoktur, inceleme başlatma ve
+karar sayfada yoktur. **İnceleme başlatılana kadar sayfada gösterecek bir şey yoktur** (yalnızca
+anahtar ve kimlik alanları ile kısa bir açıklama); inceleme 2. adımdaki komutla
+başlar, sayfa onu anahtar ve inceleme kimliğiyle gösterir. Uygulama bir terminalde çalışırken
+aşağıdakileri **ikinci bir terminalde, deponun kök klasöründe** sırayla çalıştır. Her blok iki
+biçimdedir: bash (Linux / macOS / Git Bash) ve Windows PowerShell 5.1. Python'ın adı macOS /
+Linux'ta genelde `python3`, Windows'ta (Git Bash dahil) `python`'dır: **Git Bash'te bash
+bloklarındaki `python3`'ü `python` yap.**
+
+Örnek anahtarlar (`.env.example`): `change-me-acme-lawyer`, `change-me-acme-viewer`,
+`change-me-globex-lawyer`, `change-me-globex-viewer`. Tenant'ı anahtar seçer: globex'in
+kurallarıyla incelemek için 1. adımda `change-me-globex-lawyer` kullan. Başka bir sözleşme için 2.
+adımdaki `tests/fixtures/sample_contract.md` yolunu değiştir: metin UTF-8 düz metin ya da Markdown
+olmalı, maddeler satır başındaki `Madde N` başlıklarıyla ayrılır (örnekler:
+`evals/dataset/contracts/`).
+
+**1. Avukat anahtarını değişkene koy.** Değer `.env`'deki `TENANT_API_KEYS` içinde
+`"tenant_id": "acme", "role": "lawyer"` kaydının anahtarıdır; `.env.example`'dan değiştirmeden
+kopyaladıysan `change-me-acme-lawyer`'dır.
+
+```bash
+LAWYER_KEY=change-me-acme-lawyer
+```
+```powershell
+$LAWYER_KEY = "change-me-acme-lawyer"
+```
+
+Ne görmelisin: çıktı yok. Değişkenler yalnızca bu terminal oturumunda yaşar: yeni bir terminalde
+1. adımı ve 2. adımın `REVIEW_ID` satırını yeniden çalıştır (`review.json`'dan okur; inceleme
+yeniden başlamaz).
+
+**2. Örnek sözleşmenin incelemesini başlat ve kimliğini al.** İstek inceleme bitene kadar bekler;
+model çağrılır (varsayılan modda sözleşmenin maskeli metni Groq'a gider). Örnek sözleşme Groq'ta
+`MAX_CONCURRENCY=1` ile 91 sn ve 112 sn sürdü.
+
+```bash
+rm -f review.json
+python3 -c "import json; json.dump({'text': open('tests/fixtures/sample_contract.md', encoding='utf-8').read()}, open('body.json', 'w'))"
+curl -s -X POST http://127.0.0.1:8000/reviews -H "X-API-Key: $LAWYER_KEY" -H "Content-Type: application/json" --data-binary "@body.json" -o review.json -w "%{http_code}\n"
+REVIEW_ID=$(python3 -c "import json; print(json.load(open('review.json', encoding='utf-8'))['review_id'])")
+echo "$REVIEW_ID"
+```
+```powershell
+Remove-Item review.json -ErrorAction SilentlyContinue
+python -c "import json; json.dump({'text': open('tests/fixtures/sample_contract.md', encoding='utf-8').read()}, open('body.json', 'w'))"
+curl.exe -s -X POST http://127.0.0.1:8000/reviews -H "X-API-Key: $LAWYER_KEY" -H "Content-Type: application/json" --data-binary "@body.json" -o review.json -w "%{http_code}\n"
+$REVIEW_ID = python -c "import json; print(json.load(open('review.json', encoding='utf-8'))['review_id'])"
+$REVIEW_ID
+```
+
+Ne görmelisin: bekleme, sonra `200` ve bir inceleme kimliği (UUID). `200` değilse kimlik satırı
+hata verir ve kimlik boş kalır: `000` uygulama çalışmıyor (yanıt yok, `review.json` yazılmaz);
+`401` anahtar `.env`'dekiyle aynı değil; `502` model sağlayıcısının anahtarı ya da ayarı hatalı;
+`500` beklenmeyen hata (ayrıntı `app` logunda). `401` / `502` / `500`'de yanıt `review.json`'dadır
+ve kimlik satırı `KeyError: 'review_id'` verir. Groq hız limiti doluysa
+yine `200` gelir ama kartlarda "Sonuç üretilemedi" / "Hız sınırı" görünür: bir süre bekleyip 2.
+adımı yeniden çalıştır. Gövde UTF-8 olarak okunur ve
+ASCII kaçışlı JSON yazılır; PowerShell'de `curl` takma adı yerine `curl.exe` dosyayı olduğu gibi
+gönderir. `review.json` avukat görünümüdür: içinde maskesiz sözleşme metni vardır.
+
+**3. Arayüzde gör.** Tarayıcıda `http://127.0.0.1:8000` aç; "API anahtarı" alanına 1. adımdaki
+değeri, "İnceleme kimliği" alanına 2. adımın yazdığı kimliği yapıştır, **Getir**'e bas.
+
+Ne görmelisin: üstte "Durum: Avukat kararı bekliyor" ve "Görünüm: avukat (asıl metin,
+maskesiz)"; solda sözleşme metni, maddelerde bulgu etiketleri, renkli alıntılar ve turuncu
+dalgalı çizgili enjeksiyon işaretleri; sağda "Bulgular" paneli ("5 bulgu, 5 incelenmeli, …
+enjeksiyon işareti"; örnek sözleşmede enjeksiyon kalıpları olduğu için bütün bulgular avukat
+kuyruğundadır) ve her bulgunun kartı (alıntı, gerekçe, inceleme sebepleri, varsa değişiklik
+taslağı). Anahtar yerine `change-me-acme-viewer` yazarsan "Görünüm: izleyici (maskeli madde
+metinleri)" olur: kişi adları `[KISI_1]` gibi yer tutucularla görünür. Başka tenant'ın anahtarı
+(`change-me-globex-lawyer`) "404: İnceleme bulunamadı.", tanınmayan anahtar "401: …" yazar.
+Renkli alıntıya tıklayınca sağdaki kartı, karta tıklayınca metindeki alıntıyı gösterir;
+"Yalnızca incelenmesi gerekenler" kutusu listeyi süzer. "Bulunamadı" sonucunun maddesi olmadığı
+için metinde işareti yoktur, yalnızca kartı vardır.
+
+**4. Avukat kararını ver.** Karar iki adımdır: önce gövde (`decision.json`) kurulur, sonra
+gönderilir. **Karar bir kez verilir;** değiştirmek istiyorsan 4a ile 4b arasında değiştir.
+
+**4a. Karar gövdesini kur.** Aşağıdaki komut `review.json`'dan geçerli bir gövde kurar: kuyruktaki
+her bulguyu ve kuyrukta olmasa da taslağı olan her bulguyu kabul eder (`action: accept`), taslağı
+olanların taslağını da kabul eder (`proposal_action: accept`), son karar `request_changes`'tir.
+
+```bash
+python3 -c "import json; r=json.load(open('review.json', encoding='utf-8')); fs=[dict(rule_id=f['rule_id'], action='accept', **({'proposal_action': 'accept'} if f['proposal'] else {})) for f in r['findings'] if f['needs_review'] or f['proposal']]; json.dump({'findings': fs, 'contract_decision': 'request_changes'}, open('decision.json', 'w'), indent=1); print(len(fs), 'bulgu kabul edildi')"
+```
+```powershell
+python -c "import json; r=json.load(open('review.json', encoding='utf-8')); fs=[dict(rule_id=f['rule_id'], action='accept', **({'proposal_action': 'accept'} if f['proposal'] else {})) for f in r['findings'] if f['needs_review'] or f['proposal']]; json.dump({'findings': fs, 'contract_decision': 'request_changes'}, open('decision.json', 'w'), indent=1); print(len(fs), 'bulgu kabul edildi')"
+```
+
+Ne görmelisin: `5 bulgu kabul edildi` (sayı kuyruktaki ve taslağı olan bulguların sayısıdır). İstersen şimdi
+`decision.json`'u bir metin düzenleyicide aç ve girdileri değiştir ([Avukat kararının
+alanları](#avukat-kararının-alanları)): örneğin bir bulgunun sonucunu düzeltmek için
+`"action": "correct", "status": "compliant"`, taslağı değiştirmek için `"proposal_action": "edit",
+"edited_text": "…"`, sözleşmeyi onaylamak için `"contract_decision": "approve"`. Girdileri silme:
+kuyruktaki her bulgu listede kalmalı.
+
+**4b. Kararı gönder.**
+
+```bash
+curl -s -X POST "http://127.0.0.1:8000/reviews/$REVIEW_ID/decision" -H "X-API-Key: $LAWYER_KEY" -H "Content-Type: application/json" --data-binary "@decision.json" -o decided.json -w "%{http_code}\n"
+```
+```powershell
+curl.exe -s -X POST "http://127.0.0.1:8000/reviews/$REVIEW_ID/decision" -H "X-API-Key: $LAWYER_KEY" -H "Content-Type: application/json" --data-binary "@decision.json" -o decided.json -w "%{http_code}\n"
+```
+
+Ne görmelisin: `200`. `422` ise ayrıntı `decided.json`'dadır ve hiçbir şey değişmemiştir:
+`decision.json`'u düzelt ve 4b'yi yeniden çalıştır. Sayfada **Getir**'e yeniden basınca "Durum:
+Değişiklik istendi" (onayladıysan "Onaylandı"), "Son karar", "Karar veren" ve kartlarda "Avukat
+kararı" görünür. Karar bir kez verilir: aynı istek bir daha `409` alır.
+
+**5. Raporu ve audit kaydını oku.**
+
+```bash
+curl -s "http://127.0.0.1:8000/reviews/$REVIEW_ID/report" -H "X-API-Key: $LAWYER_KEY" -o report.json -w "%{http_code}\n"
+curl -s "http://127.0.0.1:8000/reviews/$REVIEW_ID/audit" -H "X-API-Key: $LAWYER_KEY" -o audit.json -w "%{http_code}\n"
+python3 -c "import json; r=json.load(open('report.json', encoding='utf-8')); print(r['status'], [(x['rule_id'], x['final_status']) for x in r['rule_results']])"
+python3 -c "import json; a=json.load(open('audit.json', encoding='utf-8')); print('audit', len(a), a[0]['event'], '->', a[-1]['event'])"
+python3 -c "import json, sys; sys.stdout.reconfigure(encoding='utf-8'); r=json.load(open('report.json', encoding='utf-8')); [print(c['rule_id'], 'Madde', c['clause_no'], '->', c['text']) for c in r['requested_changes']]"
+```
+```powershell
+curl.exe -s "http://127.0.0.1:8000/reviews/$REVIEW_ID/report" -H "X-API-Key: $LAWYER_KEY" -o report.json -w "%{http_code}\n"
+curl.exe -s "http://127.0.0.1:8000/reviews/$REVIEW_ID/audit" -H "X-API-Key: $LAWYER_KEY" -o audit.json -w "%{http_code}\n"
+python -c "import json; r=json.load(open('report.json', encoding='utf-8')); print(r['status'], [(x['rule_id'], x['final_status']) for x in r['rule_results']])"
+python -c "import json; a=json.load(open('audit.json', encoding='utf-8')); print('audit', len(a), a[0]['event'], '->', a[-1]['event'])"
+python -c "import json, sys; sys.stdout.reconfigure(encoding='utf-8'); r=json.load(open('report.json', encoding='utf-8')); [print(c['rule_id'], 'Madde', c['clause_no'], '->', c['text']) for c in r['requested_changes']]"
+```
+
+Ne görmelisin: iki kez `200`; `changes_requested` ve her kuralın son sonucu
+(`compliant` / `non_compliant` / `not_found`); `audit <satır sayısı> review_started ->
+review_closed` (satır sayısı model ve tool çağrılarının sayısına göre değişir); istenen
+değişiklikler: kural, madde ve tedarikçiye gidecek metin (kabul ya da düzenlenen her taslak için
+bir satır). Rapor ve audit sayfada görünmez, yalnızca bu uçlardan okunur. Rapor karardan
+önce `409` döner. Aynı okumalar `viewer` anahtarıyla maskeli döner; başka tenant'ın anahtarıyla
+`404` döner.
+
+Komutlar çalışma klasörüne `body.json`, `review.json`, `decision.json`, `decided.json`,
+`report.json` ve `audit.json` yazar; içlerinde maskesiz sözleşme metni olabilir, işin bitince sil
+(bash: `rm body.json review.json decision.json decided.json report.json audit.json`; PowerShell:
+`Remove-Item body.json, review.json, decision.json, decided.json, report.json, audit.json`).
+
+### Roller ve uçlar
 
 Her istek `X-API-Key` başlığı taşır. Tenant ve rol **yalnızca** anahtardan çözülür
 (`TENANT_API_KEYS`); istekteki `tenant`, `role` gibi alanlar yok sayılır. İki rol vardır:
@@ -157,51 +325,32 @@ Her istek `X-API-Key` başlığı taşır. Tenant ve rol **yalnızca** anahtarda
 | `GET /reviews/{id}/audit` | İncelemenin audit kayıtları (iki rolde de maskeli) | ikisi |
 | `GET /` | Bulguları sözleşme metni üzerinde gösteren sayfa (yalnızca okur) | — |
 
-Ayrıntı: `docs/architecture.md` §3. Aşağıdaki örneklerde `$LAWYER_KEY`, `.env`'deki
-`TENANT_API_KEYS` içinde `acme` / `lawyer` kaydına verdiğin anahtardır.
+Ayrıntı: `docs/architecture.md` §3. Arayüz yalnızca `GET /reviews/{id}` çağırır.
 
-**1. İnceleme başlat.** İstek inceleme bitene kadar bekler (örnek sözleşme Groq'ta
-`MAX_CONCURRENCY=1` ile 112 sn sürdü). Windows'ta `python3` yerine `python` yaz.
+`POST /reviews` yanıtında `review_id`, `status` (`awaiting_lawyer`) ve her kural için bir bulgu
+vardır: `status`, `quote`, `clause_id`, `proposal` (taslak ve `code_check`), `needs_review` ve
+`review_reasons`.
 
-```bash
-python3 -c 'import json, sys
-print(json.dumps({"text": open(sys.argv[1], encoding="utf-8").read()}))' \
-  tests/fixtures/sample_contract.md > body.json
-curl -s -X POST http://127.0.0.1:8000/reviews \
-  -H "X-API-Key: $LAWYER_KEY" -H "Content-Type: application/json" --data-binary @body.json
+### Avukat kararının alanları
+
+Kuyruktaki (`needs_review: true`) her bulgu için `action` zorunludur: `accept` (modelin sonucu
+kalır) ya da `correct` + `status` (`compliant` / `non_compliant` / `not_found`). Taslağı olan
+kuyruktaki her bulgu için ayrıca `proposal_action` zorunludur: `accept` / `edit` + `edited_text` /
+`reject`. Son karar `approve` ya da `request_changes`'tir; uygun olmayan bulgu varken `approve`
+kabul edilir ve raporda `approved_with_noncompliant: true` olur. Kuyrukta olmayan bulgu listeye
+yazılmak zorunda değildir; taslağı olmayan bulguda `proposal_action` 422'dir. Eksik ya da geçersiz
+gövde 422 alır ve hiçbir şeyi değiştirmez.
+
+Aşağıdaki iki girdi **gönderilebilir bir gövde değildir**, yalnızca girdi biçimidir: olduğu gibi
+gönderilirse kuyruktaki diğer bulgular için `422` (`missing_action`) gelir. Kendi kararını vermek
+için 4a'nın kurduğu `decision.json`'daki ilgili girdileri bu biçimde değiştir:
+
+```json
+{"findings": [{"rule_id": "insurance_minimum", "action": "accept",
+               "proposal_action": "edit", "edited_text": "<düzenlenmiş madde metni>"},
+              {"rule_id": "governing_law", "action": "correct", "status": "compliant"}],
+ "contract_decision": "approve"}
 ```
-
-Yanıtta `review_id`, `status` (`awaiting_lawyer`) ve her kural için bir bulgu vardır: `status`,
-`quote`, `clause_id`, `proposal` (taslak ve `code_check`), `needs_review` ve `review_reasons`.
-Örnek sözleşmede enjeksiyon kalıpları olduğu için bütün bulgular avukat kuyruğuna düşer.
-
-**2. Avukat kararı.** Kuyruktaki (`needs_review: true`) her bulgu için `action` (`accept` ya da
-`correct` + `status`), taslağı olan kuyruktaki her bulgu için `proposal_action` (`accept` / `edit`
-+ `edited_text` / `reject`) zorunludur; son karar `approve` ya da `request_changes`'tir. Eksik ya
-da geçersiz gövde 422 alır ve hiçbir şeyi değiştirmez.
-
-```bash
-curl -s -X POST http://127.0.0.1:8000/reviews/$REVIEW_ID/decision \
-  -H "X-API-Key: $LAWYER_KEY" -H "Content-Type: application/json" \
-  -d '{"findings": [{"rule_id": "termination_notice", "action": "accept",
-        "proposal_action": "accept"}], "contract_decision": "request_changes"}'
-```
-
-(Bu gövde yalnızca biçimi gösterir: kuyruktaki her bulgu listede olmalı; taslağı olmayan bulguda
-`proposal_action` 422'dir.)
-
-**3. Rapor ve audit.**
-```bash
-curl -s http://127.0.0.1:8000/reviews/$REVIEW_ID/report -H "X-API-Key: $LAWYER_KEY"
-curl -s http://127.0.0.1:8000/reviews/$REVIEW_ID/audit  -H "X-API-Key: $LAWYER_KEY"
-```
-
-Aynı okumalar `viewer` anahtarıyla maskeli döner; başka tenant'ın anahtarıyla 404 döner.
-
-**Arayüz:** `http://127.0.0.1:8000/` sayfasına anahtar ve inceleme kimliği girilir; sayfa yalnızca
-`GET /reviews/{id}` çağırır. `lawyer` anahtarıyla asıl metin üzerinde maddeler, alıntılar ve
-enjeksiyon işaretleri vurgulanır; `viewer` anahtarıyla maskeli maddeler gösterilir. İnceleme
-başlatma ve karar sayfada yoktur.
 
 ## Eval nasıl koşulur
 
@@ -209,7 +358,8 @@ başlatma ve karar sayfada yoktur.
 Metrikler etiketlerden **kodla** hesaplanır; LLM-as-judge yoktur. Tanımlar ve gerekçeleri:
 `docs/evals.md` §4.
 
-Tek komut; önce/sonra tablosunu basar ve sonucu `evals/results/` altına yazar:
+Tek komut; önce/sonra tablosunu basar ve sonucu `evals/results/` altına yazar. **Ücretsiz Groq
+anahtarıyla** önce aşağıdaki `--limit 3` komutunu kullan; tam koşu limite takılabilir:
 
 ```bash
 docker compose run --rm app python -m evals.run
