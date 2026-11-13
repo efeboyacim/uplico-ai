@@ -335,6 +335,29 @@ def test_error_without_status_code_recorded_by_class_name(data_dir: Path) -> Non
     assert failed["error"] == {"type": "TimeoutError"}
 
 
+class _SdkError(Exception):
+    """An SDK error whose status is only an int `code` (google-genai's shape)."""
+
+    def __init__(self, code: object) -> None:
+        super().__init__("sdk")
+        self.code = code
+
+
+@pytest.mark.parametrize(("code", "expected"), [(401, {"code": 401}), ("401", {}), (True, {})])
+def test_error_code_read_from_cause_like_the_classifier(
+    data_dir: Path, code: object, expected: dict[str, object]
+) -> None:
+    context = make_context(data_dir)
+    wrapper = RuntimeError("Error calling model: gizli istek metni")
+    wrapper.__cause__ = _SdkError(code)
+    model = ScriptedChatModel.single(wrapper)
+    with pytest.raises(RuleRunInterrupted):
+        _run(context, model)
+    [failed] = _rows(context, "model_call")
+    assert failed["error"] == {"type": "RuntimeError"} | expected
+    assert "gizli istek metni" not in json.dumps(failed, ensure_ascii=False)
+
+
 class _ExplodingIndex(ClauseIndex):
     def search(self, query: str, limit: int = MAX_RESULTS) -> list[SearchHit]:
         raise RuntimeError("beklenmeyen kod hatası")

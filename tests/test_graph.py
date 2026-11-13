@@ -788,6 +788,43 @@ def test_graph_no_unmasked_text_reaches_model(data_dir: Path, provider: str) -> 
         assert value not in audit, f"{value!r} reached the audit log"
 
 
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"LLM_PROVIDER": "mistralai", "LLM_MODEL": "mistral-large-latest"},
+        {
+            "LLM_PROVIDER": "openai",
+            "LLM_MODEL": "m",
+            "LLM_API_KEY": "k",
+            "LLM_BASE_URL": "http://x",
+        },
+    ],
+    ids=["unlisted", "openai_compatible"],
+)
+def test_graph_no_unmasked_text_reaches_model_other_providers(
+    data_dir: Path, extra: dict[str, str]
+) -> None:
+    # Masking does not depend on the provider: the same check as above, other settings.
+    keys = {"k-acme": {"tenant_id": "acme", "role": "lawyer", "name": "Av. Test"}}
+    env = {"TENANT_API_KEYS": json.dumps(keys), "DATA_DIR": str(data_dir)} | extra
+    settings = load_settings(env=env)
+    assert settings.llm_provider == extra["LLM_PROVIDER"]
+    store, prepared, rules = _prepared_review(settings)
+    model = ScriptedChatModel.keyed({r.text: _read_everything(prepared) for r in rules})
+    graph = get_review_graph(settings, "acme", model=model)
+    graph.invoke(initial_state(prepared, rules), review_config(settings, prepared.review_id))
+
+    sent = "\n".join(_sent_text(messages) for messages in model.received())
+    assert "[KISI_1]" in sent
+    for value in ALL_RAW:
+        assert value not in sent, f"{value!r} reached the model"
+    audit = json.dumps(
+        [r.payload for r in store.list_audit(prepared.review_id)], ensure_ascii=False
+    )
+    for value in ALL_RAW:
+        assert value not in audit, f"{value!r} reached the audit log"
+
+
 def test_graph_checkpoint_holds_no_raw_pii(data_dir: Path) -> None:
     settings = _settings(data_dir)
     store, prepared, rules = _prepared_review(settings)

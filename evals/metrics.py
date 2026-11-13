@@ -23,7 +23,7 @@ from datetime import datetime, timedelta
 from fractions import Fraction
 from typing import Any, Literal, cast, get_args
 
-from src.config import PROVIDER_DEFAULTS, Provider
+from src.config import Provider, provider_defaults
 from src.models import AuditRecord, Clause, Finding, FindingStatus, Rule
 
 Mode = Literal["before", "after"]
@@ -647,15 +647,23 @@ def estimate_cost(
 ) -> float | None:
     """USD cost from the provider defaults' unit prices.
 
-    None when tokens were not measured or the model is not the provider's default model (the
-    price of another model is not guessed).
+    None when tokens were not measured, the provider has no unit prices (outside the known
+    table, or openai / anthropic) or the model is not the provider's default model (the price of
+    another model is not guessed).
     """
-    defaults = PROVIDER_DEFAULTS[provider]
-    if input_tokens is None or output_tokens is None or model != defaults.model:
+    defaults = provider_defaults(provider)
+    input_price = defaults.input_usd_per_mtok
+    output_price = defaults.output_usd_per_mtok
+    if (
+        input_tokens is None
+        or output_tokens is None
+        or input_price is None
+        or output_price is None
+        or defaults.model is None
+        or model != defaults.model
+    ):
         return None
-    return (
-        input_tokens * defaults.input_usd_per_mtok + output_tokens * defaults.output_usd_per_mtok
-    ) / 1_000_000
+    return (input_tokens * input_price + output_tokens * output_price) / 1_000_000
 
 
 @dataclass(frozen=True)

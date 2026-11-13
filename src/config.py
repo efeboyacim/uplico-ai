@@ -1,6 +1,7 @@
 """Runtime settings, read from environment variables. The only module that touches the env."""
 
 import json
+import math
 import os
 import re
 import sys
@@ -10,23 +11,27 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Literal
 
-Provider = Literal["groq", "ollama"]
+# The `model_provider` name given to `init_chat_model`; there is no closed list (ADR-012).
+Provider = str
 Role = Literal["lawyer", "viewer"]
 
-_PROVIDERS: tuple[Provider, ...] = ("groq", "ollama")
 _ROLES: tuple[Role, ...] = ("lawyer", "viewer")
 _TENANT_ID_RE = re.compile(r"[a-z0-9_]+")
+_PROVIDER_RE = re.compile(r"[a-z][a-z0-9_]*")
 _ENTRY_FIELDS = frozenset({"tenant_id", "role", "name"})
 
 
 @dataclass(frozen=True)
 class ProviderDefaults:
-    model: str
+    """A known provider's defaults. The table is not a gate: other providers are accepted."""
+
+    model: str | None  # None: LLM_MODEL is required
     max_concurrency: int
     # Unit prices of the default model, USD per million tokens (docs/tech_stack.md). The eval's
     # cost estimate uses them only when LLM_MODEL is the default model; otherwise it is unknown.
-    input_usd_per_mtok: float
-    output_usd_per_mtok: float
+    input_usd_per_mtok: float | None
+    output_usd_per_mtok: float | None
+    requires_api_key: bool = False  # LLM_API_KEY must be given
 
 
 PROVIDER_DEFAULTS: Mapping[Provider, ProviderDefaults] = MappingProxyType(
@@ -43,12 +48,32 @@ PROVIDER_DEFAULTS: Mapping[Provider, ProviderDefaults] = MappingProxyType(
             input_usd_per_mtok=0.0,
             output_usd_per_mtok=0.0,
         ),
+        "openai": ProviderDefaults(
+            model=None,
+            max_concurrency=1,
+            input_usd_per_mtok=None,
+            output_usd_per_mtok=None,
+            requires_api_key=True,
+        ),
+        "anthropic": ProviderDefaults(
+            model=None,
+            max_concurrency=1,
+            input_usd_per_mtok=None,
+            output_usd_per_mtok=None,
+            requires_api_key=True,
+        ),
     }
+)
+# A provider outside the table: LLM_MODEL required, LLM_API_KEY optional, cost unknown.
+UNLISTED_PROVIDER_DEFAULTS = ProviderDefaults(
+    model=None, max_concurrency=1, input_usd_per_mtok=None, output_usd_per_mtok=None
 )
 
 DEFAULT_NUM_CTX = 16384
 DEFAULT_OLLAMA_BASE_URL = "http://localhost:11434"
 DEFAULT_DATA_DIR = Path("data")
+DEFAULT_TEMPERATURE = 0.0
+DEFAULT_MAX_TOKENS = 2048
 
 
 @dataclass(frozen=True)
@@ -69,10 +94,18 @@ class Settings:
     api_keys: Mapping[str, Principal] = field(repr=False)
     data_dir: Path
     langsmith_api_key: str | None = field(repr=False)
+    llm_api_key: str | None = field(repr=False)
+    llm_base_url: str | None = field(repr=False)  # an address may carry credentials
+    llm_temperature: float | None  # None: the request carries no temperature
+    llm_max_tokens: int
 
 
 class ConfigError(Exception):
     pass
+
+
+def provider_defaults(provider: Provider) -> ProviderDefaults:
+    return PROVIDER_DEFAULTS.get(provider, UNLISTED_PROVIDER_DEFAULTS)
 
 
 def _read(env: Mapping[str, str], name: str) -> str:
@@ -90,6 +123,34 @@ def _read_positive_int(env: Mapping[str, str], name: str, default: int) -> int:
     if value < 1:
         raise ConfigError(f"{name} en az 1 olmalı.")
     return value
+
+
+def _read_provider(env: Mapping[str, str]) -> Provider:
+    # Normalised the way langchain does (`-` -> `_`, lower case), so `Groq` / `google-genai`
+    # meet the known table under the name langchain resolves them to.
+    provider = _read(env, "LLM_PROVIDER").lower().replace("-", "_") or "groq"
+    if not _PROVIDER_RE.fullmatch(provider):
+        # The value is not echoed: a malformed one may be something pasted by mistake.
+        raise ConfigError(
+            "LLM_PROVIDER geçersiz: a-z ile başlamalı ve yalnızca a-z, 0-9, _ ya da - "
+            "içermeli (büyük harf küçültülür; ör. groq, ollama, openai)."
+        )
+    return provider
+
+
+def _read_temperature(env: Mapping[str, str]) -> float | None:
+    raw = _read(env, "LLM_TEMPERATURE")
+    if not raw:
+        return DEFAULT_TEMPERATURE
+    if raw.lower() == "none":
+        return None
+    try:
+        value = float(raw)
+    except ValueError:
+        value = math.nan
+    if not math.isfinite(value) or value < 0:
+        raise ConfigError("LLM_TEMPERATURE negatif olmayan bir sayı ya da none olmalı.")
+    return value + 0.0  # `-0` passes the check above; `+ 0.0` turns -0.0 into 0.0
 
 
 def _parse_entry(position: int, key: object, value: object) -> tuple[str, Principal]:
@@ -144,26 +205,44 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
     if env is None:
         env = os.environ
 
-    provider_raw = _read(env, "LLM_PROVIDER").lower() or "groq"
-    if provider_raw not in _PROVIDERS:
-        raise ConfigError(
-            f"LLM_PROVIDER geçersiz: '{provider_raw}'. Geçerli değerler: groq, ollama."
-        )
-    provider = provider_raw
+    provider = _read_provider(env)
+    defaults = provider_defaults(provider)
 
     groq_api_key = _read(env, "GROQ_API_KEY") or None
-    if provider == "groq" and groq_api_key is None:
+    llm_api_key = _read(env, "LLM_API_KEY") or None
+    if provider == "groq" and groq_api_key is None and llm_api_key is None:
         raise ConfigError(
-            "GROQ_API_KEY groq sağlayıcısı için zorunlu. Çevrimdışı mod için "
-            "LLM_PROVIDER=ollama ve COMPOSE_PROFILES=offline kullan."
+            "GROQ_API_KEY (ya da LLM_API_KEY) groq sağlayıcısı için zorunlu. Çevrimdışı mod "
+            "için LLM_PROVIDER=ollama ve COMPOSE_PROFILES=offline kullan."
+        )
+    if defaults.requires_api_key and llm_api_key is None:
+        raise ConfigError(f"LLM_API_KEY {provider} sağlayıcısı için zorunlu.")
+
+    llm_base_url = _read(env, "LLM_BASE_URL") or None
+    if provider == "ollama" and llm_base_url is not None:
+        raise ConfigError(
+            "LLM_BASE_URL ollama ile kullanılamaz; Ollama adresi için OLLAMA_BASE_URL kullan."
         )
 
     api_keys = _parse_api_keys(_read(env, "TENANT_API_KEYS"))
 
-    defaults = PROVIDER_DEFAULTS[provider]
     llm_model = _read(env, "LLM_MODEL") or defaults.model
+    if llm_model is None:
+        raise ConfigError(
+            f"LLM_MODEL {provider} sağlayıcısı için zorunlu (bu sağlayıcının varsayılan modeli "
+            "yok)."
+        )
     max_concurrency = _read_positive_int(env, "MAX_CONCURRENCY", defaults.max_concurrency)
     llm_num_ctx = _read_positive_int(env, "LLM_NUM_CTX", DEFAULT_NUM_CTX)
+    llm_temperature = _read_temperature(env)
+    if provider == "groq" and llm_temperature is None:
+        # ChatGroq has no "no temperature" value: None fails its validation, an omitted
+        # argument sends ChatGroq's own 0.7.
+        raise ConfigError(
+            "LLM_TEMPERATURE=none groq ile kullanılamaz (ChatGroq sıcaklıksız istek göndermez); "
+            "bir sayı ver ya da boş bırak."
+        )
+    llm_max_tokens = _read_positive_int(env, "LLM_MAX_TOKENS", DEFAULT_MAX_TOKENS)
 
     data_dir_raw = _read(env, "DATA_DIR")
     return Settings(
@@ -176,6 +255,10 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         api_keys=api_keys,
         data_dir=Path(data_dir_raw) if data_dir_raw else DEFAULT_DATA_DIR,
         langsmith_api_key=_read(env, "LANGSMITH_API_KEY") or None,
+        llm_api_key=llm_api_key,
+        llm_base_url=llm_base_url,
+        llm_temperature=llm_temperature,
+        llm_max_tokens=llm_max_tokens,
     )
 
 

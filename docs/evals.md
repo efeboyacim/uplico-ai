@@ -63,11 +63,15 @@
   ile kabul edilir, `LLM_MODEL` olmadan `ConfigError`; `openai` ve `anthropic` `LLM_API_KEY`
   olmadan `ConfigError`; `LLM_API_KEY` `Settings`'in `repr`'inde geçmez; sağlayıcı adı
   normalleştirilir (`Groq` → `groq`, `google-genai` → `google_genai`); `ollama` ile `LLM_BASE_URL`
-  → `ConfigError`.
+  → `ConfigError`; `groq` ile `LLM_TEMPERATURE=none` → `ConfigError`, mesaj `LLM_TEMPERATURE`'ı
+  söyler; `LLM_TEMPERATURE=-0` → `0.0` (negatif sıfır değil); `LLM_BASE_URL` `repr`'de geçmez.
 - **Sağlayıcıdan bağımsız model kurulumu (`tests/test_llm.py`):** `openai` sahte HTTP taşıyıcısıyla
   kurulur (ağ yok) → istek gövdesinde yalnızca ortak parametreler vardır (`reasoning_effort` yok),
   istek `LLM_BASE_URL`'e gider, `LLM_TEMPERATURE=none` iken gövdede `temperature` alanı yoktur;
-  `LLM_MAX_TOKENS` istekteki çıktı sınırına ulaşır. `anthropic` ile `http_client` verilirse
+  `LLM_MAX_TOKENS` istekteki çıktı sınırına ulaşır. `LLM_BASE_URL` boşken süreç env'inde
+  `OPENAI_BASE_URL` ve `OPENAI_API_BASE` olsa da istek `api.openai.com`'a gider (`openai`
+  testleri bu değişkenlere bağlı değildir); `anthropic`'e `base_url` olarak
+  `https://api.anthropic.com` verilir. `anthropic` ile `http_client` verilirse
   `ValueError`. Kurulu olmayan entegrasyon paketi (import monkeypatch ile düşürülür; ortamda hangi
   grubun kurulu olduğuna bağlı kalmaz) başlangıçta paketin adını söyleyen hatayla durur.
   `--prepare-only` modeli kurmaz.
@@ -76,7 +80,9 @@
   `Model*Error` alt sınıfları (`ModelAuthenticationError`, `ModelPermissionDeniedError`,
   `ModelNotFoundError` → `config`; `ModelRateLimitError` → `rate_limit`); kodu yalnızca
   `__cause__`'unda olan sarmalayıcı kodundan sınıflanır; metin ya da `bool` `code` değeri kod
-  sayılmaz. Mevcut Groq / Ollama sınıflandırma tablosu değişmeden geçer.
+  sayılmaz. Gerçek `ollama.ResponseError` ile 401 / 403 → `config`, 429 → `rate_limit` (kabul
+  edilen genişleme, `agent_design.md` §6). Mevcut Groq / Ollama sınıflandırma tablosu değişmeden
+  geçer.
 - **Hız limiti → `rate_limited`:** sahte model gerçek `groq.RateLimitError` fırlatır → kural
   `no_finding` (sebep `rate_limited`, `needs_review=true`) döner, diğer kurallar etkilenmez.
 - **Yarıda kesilen koşu avukata gider:** agent bulgu bildirir, sonra (a) adım limitine takılır ya da
@@ -727,7 +733,8 @@ Sonuç `evals/results/` altına ve README'ye yazılır.
   Önbelleğe ve koşu özetine girmez.
 - **`rate_limited` koşuyu geçersiz kılar:** herhangi bir kural `no_finding` (sebep `rate_limited`)
   dönerse eval metrik basmaz; kaç kuralın limite takıldığını söyleyen açık bir hatayla, sıfır olmayan
-  çıkış koduyla durur. Limite takılan bir kural "modelin hatası" gibi sayılmaz. Tamamlanan
+  çıkış koduyla durur. Limite takılan bir kural "modelin hatası" gibi sayılmaz. Uzak ya da vekil
+  arkasındaki bir Ollama'nın 429'u da `rate_limited`'dır (`agent_design.md` §6). Tamamlanan
   sözleşmeler önbellekte kalır; limite takılan sözleşme `--resume` ile baştan koşar.
 - **Önbellek:** tam kipte her sözleşme tamamlanınca (satırları kurulunca) satırları
   `<results-dir>/.cache/<sağlayıcı>_<model adı, dosya adına uygun>.json` dosyasına yazılır

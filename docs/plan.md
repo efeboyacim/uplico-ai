@@ -1374,7 +1374,9 @@ gereksiz yönlendirme satırları bunu gösterir.
      parametre hiç gönderilmez (bazı modeller `temperature`'ı 400 ile reddediyor).
   5. **Hata sınıflandırma** istisna tipine değil HTTP durum koduna bakar (istisnanın
      `status_code`'u, yoksa `response.status_code`'u): 401 / 403 / 404 → `config`, 429 →
-     `rate_limit`, gerisi `other`. Groq ve Ollama için sonuç bugünküyle aynı kalmalıdır.
+     `rate_limit`, gerisi `other`. Groq ve Ollama için sonuç bugünküyle aynı kalmalıdır (Ollama'da
+     aynı kalmadı: 401 / 403 → `config`, 429 → `rate_limit`; aşağıda "Planlama kararları 2" ve
+     "Ön doğrulama sonuçları 12").
   6. **Başlangıç kontrolü:** model, giriş noktaları (API ve eval koşucusu) açılırken bir kez
      kurulur. Paket kurulu değilse ya da kimlik bilgisi eksikse uygulama, eksik paketin ya da
      değişkenin adını söyleyen `ConfigError` ile durur; hata ilk incelemeye kalmaz.
@@ -1472,6 +1474,17 @@ gereksiz yönlendirme satırları bunu gösterir.
       `evals/cache.py` ve testi bu adımın dosyalarına eklenir. `LLM_API_KEY` Ollama'ya geçirilmez
       ve hata değildir. Audit `review_started` sağlayıcı adını yazar, `LLM_BASE_URL`'in host'unu
       yazmaz (OpenAI uyumlu adreste kayıtta `openai` görünür): bilinen sınır, kod değişmez.
+  12. **Kod incelemesinde çıkanlar (üç bağımsız inceleme; Groq yolu `HEAD` ile yan yana: model
+      alanları 64 ortam, tel üzerindeki istek 36 senaryo, bayt bayt aynı).** (a) `openai` /
+      `anthropic`'te `LLM_BASE_URL` boşken entegrasyon `OPENAI_BASE_URL` gibi kendi env
+      değişkenini okuyordu; anahtar ve maskeli metin `LLM_BASE_URL`'in hiç söylemediği bir adrese
+      gidebilirdi. Karar: bu iki sağlayıcıda adres boşsa resmî adres açıkça geçirilir. Groq'a
+      dokunulmaz (`GROQ_BASE_URL` düşüşü `HEAD`'deki gibi kalır; bilinen sınır). (b) Ollama 429
+      artık `rate_limit` (eskiden `other`): genel kuralın sonucu, kabul edildi ve dokümana
+      yazıldı; yukarıdaki "Planlama kararları 2" yalnızca 401 / 403 diyordu. (c) Groq ile
+      `LLM_TEMPERATURE=none` kurulamaz (ChatGroq `None` kabul etmez, atlanırsa 0,7 gönderir):
+      `config.py`'de `LLM_TEMPERATURE`'ı söyleyen `ConfigError`. (d) `LLM_BASE_URL` `repr`'de
+      görünmez.
   **Doğrulanamayanlar:** gerçek bir OpenAI uyumlu sunucunun `max_completion_tokens`'ı kabul edip
   etmediği; Gemini'nin geçersiz anahtarda 400 mü 401 mi döndüğü; eşzamansız ve akışlı yollar
   (Anthropic, Google); Linux imaj boyutu.

@@ -50,13 +50,17 @@
 - Env yalnızca `src/config.py`'de okunur ve başlangıçta doğrulanır: `LLM_PROVIDER=groq` iken ne
   `GROQ_API_KEY` ne `LLM_API_KEY` varsa, `openai` / `anthropic` için `LLM_API_KEY` boşsa, sağlayıcı
   adı bozuksa, varsayılan modeli olmayan sağlayıcıda `LLM_MODEL` boşsa, `LLM_TEMPERATURE` ya da
-  `LLM_MAX_TOKENS` geçersizse, `ollama` ile `LLM_BASE_URL` verilmişse ya da `TENANT_API_KEYS`
+  `LLM_MAX_TOKENS` geçersizse, `groq` ile `LLM_TEMPERATURE=none` verilmişse (`ChatGroq`
+  sıcaklıksız istek göndermez), `ollama` ile `LLM_BASE_URL` verilmişse ya da `TENANT_API_KEYS`
   boşsa uygulama değişkenin adını söyleyen hatayla durur. Varsayılan değere ya da başka
   sağlayıcıya sessizce düşülmez; boş anahtar `api_key` olarak geçirilmez (entegrasyon kendi env
-  değişkenine düşerdi). **Yazılı istisna:** `LLM_API_KEY` verilmemişse bilinen tablonun dışındaki
-  sağlayıcının (ve birden çok kimlik bilgisi isteyen her sağlayıcının; ör. Bedrock, Azure, Vertex)
-  entegrasyon paketi kendi standart env değişkenlerini kendisi okur. Env'i `src/config.py`'den
-  başka bir şeyin okuduğu tek yer budur; uygulama kodu bu değişkenleri okumaz.
+  değişkenine düşerdi). Aynı sebeple `LLM_BASE_URL` boşken `openai` ve `anthropic`'e genel adres
+  açıkça verilir (`tech_stack.md` "Ortam değişkenleri"). **Yazılı istisna:** `LLM_API_KEY`
+  verilmemişse bilinen tablonun dışındaki sağlayıcının (ve birden çok kimlik bilgisi isteyen her
+  sağlayıcının; ör. Bedrock, Azure, Vertex) entegrasyon paketi kendi standart env değişkenlerini
+  kendisi okur; Groq'un adres değişkenleri ve entegrasyonların ikincil değişkenleri (organizasyon,
+  vekil) de bilinen sınırdır (`tech_stack.md`). Env'i `src/config.py`'den başka bir şeyin okuduğu
+  yerler yalnızca bunlardır; uygulama kodu bu değişkenleri okumaz.
 - Giriş noktaları (`src/api.py` ve `evals/run.py`'nin `main()`'i) sohbet modelini başlangıçta bir
   kez kurar; kurulum hatası (`ImportError`, `ValueError`, reddedilen kimlik bilgisi) `ConfigError`'a
   çevrilir. `--prepare-only` modeli kurmaz. Kontrol `create_app`'e konmaz.

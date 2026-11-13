@@ -105,15 +105,17 @@ Doğrulanamayan `spec.md` §10'da açık sorudur: `gpt-oss-120b`'nin Türkçe ka
   satırlık hatayla, sıfır olmayan çıkış koduyla durur. `openai` ve `anthropic` için `LLM_API_KEY`
   zorunludur. Kontrol `src/config.py`'dedir; kütüphanenin hatasına bırakılmaz. Aynı kontrol biçimi
   bozuk `LLM_PROVIDER`, varsayılan modeli olmayan sağlayıcıda boş `LLM_MODEL`, geçersiz
-  `LLM_TEMPERATURE` / `LLM_MAX_TOKENS`, `ollama` ile birlikte verilen `LLM_BASE_URL` ve boş
-  `TENANT_API_KEYS` için de yapılır.
+  `LLM_TEMPERATURE` / `LLM_MAX_TOKENS`, `groq` ile birlikte verilen `LLM_TEMPERATURE=none`,
+  `ollama` ile birlikte verilen `LLM_BASE_URL` ve boş `TENANT_API_KEYS` için de yapılır.
 - **Model kurulum kontrolü:** iki giriş noktası (`src/api.py` ve `evals/run.py`'nin `main()`'i)
   sohbet modelini hizmete ya da koşuya başlamadan önce bir kez kurar; `--prepare-only` kurmaz.
   Entegrasyon paketi kurulu değilse (`ImportError`), sağlayıcı adını LangChain tanımıyorsa
   (`ValueError`) ya da entegrasyon kimlik bilgisini kurulumda reddederse hata `ConfigError`'a
   çevrilir ve süreç aynı tek satırlık mesajla durur; hata ilk incelemeye kalmaz. Eksik pakette
   mesaj paketin adını, varsa paket grubunu (`openai` / `anthropic`) ve `LLM_EXTRAS` build
-  argümanını söyler. **Sınır:** tabloda olmayan ve anahtarsız da kurulabilen bir sağlayıcıda
+  argümanını söyler. `langchain-groq` ve `langchain-ollama` çekirdek bağımlılıktır (grupları
+  yoktur); onlardan biri eksikse mesaj ortamın kilitten kurulmadığını söyler (`uv sync` ya da
+  imajı yeniden kur), `pyproject.toml`'a paket eklemeyi önermez. **Sınır:** tabloda olmayan ve anahtarsız da kurulabilen bir sağlayıcıda
   eksik anahtar ancak ilk çağrıda görülür (`ChatAnthropic` anahtarsız kurulur; `anthropic` tabloda
   olduğu için onda anahtarı config ister); 401 `config` sınıfıdır ve incelemeyi durdurur (aşağıda).
 - **Hız limiti (429):** Groq modeli `max_retries=3` ile kurulur (toplam en fazla 4 istek); yeniden
@@ -121,7 +123,8 @@ Doğrulanamayan `spec.md` §10'da açık sorudur: `gpt-oss-120b`'nin Türkçe ka
   `max_retries=3` ile kurulur; kaç istek demek olduğu sağlayıcıya göre değişir (aşağıda "Sürüm
   sabitleri / kısıtlar"). Denemeler tükenirse o kural
   `no_finding` (sebep `rate_limited`) olur ve avukat kuyruğuna düşer; inceleme çökmez. Eval'de tek
-  bir `rate_limited` koşuyu geçersiz kılar (`evals.md` §6).
+  bir `rate_limited` koşuyu geçersiz kılar (`evals.md` §6). HTTP 429 her sağlayıcıda bu sınıftır,
+  Ollama dahil (uzak ya da vekil arkasındaki Ollama 429 dönebilir; `agent_design.md` §6).
   - Groq'a özgü: günlük limit dolduğunda `retry-after` saatler olabilir; `groq` SDK'sı 60 sn'den
     uzun beklemeye uymadığı için istek asılı kalmaz, birkaç saniye içinde `rate_limited` olur.
     Anthropic SDK'sı ise `retry-after` ne derse o kadar bekler (aşağıda "Sürüm sabitleri /
@@ -198,25 +201,45 @@ Tanımsız, boş ve yalnızca boşluk içeren değer aynıdır ("boş").
   `LLM_API_KEY` verilmişse Ollama'ya geçirilmez ve hata değildir (çevrimdışı moda çevrilen bir
   `.env` onu hâlâ taşıyabilir). `GROQ_API_KEY` gibi loglanmaz ve `repr`'de görünmez.
 - `LLM_BASE_URL` — verilmişse `base_url` olarak geçirilir (OpenAI uyumlu servisler `LLM_API_KEY`
-  ile birlikte bununla kullanılır). `LLM_PROVIDER=openai` iken verilmişse ayrıca
+  ile birlikte bununla kullanılır). Değerin anlamı entegrasyona göre değişir: `openai`'de `/v1`'i
+  içerir (`http://host:port/v1`; istek `…/v1/chat/completions`'a gider), `groq`'ta host köküdür
+  (`groq` SDK'sı `/openai/v1`'i kendisi ekler). `LLM_PROVIDER=openai` iken verilmişse ayrıca
   `use_responses_api=False` geçirilir: OpenAI uyumlu sunucular `/chat/completions`'ı uygular;
   `langchain-openai` adında `codex` geçen ya da `gpt-5-pro` ile başlayan modelleri yoksa
-  `/responses`'a yönlendirir. `ollama` ile
+  `/responses`'a yönlendirir. **Boşsa** `openai` ve `anthropic`'e sağlayıcının genel adresi
+  açıkça verilir (`https://api.openai.com/v1`, `https://api.anthropic.com`); bu varsayılanla
+  `use_responses_api=False` verilmez. Sebep: adres verilmezse entegrasyon ve SDK onu kendi env
+  değişkenlerinden okur (`OPENAI_BASE_URL`, `OPENAI_API_BASE`, `ANTHROPIC_BASE_URL`,
+  `ANTHROPIC_API_URL`); anahtar ve maskeli metin `LLM_BASE_URL`'in hiç söylemediği bir adrese
+  gidebilirdi. Adrese kimlik bilgisi yazılmaz (anahtar `LLM_API_KEY`'e yazılır); değer yine de
+  `Settings`'in `repr`'inde görünmez. `ollama` ile
   birlikte verilemez (başlangıç hatası, mesaj `OLLAMA_BASE_URL`'i söyler): compose
-  `OLLAMA_BASE_URL`'i her zaman doldurduğu için değer sessizce yok sayılırdı.
+  `OLLAMA_BASE_URL`'i her zaman doldurduğu için değer sessizce yok sayılırdı. **Sınırlar:** Groq'a
+  bu kural uygulanmaz; `LLM_BASE_URL` boşken adres `GROQ_API_BASE`'den (`langchain-groq`) ya da
+  `GROQ_BASE_URL`'den (`groq` SDK'sı) okunabilir; bu, Groq'a giden istek değişmesin diye
+  öncekiyle aynı bırakıldı. `openai`'de genel adres açıkça verildiği için `langchain-openai`
+  akışlı yanıtta kullanım sayımını (`stream_usage`) varsayılan olarak açmaz; bu yalnızca akışlı
+  isteği etkiler. Entegrasyonlar adres dışındaki kendi
+  ikincil değişkenlerini okuyabilir (ör. `langchain-openai`'de organizasyon ve vekil:
+  `OPENAI_ORG_ID`, `OPENAI_PROXY`). Tablonun dışındaki sağlayıcılar kendi değişkenlerini okur
+  (aşağıda).
 - `LLM_TEMPERATURE` — boşsa 0. `none` ise `temperature=None` **açıkça** geçirilir ve istekte
   `temperature` alanı olmaz (bazı modeller alanı reddeder); argümanı atlamak yetmez,
   `ChatGoogleGenerativeAI` atlanan değer yerine kendi varsayılanını (0,7) gönderir. Başka değer
-  negatif olmayan bir sayı olmalıdır; değilse başlangıç hatasıdır. Her sağlayıcıya uygulanır.
+  negatif olmayan bir sayı olmalıdır (`-0` 0 sayılır); değilse başlangıç hatasıdır. Her sağlayıcıya
+  uygulanır; tek istisna `groq` ile `none`'dır: başlangıç hatasıdır (mesaj `LLM_TEMPERATURE`'ı
+  söyler), çünkü `ChatGroq`'un "sıcaklık yok" değeri yoktur: `None` kurulumda doğrulamadan geçmez,
+  argümanı atlamak ise `ChatGroq`'un kendi varsayılanını (0,7) gönderir.
 - `LLM_MAX_TOKENS` — çağrı başına çıktı sınırı; pozitif tam sayı, boşsa 2048 (Groq'un bugünkü
   değeri). `groq`'a ve Ollama dışındaki her sağlayıcıya verilir; `ollama`'ya verilmez (`ChatOllama`
   yok sayar). Sebep: düşünen modellerde düşünme token'ları bu sınırın içindedir; sınır dolarsa yanıt
   boş gelir ve bu sistemde sağlayıcı hatası değil `no_finding` (`no_submit`) bulgusu olur.
 - `LLM_API_KEY` verilmemişse bilinen tablonun dışındaki sağlayıcının (ve birden çok kimlik bilgisi
   isteyen her sağlayıcının; ör. Bedrock, Azure, Vertex) entegrasyonu kendi standart env
-  değişkenlerini kendisi okur. Env'i `src/config.py`'den başka bir şeyin okuduğu tek yer budur;
-  "env'e yalnızca `src/config.py` dokunur" kuralının yazılı istisnasıdır (`code_standards.md`). Bu
-  değişkenler burada listelenmez.
+  değişkenlerini kendisi okur. Env'i `src/config.py`'den başka bir şeyin okuduğu yer budur ve
+  yukarıda `LLM_BASE_URL`'deki sınırlardır (Groq'un adres değişkenleri, entegrasyonların ikincil
+  değişkenleri); "env'e yalnızca `src/config.py` dokunur" kuralının yazılı istisnasıdır
+  (`code_standards.md`). Bu değişkenler burada listelenmez.
 - `LLM_EXTRAS` — çalışma anı değişkeni değil, Docker **build argümanıdır**: imaja kurulacak paket
   grupları, boşlukla ayrılmış (varsayılan `openai anthropic`; boş değer grup yok demektir). Compose
   onu `.env`'den ya da kabuktan okur (yukarıda "Deploy").
@@ -273,17 +296,21 @@ Tanımsız, boş ve yalnızca boşluk içeren değer aynıdır ("boş").
   sağlayıcı seçiliyken verilir:
   - Groq: varsayılan model, birim fiyat; `max_retries=3`, `max_tokens` (`LLM_MAX_TOKENS`, varsayılan
     2048), `reasoning_effort="low"` (yalnızca Groq'a), zaman aşımı 60 sn. `reasoning_format`
-    verilmez.
+    verilmez. `LLM_TEMPERATURE=none` kabul edilmez (başlangıç hatası; `ChatGroq` sıcaklıksız
+    istek göndermez).
   - Ollama: varsayılan model; `OLLAMA_BASE_URL`, `num_ctx`, `reasoning=False`, sabit `seed`, zaman
     aşımı 120 sn (`client_kwargs` ile). Anahtar yok; `max_tokens` verilmez. `ChatOllama`'da
     `max_retries` alanı yoktur; yerelde hız limiti de yoktur.
   - `openai`, `anthropic`: varsayılan model yok (`LLM_MODEL` zorunlu), `LLM_API_KEY` zorunlu, birim
     fiyat yok (maliyet "bilinmiyor"), eşzamanlılık varsayılanı 1. Parametreleri ortak
-    parametrelerdir (aşağıda).
+    parametrelerdir (aşağıda); `LLM_BASE_URL` boşsa genel adresleri açıkça verilir
+    (`https://api.openai.com/v1`, `https://api.anthropic.com`; yukarıda "Ortam değişkenleri").
 - **Tabloda olmayan sağlayıcılar ve `openai` / `anthropic`** tam olarak şu ortak parametreleri alır:
   `max_tokens` (`LLM_MAX_TOKENS`), `timeout` (60 sn), `max_retries` (3), `temperature`
   (`LLM_TEMPERATURE`); verilmişse `api_key` (`LLM_API_KEY`) ve `base_url` (`LLM_BASE_URL`; `openai`
-  ile birlikte `use_responses_api=False`). Sağlayıcıya özel başka parametre verilmez. Tabloda
+  ile birlikte `use_responses_api=False`). `LLM_BASE_URL` boşken `base_url` yalnızca `openai` ve
+  `anthropic`'e, genel adresleriyle verilir; tabloda olmayan sağlayıcıya verilmez. Sağlayıcıya
+  özel başka parametre verilmez. Tabloda
   olmayan sağlayıcıda `LLM_MODEL` zorunlu, `LLM_API_KEY` isteğe bağlıdır; eşzamanlılık varsayılanı
   1, maliyet "bilinmiyor"dur.
   - **OpenAI uyumlu servis:** `base_url` isteğin gittiği adrestir (`…/chat/completions`); çıktı

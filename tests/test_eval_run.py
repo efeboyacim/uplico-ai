@@ -2,6 +2,7 @@ import functools
 import json
 import shutil
 import socket
+import sys
 import tempfile
 import unicodedata
 from collections.abc import Callable, Iterator, Mapping, Sequence
@@ -12,6 +13,7 @@ from typing import Any
 
 import groq
 import httpx
+import langchain.chat_models.base as chat_models_base
 import pytest
 import requests
 from conftest import ScriptedChatModel, ScriptItem, ai, call, done
@@ -534,6 +536,62 @@ def test_main_missing_tenant_keys_exits_1(
     assert not results_dir.exists()
 
 
+def _set_env(monkeypatch: pytest.MonkeyPatch, data_dir: Path, **env: str) -> None:
+    cleared = ("GROQ_API_KEY", "LLM_API_KEY", "LLM_MODEL", "LLM_BASE_URL", "LLM_TEMPERATURE")
+    for name in (*cleared, "LLM_MAX_TOKENS"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("TENANT_API_KEYS", json.dumps(TENANT_KEYS))
+    monkeypatch.setenv("DATA_DIR", str(data_dir))
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+
+
+def test_main_prepare_only_does_not_build_the_model(
+    data_dir: Path,
+    results_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_env(monkeypatch, data_dir, LLM_PROVIDER="anthropic", LLM_MODEL="m", LLM_API_KEY="k")
+
+    def refuse(*args: object, **kwargs: object) -> object:
+        raise AssertionError("--prepare-only must not build the chat model")
+
+    monkeypatch.setattr("src.llm.init_chat_model", refuse)
+    code = main(["--prepare-only", "--limit", "1", "--results-dir", str(results_dir)])
+    capsys.readouterr()
+    assert code == EXIT_OK
+
+
+def test_main_missing_integration_package_exits_1_before_any_run(
+    data_dir: Path,
+    results_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    _set_env(
+        monkeypatch, data_dir, LLM_PROVIDER="anthropic", LLM_MODEL="m", LLM_API_KEY="sk-SECRET"
+    )
+    monkeypatch.setitem(sys.modules, "langchain_anthropic", None)
+    chat_models_base._get_chat_model_creator.cache_clear()
+    ran = _spy_runs(monkeypatch, forbidden=[x["id"] for x in LABELS])
+    try:
+        with pytest.raises(SystemExit) as info:
+            main(["--limit", "1", "--results-dir", str(results_dir)])
+    finally:
+        chat_models_base._get_chat_model_creator.cache_clear()
+    captured = capsys.readouterr()
+
+    assert info.value.code == EXIT_ERROR
+    assert ran == []
+    assert captured.out == ""
+    lines = captured.err.splitlines()
+    assert len(lines) == 1
+    assert "langchain-anthropic" in lines[0]
+    assert "sk-SECRET" not in captured.err
+    assert not results_dir.exists()
+
+
 def test_eval_run_test_source_has_no_invisible_characters() -> None:
     for path in (Path(__file__), REPO / "evals" / "run.py", REPO / "evals" / "cache.py"):
         text = path.read_bytes().decode("utf-8")
@@ -637,6 +695,45 @@ def test_run_rate_limit_then_resume_runs_only_remaining_contracts(
     assert {r["contract_id"] for r in data["rules"]} == {x["id"] for x in LABELS[:4]}
     assert "Devam: 2 sözleşme önbellekten (tarihler: 2026-01-02)" in captured.out.splitlines()
     assert not _cache_file(results_dir).exists()
+
+
+@pytest.mark.parametrize(
+    ("env", "reused"),
+    [
+        ({"LLM_TEMPERATURE": "0.5"}, False),
+        ({"LLM_MAX_TOKENS": "4096"}, False),
+        ({"LLM_BASE_URL": "http://groq-proxy.local"}, False),
+        ({"LLM_TEMPERATURE": "0", "LLM_MAX_TOKENS": "2048"}, True),  # same effective values
+    ],
+    # No LLM_TEMPERATURE=none row: groq refuses it at load_settings; the fingerprint's `none`
+    # case is covered by tests/test_eval_cache.py.
+    ids=["temperature", "max_tokens", "base_url", "explicit_defaults"],
+)
+def test_run_resume_skips_records_of_other_model_settings(
+    data_dir: Path,
+    results_dir: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    env: dict[str, str],
+    reused: bool,
+) -> None:
+    assert _run(data_dir, results_dir, _rate_limited_at(data_dir, 1), limit=2) == EXIT_RATE_LIMITED
+    assert _cached_ids(results_dir) == ["contract-01"]
+    capsys.readouterr()
+
+    ran = _spy_runs(monkeypatch)
+    start = 1 if reused else 0
+    model = _model(data_dir, 2, start=start)
+    code = _run(data_dir, results_dir, model, _settings(data_dir, **env), limit=2, resume=True)
+    err = capsys.readouterr().err
+
+    assert code == EXIT_OK
+    if reused:
+        assert ran == ["contract-02"]
+        assert "1 sözleşme önbellekten alındı, 1 sözleşme koşulacak, 0 kayıt" in err
+    else:
+        assert ran == ["contract-01", "contract-02"]
+        assert "0 sözleşme önbellekten alındı, 2 sözleşme koşulacak, 1 kayıt" in err
 
 
 def test_run_limit_and_resume_equals_uninterrupted_run(

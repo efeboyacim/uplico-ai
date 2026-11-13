@@ -35,6 +35,7 @@ from evals.metrics import (
     rule_row_to_json,
     safe_model_name,
 )
+from src.config import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE
 
 # 2: rule rows carry `proposal_calls` and `proposal_errors`; a version 1 file is a corrupt cache.
 CACHE_VERSION = 2
@@ -119,11 +120,34 @@ def tracked_files(repo_root: Path) -> list[str]:
     return sorted(paths)
 
 
-def run_fingerprint(repo_root: Path, *, provider: str, model: str, num_ctx: int) -> str:
-    """sha256 of the tracked files' (path, content digest) pairs, provider, model and num_ctx."""
+def run_fingerprint(
+    repo_root: Path,
+    *,
+    provider: str,
+    model: str,
+    num_ctx: int,
+    temperature: float | None = DEFAULT_TEMPERATURE,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
+    base_url: str | None = None,
+) -> str:
+    """sha256 of the tracked files' (path, content digest) pairs and the model settings.
+
+    The settings are the effective values (`Settings`), so an unset variable and its default
+    give the same digest; `temperature=None` (LLM_TEMPERATURE=none) differs from 0.
+    """
     files = [[rel, _sha256((repo_root / rel).read_bytes())] for rel in tracked_files(repo_root)]
     return _sha256(
-        _canonical({"files": files, "provider": provider, "model": model, "num_ctx": num_ctx})
+        _canonical(
+            {
+                "files": files,
+                "provider": provider,
+                "model": model,
+                "num_ctx": num_ctx,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "base_url": base_url,
+            }
+        )
     )
 
 

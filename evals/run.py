@@ -92,9 +92,9 @@ from evals.metrics import (
     thresholds_json,
     thresholds_passed,
 )
-from src.config import Settings, load_settings_or_exit
+from src.config import ConfigError, Settings, load_settings_or_exit
 from src.graph import close_graphs, get_review_graph, initial_state, review_config
-from src.llm import classify_provider_error
+from src.llm import check_chat_model, classify_provider_error
 from src.models import Finding
 from src.prepare import prepare_contract
 from src.prepare.index import clear_indexes, drop_index
@@ -502,6 +502,9 @@ def _open_cache(
             provider=settings.llm_provider,
             model=settings.llm_model,
             num_ctx=settings.llm_num_ctx,
+            temperature=settings.llm_temperature,
+            max_tokens=settings.llm_max_tokens,
+            base_url=settings.llm_base_url,
         )
     except FingerprintError as exc:
         raise EvalError(str(exc)) from None
@@ -902,6 +905,12 @@ def parse_args(argv: Sequence[str] | None) -> tuple[argparse.Namespace, int]:
 def main(argv: Sequence[str] | None = None) -> int:
     args, _ = parse_args(argv)
     settings = load_settings_or_exit()
+    if not args.prepare_only:  # prepare-only never calls the model
+        try:
+            check_chat_model(settings)
+        except ConfigError as exc:
+            print(f"Yapılandırma hatası: {exc}", file=sys.stderr)
+            raise SystemExit(EXIT_ERROR) from None
     return run_or_report(
         settings,
         limit=args.limit,

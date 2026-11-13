@@ -785,11 +785,16 @@ kural için avukattan taslak kararı istenmez); ikisi de audit'teki `tool_call` 
     sağlayıcıya bağlı kodun `src/config.py` ve `src/llm.py`'de durmasının (`architecture.md`
     ADR-012) yazılı istisnasıdır.
   - **Bilerek kabul edilen genişleme:** Ollama'da 404'ün yanında 401 / 403 de `config`'tir (kimlik
-    doğrulamalı uzak Ollama). Groq'un ve Ollama'nın diğer hatalarının sınıfı değişmez.
+    doğrulamalı uzak Ollama) ve 429 `rate_limit`'tir (uzak ya da vekil arkasındaki Ollama; genel
+    kural: 429 her sağlayıcıda `rate_limit`). Sonucu: eskiden `llm_error` olan bir Ollama 429'u
+    artık `rate_limited` olur ve eval'de tek bir `rate_limited` koşuyu geçersiz kılar (`evals.md`
+    §6). Groq'un hatalarının ve Ollama'nın diğer hatalarının sınıfı değişmez.
   - **Bilinen yanlış sınıflar (sınır):** OpenAI'de kota / bakiye bitmesi 429 ile gelir ve
     `rate_limit` sayılır, yeniden denemek işe yaramasa da; Gemini'de faturalama ön koşulu hatası
     400'dür ve `other` sayılır; Gemini'nin geçersiz anahtarda 400 mü 401 mi döndüğü belirlenmedi;
-    sağlayıcıdan gelmeyen ama `int` `status_code` taşıyan bir istisna da bu koda göre sınıflanır.
+    sağlayıcıdan gelmeyen ama `int` `status_code`, `int` `response.status_code` (ör. sağlayıcı
+    çağrısından gelmeyen bir `httpx.HTTPStatusError`) ya da tam sayı `code` taşıyan bir istisna da
+    bu koda göre sınıflanır.
   - Sonuç: beklenmeyen bir kod hatası avukata "LLM hatası" diye gitmez, incelemeyi `failed` yapar.
     Gerçek bir sağlayıcı hatası da, tipi ne olursa olsun, bu yola düşemez; işaret model çağrısının
     kendisinde konur.
@@ -804,9 +809,9 @@ kural için avukattan taslak kararı istenmez); ikisi de audit'teki `tool_call` 
 
 | Durum | Davranış |
 |---|---|
-| Sağlayıcı anahtarı ya da zorunlu model yok / sağlayıcı adı bozuk / geçersiz `LLM_TEMPERATURE`, `LLM_MAX_TOKENS` / `ollama` ile `LLM_BASE_URL` | Uygulama başlamaz; `config.py` açık hatayla durur (inceleme hiç başlamaz) |
-| Sağlayıcı paketi kurulu değil / LangChain sağlayıcıyı tanımıyor / kimlik bilgisi kurulumda reddedildi | Uygulama başlamaz: giriş noktası modeli başlangıçta bir kez kurar, hata `ConfigError` olur (eksik pakette mesaj paketi, grubu ve `LLM_EXTRAS`'ı söyler). `--prepare-only` modeli kurmaz |
-| Hız limiti (429) | Model en fazla 3 kez yeniden dener (kaç istek olduğu sağlayıcıya göre değişir). Tükenirse `review_rule` yakalar → `no_finding` (sebep `rate_limited`) → avukat kuyruğu |
+| Sağlayıcı anahtarı ya da zorunlu model yok / sağlayıcı adı bozuk / geçersiz `LLM_TEMPERATURE`, `LLM_MAX_TOKENS` / `groq` ile `LLM_TEMPERATURE=none` (`ChatGroq` sıcaklıksız istek göndermez) / `ollama` ile `LLM_BASE_URL` | Uygulama başlamaz; `config.py` açık hatayla durur (inceleme hiç başlamaz) |
+| Sağlayıcı paketi kurulu değil / LangChain sağlayıcıyı tanımıyor / kimlik bilgisi kurulumda reddedildi | Uygulama başlamaz: giriş noktası modeli başlangıçta bir kez kurar, hata `ConfigError` olur (eksik pakette mesaj paketi, grubu ve `LLM_EXTRAS`'ı söyler; çekirdek bağımlılık olan `langchain-groq` / `langchain-ollama` eksikse ortamın kilitten kurulmadığını söyler: `uv sync` ya da imajı yeniden kur). `--prepare-only` modeli kurmaz |
+| Hız limiti (429; Ollama dahil her sağlayıcıda) | Model en fazla 3 kez yeniden dener (kaç istek olduğu sağlayıcıya göre değişir; `ChatOllama`'da `max_retries` yoktur). Tükenirse `review_rule` yakalar → `no_finding` (sebep `rate_limited`) → avukat kuyruğu |
 | Kimlik / yapılandırma hatası (`langchain_core` kimlik / izin / bulunamadı hatası ya da HTTP 401 / 403 / 404; Groq, Ollama ve diğer sağlayıcılar) | **İstisna:** `review_rule`'da yakalanmaz, yeniden fırlatılır; graph durur, API incelemeyi `failed` yapar ve 502 döner. Tabloda olmayan, anahtarsız kurulabilen bir sağlayıcıda eksik anahtar buraya düşer (ilk çağrıda 401) |
 | Diğer LLM hatası (zaman aşımı, 5xx, 400, bağlantı reddi) | `review_rule` içinde yakalanır → `no_finding` (sebep `llm_error`) → avukat kuyruğu |
 | Model çağrısı dışından gelen hata (tool gövdesinde beklenmeyen hata, middleware, kütüphane, audit yazımı, eksik indeks) | Bulguya çevrilmez; graph'tan dışarı fırlar, API incelemeyi `failed` yapar ve 500 döner |

@@ -46,7 +46,7 @@ from src.graph import (
     resume_command,
     review_config,
 )
-from src.llm import classify_provider_error
+from src.llm import check_chat_model, classify_provider_error
 from src.models import (
     AuditRecord,
     Clause,
@@ -820,6 +820,7 @@ def create_app(settings: Settings) -> FastAPI:
 def main() -> None:
     settings = load_settings_or_exit()
     try:
+        check_chat_model(settings)  # here, not in create_app: a broken model stops the start
         app = create_app(settings)
     except ConfigError as exc:
         print(f"Yapılandırma hatası: {exc}", file=sys.stderr)

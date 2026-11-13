@@ -18,8 +18,13 @@ dependencies = [
     "httpx",
 ]
 
+[project.optional-dependencies]
+openai = ["langchain-openai>=1.7"]
+anthropic = ["langchain-anthropic>=1.7"]
+
 [dependency-groups]
 dev = [
+    "langchain-openai>=1.7",
     "pytest",
     "ruff",
     "mypy",

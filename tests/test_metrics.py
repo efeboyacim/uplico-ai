@@ -566,6 +566,13 @@ def test_estimate_cost_overridden_model_or_no_tokens_is_unknown() -> None:
     assert estimate_cost("groq", PROVIDER_DEFAULTS["groq"].model, None, None) is None
 
 
+@pytest.mark.parametrize("provider", ["openai", "anthropic", "mistralai", "google_genai"])
+def test_estimate_cost_provider_without_unit_prices_is_unknown(provider: str) -> None:
+    assert estimate_cost(provider, "some-model", 1_000_000, 1_000_000) is None
+    c = contract_metrics([_run()], provider=provider, model="some-model")
+    assert c.cost_usd is None
+
+
 # --- PII and contract runs ------------------------------------------------------------------------
 
 _SECRET = "Gizli Kişi"

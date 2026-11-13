@@ -155,6 +155,37 @@ def test_run_fingerprint_provider_model_num_ctx_change_digest(tmp_path: Path) ->
     assert _digest(root, num_ctx=4096) != base
 
 
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"temperature": 0.5},
+        {"temperature": None},
+        {"max_tokens": 4096},
+        {"base_url": "http://compat.local/v1"},
+    ],
+    ids=["temperature", "temperature_none", "max_tokens", "base_url"],
+)
+def test_run_fingerprint_model_settings_change_digest_and_drop_records(
+    tmp_path: Path, override: dict[str, object]
+) -> None:
+    root = _tree(tmp_path)
+    defaults: dict[str, object] = {"temperature": 0.0, "max_tokens": 2048, "base_url": None}
+    base = _digest(root, **defaults)
+    assert _digest(root) == base  # the defaults are the effective values of empty variables
+    changed = _digest(root, **(defaults | override))
+    assert changed != base
+    cache = CacheFile("groq", "m", base, {"contract-01": _entry()})
+    digests = {"contract-01": "f1"}
+    kept = usable_entries(
+        cache, provider="groq", model="m", run_digest=base, contract_digests=digests
+    )
+    assert list(kept) == ["contract-01"]
+    dropped = usable_entries(
+        cache, provider="groq", model="m", run_digest=changed, contract_digests=digests
+    )
+    assert dropped == {}
+
+
 @pytest.mark.parametrize("rel", ["uv.lock", "evals/run.py"])
 def test_run_fingerprint_missing_required_file_raises(tmp_path: Path, rel: str) -> None:
     root = _tree(tmp_path)

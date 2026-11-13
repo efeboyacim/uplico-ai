@@ -603,7 +603,9 @@ insanlar okuyabilir. Maskeleme her sağlayıcıda graph'tan önce aynı şekilde
     tabloda olmayan sağlayıcıda `LLM_MODEL` zorunludur; `openai` / `anthropic`'te `LLM_API_KEY` de.
   - Groq ve Ollama dışındaki sağlayıcılar yalnızca ortak parametreleri alır (`max_tokens`,
     `timeout`, `max_retries`, `temperature`; verilmişse `api_key`, `base_url`; `openai` ile
-    `base_url` verilmişse ayrıca `use_responses_api=False`). Yeni env'ler:
+    `base_url` verilmişse ayrıca `use_responses_api=False`). `LLM_BASE_URL` boşsa `openai` ve
+    `anthropic`'e genel adresleri açıkça verilir: adresi entegrasyonun kendi env değişkeni
+    (`OPENAI_BASE_URL` gibi) belirlemez. Yeni env'ler:
     `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_TEMPERATURE`, `LLM_MAX_TOKENS` (`tech_stack.md`). Hiçbiri
     verilmediğinde Groq ve Ollama'ya giden istek bayt bayt aynı kalır.
   - Hata sınıflandırma sağlayıcı tipine değil, `langchain_core` hata sınıflarına ve HTTP durum
@@ -637,8 +639,11 @@ insanlar okuyabilir. Maskeleme her sağlayıcıda graph'tan önce aynı şekilde
     eksik anahtarın ancak ilk çağrıda görülmesi sınır olarak yazılır (`agent_design.md` §6).
   - `LLM_API_KEY` verilmemişse bilinen tablonun dışındaki sağlayıcının (ve birden çok kimlik
     bilgisi isteyen her sağlayıcının; ör. Bedrock, Azure, Vertex) entegrasyonu kendi standart env
-    değişkenlerini okur: env'i `src/config.py`'den başka bir şeyin okuduğu tek yerdir, "env'e
-    yalnızca `src/config.py` dokunur" kuralının yazılı istisnası (`code_standards.md`).
+    değişkenlerini okur: env'i `src/config.py`'den başka bir şeyin okuduğu yerdir, "env'e
+    yalnızca `src/config.py` dokunur" kuralının yazılı istisnası (`code_standards.md`). Groq'ta
+    `LLM_BASE_URL` boşken adres değişkenleri (`GROQ_API_BASE`, `GROQ_BASE_URL`) Groq'a giden
+    istek değişmesin diye öncekiyle aynı okunur; entegrasyonlar organizasyon, vekil gibi ikincil
+    değişkenlerini de okuyabilir (bilinen sınırlar, `tech_stack.md`).
   - Hatadan durum kodunu okuyan yardımcı `src/agent.py` `_error_payload`'da da kullanılır
     (audit'teki `code` alanı); sağlayıcıya bağlı kodun `src/config.py` ve `src/llm.py`'de
     durmasının yazılı istisnasıdır (`agent_design.md` §6).

@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import sqlite3
+import sys
 import threading
 import uuid
 from collections.abc import Callable, Mapping, Sequence
@@ -11,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import groq
+import langchain.chat_models.base as chat_models_base
 import pytest
 from conftest import ScriptedChatModel, ScriptItem, ai, call, done
 from fastapi import FastAPI
@@ -2203,3 +2205,100 @@ def test_report_mask_fully_opened_for_lawyer_and_kept_for_viewer(
         assert any(PLACEHOLDER.search(p["edited_text"] or "") for p in viewer["proposals"])
         [lawyer_proposal] = [p for p in lawyer["proposals"] if p["edited_text"]]
         assert lawyer_proposal["edited_text"] == edited
+
+
+# --- Startup model check (step 18c) ---------------------------------------------------------------
+
+
+def _main_env(monkeypatch: pytest.MonkeyPatch, data_dir: Path, **env: str) -> None:
+    cleared = ("GROQ_API_KEY", "LLM_API_KEY", "LLM_MODEL", "LLM_BASE_URL", "LLM_TEMPERATURE")
+    for name in (*cleared, "LLM_MAX_TOKENS"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("TENANT_API_KEYS", json.dumps(KEYS))
+    monkeypatch.setenv("DATA_DIR", str(data_dir))
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+
+
+def _refuse_serving(monkeypatch: pytest.MonkeyPatch) -> list[object]:
+    served: list[object] = []
+    monkeypatch.setattr(api_module.uvicorn, "run", lambda app, **kwargs: served.append(app))
+    return served
+
+
+def test_main_missing_integration_package_exits_1_with_one_line(
+    data_dir: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _main_env(monkeypatch, data_dir, LLM_PROVIDER="openai", LLM_MODEL="m", LLM_API_KEY="sk-SECRET")
+    served = _refuse_serving(monkeypatch)
+    monkeypatch.setitem(sys.modules, "langchain_openai", None)
+    chat_models_base._get_chat_model_creator.cache_clear()
+    try:
+        with pytest.raises(SystemExit) as info:
+            api_module.main()
+    finally:
+        chat_models_base._get_chat_model_creator.cache_clear()
+    captured = capsys.readouterr()
+    assert info.value.code == 1
+    assert served == []
+    lines = captured.err.splitlines()
+    assert len(lines) == 1
+    assert "langchain-openai" in lines[0]
+    assert "--extra openai" in lines[0]
+    assert "sk-SECRET" not in captured.err
+
+
+def test_main_rejected_construction_exits_1_without_the_key(
+    data_dir: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    secret = "sk-SECRET-123"
+    _main_env(monkeypatch, data_dir, LLM_PROVIDER="mistralai", LLM_MODEL="m", LLM_API_KEY=secret)
+    served = _refuse_serving(monkeypatch)
+
+    def reject(*args: object, **kwargs: object) -> object:
+        raise ValueError(f"validation error input_value={{'api_key': '{secret}'}}")
+
+    monkeypatch.setattr("src.llm.init_chat_model", reject)
+    with pytest.raises(SystemExit) as info:
+        api_module.main()
+    captured = capsys.readouterr()
+    assert info.value.code == 1
+    assert served == []
+    assert len(captured.err.splitlines()) == 1
+    assert "LLM_PROVIDER" in captured.err
+    assert secret not in captured.err
+
+
+def test_main_builds_the_model_once_then_serves(
+    data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _main_env(monkeypatch, data_dir, LLM_PROVIDER="groq", GROQ_API_KEY="test-key")
+    served = _refuse_serving(monkeypatch)
+    built: list[str] = []
+    real = api_module.check_chat_model
+
+    def counting(settings: Settings) -> None:
+        built.append(settings.llm_provider)
+        real(settings)
+
+    monkeypatch.setattr(api_module, "check_chat_model", counting)
+    api_module.main()
+    assert built == ["groq"]
+    assert len(served) == 1
+
+
+def test_create_app_does_not_build_the_model(
+    data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refuse(*args: object, **kwargs: object) -> object:
+        raise AssertionError("create_app must not build the chat model")
+
+    monkeypatch.setattr("src.llm.init_chat_model", refuse)
+    env = {
+        "LLM_PROVIDER": "anthropic",
+        "LLM_MODEL": "m",
+        "LLM_API_KEY": "k",
+        "TENANT_API_KEYS": json.dumps(KEYS),
+        "DATA_DIR": str(data_dir),
+    }
+    create_app(load_settings(env=env))

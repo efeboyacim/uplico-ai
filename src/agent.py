@@ -36,6 +36,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMe
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 
+from src.llm import provider_status_code
 from src.models import Finding, InterruptReason, Proposal
 from src.tools import TOOLS, ReviewContext, RuleAgentState
 
@@ -109,8 +110,8 @@ def _error_payload(exc: Exception) -> dict[str, object]:
     The message text is not written: it may echo the request.
     """
     payload: dict[str, object] = {"type": type(exc).__name__}
-    code = getattr(exc, "status_code", None)
-    if isinstance(code, int):
+    code = provider_status_code(exc)  # the same reading the error classification uses
+    if code is not None:
         payload["code"] = code
     return payload
 
