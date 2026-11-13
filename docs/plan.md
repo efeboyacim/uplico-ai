@@ -438,14 +438,35 @@
   satırları harfiyen çalıştırılmadı, aynı uçlar ve gövdeler çağrıldı. **Denenmedi:** temiz
   klonda modelli eval ve çevrimdışı mod; `edit` ve `correct` karar yolları gerçek modelle;
   arayüzün tarayıcıda kullanımı.
-- **Sıradaki:** bekleyen üç düzeltme (aşağıda madde 3), sonra Adım 18c; 18c README'yi ve karar
+- **Bekleyen üç düzeltme yapıldı (2026-11-13):** ayrı `fix:` commit'leri, her birinde önce doküman
+  ve test. (a) `verify` `bf809fc` + `93aa10b`: `compliant` bulguda madde üç kez okunur (bütün,
+  alıntının öncesi, sonrası); "15-30 gün önceden" + alıntı "30 gün önceden" artık
+  `numeric_mismatch`. (b) maskeleme `d9ba36e` + `15ae9bf` + `c6e787b`: alan kodu parantez içinde
+  yazılmış önekli telefon maskelenir (`0 (532) 123 45 67`, `+90 (533) 555 05 30`,
+  `(0212) 555 12 34`); ayrı kalıp, en son yerleşir. (c) madde bölme `7583e79`: tek BOM'dan sonraki
+  ilk satır başlığı tanınır. İzleyen commit'ler bağımsız incelemenin bulgularıdır (üç tur, her
+  bulgu ayrıca doğrulandı): ilk `verify` sürümü cümle sınırındaki iki düzende eskisinden az
+  görüyordu; ilk telefon sürümü boşluklu bir TCKN'yi bölebiliyordu; ikinci sürümün ek keşif geçişi
+  eşleme sonraki çağrıya taşınınca aynı şeyi yapabiliyordu ve kaldırıldı. **Ölçülen:** eski
+  sürümle fark taraması (`verify` ≈ 700K karşılaştırma: kuyruktan çıkan bulgu yok, farkların hepsi
+  bağlaçlı maddede; maskeleme ≈ 170K girdi, tek çağrıda ve madde düzeyinde: eskiden maskelenen
+  hiçbir aralık kaybolmadı; madde bölme 60K girdi: fark yalnızca tek BOM ile başlayan metinde);
+  1591 test, ruff, mypy temiz; modelsiz eval (`--prepare-only`, iki veri kümesi) değişmedi
+  (garanti edilen PII 0; 2 / 5 ve 4 / 4). **Yeni bilinen sınırlar** (`agent_design.md` §5):
+  öneksiz parantezli alan kodu (`(532) 123 45 67`) maskelenmez; parantezli telefondan tek ayraçla
+  sonra gelen öneksiz cep ilk geçişte bulunmaz; `(0347) 3284041 TL` telefon sayılır. **Yapılmadı:**
+  `evals.md` §1'in istediği modelli eval koşusu (kota kullanıcının; sorulacak). README'deki eval
+  sayıları `4ccc03d` kodunun koşusudur; bu üç düzeltmeden sonra yeniden koşulmadı. Holdout sonucu
+  sabit kayıttır, yeniden koşulmaz. `src/` değiştiği için Docker imajı yeniden kurulur.
+- **Sıradaki:** modelli eval koşusu için kullanıcı onayı, sonra Adım 18c; 18c README'yi ve karar
   dokümanını yeniden açar.
 - **Adım 18c'ye başlarken (2026-11-13 oturumunun devri):**
   1. Depo temiz; son commit bu notun commit'i. `origin`'e push yapılmadı (push Adım 20'dir).
   2. Holdout koşusu bitti; eval önbelleği yok. `src/`, `evals/*.py` ve `uv.lock` artık
      değiştirilebilir. 18c `src/`'yi değiştirdiği için Docker imajı yeniden kurulur
      (`docker compose build app`).
-  3. **Bekleyen üç hata (karar kullanıcıda).** 2026-11-13'te ayrı bir oturumda, salt okunur kod
+  3. **Bekleyen üç hata — düzeltildi (yukarıda "Bekleyen üç düzeltme yapıldı"); aşağıdaki metin
+     düzeltmeden önceki kayıttır.** 2026-11-13'te ayrı bir oturumda, salt okunur kod
      incelemesinde gerçek kodla doğrulandı; holdout koşusu bitsin diye bekletildi, düzeltilmedi:
      (a) `src/verify.py` `_outside_reasons`: madde alıntıdan bölünüp parçalar ayrı okunduğu için
      birimini bağlaçtan (`ila` / `ile` / `veya` / `-`) alan sayı kayboluyor; madde "… 15-30 gün

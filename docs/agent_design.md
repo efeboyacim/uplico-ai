@@ -568,10 +568,12 @@ yoktur.**
     arasındaki "önce başlayan kazanır" kuralı burada TCKN'nin son hanelerini açıkta bırakırdı).
     **Katı** olanlar Adım 17b'den önce de bulunanlardır:
     e-posta, bitişik ya da standart gruplu IBAN, `+90` / `0` önekli telefon, bitişik TCKN, ad.
-    Çakışan aralıklar iki turda çözülür: önce katı değerler arasında önce başlayan, eşit başlangıçta
+    Çakışan aralıklar üç turda çözülür: önce katı değerler arasında önce başlayan, eşit başlangıçta
     uzun olan kazanır (sonuç Adım 17b öncesiyle aynıdır); sonra zayıf değerler yalnızca katı bir
     değerin kaplamadığı metni alır, kendi aralarında yine önce başlayan, eşit başlangıçta uzun olan
-    kazanır. Bu yüzden bir IBAN'ın ya da telefonun içinden TCKN çıkmaz; önündeki bir sayıyla
+    kazanır; en son parantezli telefon yalnızca ilk iki turun kaplamadığı metni alır. Bu yüzden
+    katı bir IBAN'ın ya da önekli (parantezsiz) telefonun içinden TCKN çıkmaz (parantezli yazım
+    ise boşluklu TCKN'ye yer bırakır, yukarıda); önündeki bir sayıyla
     telefonun ilk grupları birleşerek (`4437 0532 648`) telefonu bölemez; hanesi eksik bir IBAN'ın
     ardından tek boşlukla gelen telefon (`TR34 0006 1005 1978 6457 84 0532 123 45 67`), ilk grubunu
     ödünç alan serbest gruplu bir IBAN mod-97'yi tutturduğunda bile bölünmez (`TR34 … 84 [TELEFON_1]`).
@@ -622,7 +624,7 @@ yoktur.**
     ("Madde 532 123 45 67" madde numarasıdır). İki istisna bu sınırı gevşetir: tek ayraçla bitişen
     komşu, tam bir `5xx xxx xx xx` grubuysa sınır sayılır (`533 555 05 30 532 123 45 67` iki
     telefondur); önündeki rakam zaten bulunmuş bir değerin (TCKN, IBAN, önekli ya da öneksiz telefon,
-    e-posta) parçasıysa engellemez (`TCKN 21473873960 533 555 05 30`), böylece ilk geçişte maskelenen
+    e-posta; parantezli telefon hariç, yukarıda) parçasıysa engellemez (`TCKN 21473873960 533 555 05 30`), böylece ilk geçişte maskelenen
     metni yeniden maskelemek yeni bir telefon çıkarmaz. Ayraçsız 10 hane (`5335550530`), öneksiz
     sabit hat (`212 555 12 34`) ve başka gruplamalar yakalanmaz.
   - Bu kalıplar dışında rakam grupları eşleşmez; genel bir "rakam grubu" kalıbı yoktur. Böylece tutar

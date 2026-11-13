@@ -202,6 +202,12 @@ Groq `openai/gpt-oss-120b`, Docker, `MAX_CONCURRENCY=1`, 7 / 7 sözleşme, 35 ka
 Aşağıdaki değerler 2. koşudandır: `evals/results/20261112-200616_groq_openai-gpt-oss-120b.json`
 (kod `4ccc03d`). Ayrıntı: `docs/evals.md` §4–§5.
 
+Bu koşudan sonra üç düzeltme yapıldı (2026-11-13: `verify`'da alıntı dışındaki değerlerin
+okunması, alan kodu parantezli telefonun maskelenmesi, BOM'dan sonraki ilk başlık). Modelli eval
+bu kodla **yeniden koşulmadı**; aşağıdaki sayılar düzeltmelerden önceki koda aittir. Modelsiz
+ölçüm (`--prepare-only`) düzeltmelerden sonra da aynıdır: garanti edilen PII sızıntısı 0 / 52,
+garanti edilmeyen 2 / 5.
+
 ### Önce/sonra: doğrulama katmanı kapalı → açık
 
 | Metrik | Önce | Sonra |
@@ -427,8 +433,8 @@ Tam tablo: `docs/architecture.md` §6 "Veri nereye gidiyor".
   Ayrıntı: `docs/agent_design.md` §5.
 - **Maskelenmeyen kimlik bilgileri.** Gövdede geçen ad, etiketsiz imza satırındaki ad, satıra
   bölünmüş, tireli ya da çift boşluklu IBAN, ayraçsız öneksiz cep numarası, öneksiz sabit hat,
-  öneksiz yazılmış parantezli alan kodu (`(532) 123 45 67`) ve binlik gibi gruplanmış TCKN
-  maskelenmez. Önekli telefon, alan kodu parantez içinde yazılsa da maskelenir
+  öneksiz yazılmış parantezli alan kodu (`(532) 123 45 67`), `+90 (0) 212 555 12 34` yazımı ve
+  binlik gibi gruplanmış TCKN maskelenmez. Önekli telefon, alan kodu parantez içinde yazılsa da maskelenir
   (`0 (532) 123 45 67`, `(0212) 555 12 34`).
 - **Maskeleyicinin bilinen yanlış yakalamaları.** `5` ile başlayan her 3-3-2-2 sayı telefon sayılır
   (`500 000 00 00`); tek boşlukla ayrılmış ayrı sayılar 11 haneye denk gelip checksum'ı tutarsa

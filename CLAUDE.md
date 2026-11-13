@@ -42,6 +42,10 @@ arama kaçışı (BM25 sınırı), sonuçlar `docs/evals.md` §4–§5'te.
 Adım 18b (görülmemiş iki sözleşmede tek koşu) bitti: 10 / 10 karar doğru, 4'ü avukata gitti;
 hiçbir şey düzeltilmedi (`docs/evals.md` §4). Adım 19 bitti: README ve karar dokümanı; temiz
 klonda modelsiz yürüyüş ve gerçek modelle tek uçtan uca akış doğrulandı.
+Ardından salt okunur kod incelemesinin bulduğu üç hata düzeltildi (2026-11-13): `verify` alıntı
+dışındaki değerleri maddeyi bütün ve parça parça okuyarak görür, alan kodu parantezli telefon
+maskelenir, BOM'dan sonraki ilk başlık tanınır. Modelli eval bu kodla yeniden koşulmadı (README'deki
+sayılar `4ccc03d` koduna aittir).
 Sıradaki: Adım 18c — sağlayıcıdan bağımsız model kurulumu (README'yi yeniden açar), sonra
 Adım 20 — teslim. Ayrıntı `docs/plan.md` "Durum".
 

@@ -205,11 +205,12 @@
   `50 500 000 000 TL`; betikle üretilir) ve madde numarasına bitişik tutar
   (`Madde 5.1 5 400 000 000 TL`); sekme, satır sonu, ince boşluk ya da bölünemez boşlukla ayrılmış
   öneksiz cep numarası. Önekli telefonlar (`+90 532 123 45 67`, `0532 123 45 67`, `0212 123 45 67`)
-  tek bir `TELEFON` değeri kalır; IBAN'ın ya da telefonun içindeki rakamlardan TCKN çıkmaz; önündeki
+  tek bir `TELEFON` değeri kalır; IBAN'ın ya da (parantezsiz) önekli telefonun içindeki rakamlardan
+  TCKN çıkmaz; önündeki
   sayıyla birleşen bir TCKN adayı telefonu bölmez (`Sözleşme No 4437 0532 648 99 50` →
   `Sözleşme No 4437 [TELEFON_1]`). Tek boşlukla art arda yazılmış iki ya da üç öneksiz cep numarası
-  ayrı ayrı maskelenir; TCKN, IBAN ya da önekli telefondan tek boşlukla sonra gelen öneksiz cep
-  numarası ilk geçişte maskelenir ve yeniden maskeleme bir şey değiştirmez. `500 000 00 00` ve
+  ayrı ayrı maskelenir; TCKN, IBAN ya da (parantezsiz) önekli telefondan tek boşlukla sonra gelen
+  öneksiz cep numarası ilk geçişte maskelenir ve yeniden maskeleme bir şey değiştirmez. `500 000 00 00` ve
   `10 30 120 10 20` (checksum'ı tutan, tek boşlukla ayrılmış ayrı sayılar) bilinen yanlış
   pozitiflerdir ve maskelenir (`agent_design.md` "PII maskeleme"); testler bunları sabitler.
   Değişmez: eski kalıpların bulduğu bir değer yeni biçimler yüzünden asla yer kaybetmez (üç yeni
