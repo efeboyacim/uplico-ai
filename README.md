@@ -430,9 +430,10 @@ Tam tablo: `docs/architecture.md` §6 "Veri nereye gidiyor".
   öneksiz yazılmış parantezli alan kodu (`(532) 123 45 67`) ve binlik gibi gruplanmış TCKN
   maskelenmez. Önekli telefon, alan kodu parantez içinde yazılsa da maskelenir
   (`0 (532) 123 45 67`, `(0212) 555 12 34`).
-- **Adım 17b'nin bilinen yanlış yakalamaları.** `5` ile başlayan her 3-3-2-2 sayı telefon sayılır
+- **Maskeleyicinin bilinen yanlış yakalamaları.** `5` ile başlayan her 3-3-2-2 sayı telefon sayılır
   (`500 000 00 00`); tek boşlukla ayrılmış ayrı sayılar 11 haneye denk gelip checksum'ı tutarsa
-  (yaklaşık yüzde bir) TCKN sayılır. Telafi: "uygun" bulgunun maddesinde TCKN ya da telefon yer
+  (yaklaşık yüzde bir) TCKN sayılır; parantez içinde `0` + üç hane ve ardından 3-2-2 hane telefon
+  sayılır (`(0347) 3284041 TL`). Telafi: "uygun" bulgunun maddesinde TCKN ya da telefon yer
   tutucusu varsa bulgu avukata gider (`masked_value_in_clause`); değer başka maddedeyse ya da
   bulgu "uygun değil" ise bu telafi çalışmaz.
 - **Madde numarası başlıktan maskelemeden önce okunur.** `Madde 12345678901` gibi bir başlık sayıyı

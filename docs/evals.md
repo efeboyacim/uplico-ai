@@ -235,11 +235,18 @@
   değerden metin almaz: `(0212)123 0532 123 45 67` içinde önekli telefon tek `[TELEFON_1]` kalır,
   `(0212) 555 12 34-info@ornek.com` e-postayı bölmez, `Tel: 0 (532) 378 00 46 58 38 29 45 4` ve
   `TCKN: (0212) 214 73 87 39 60` içinde boşluklu TCKN bütün kalır. Başka bir değerin son hanesi
-  olan `0`'dan sonra gelen `(0212) 555 12 34` (`TCKN 10 00 00 00 45 0 (0212) …`) ve parantezli
-  telefondan tek boşlukla sonra gelen öneksiz cep (`(0212) 555 12 34 533 555 05 30`) ilk geçişte
-  maskelenir. Değişmez, tohumlu üretimle (3.000 girdi; parantezli yazımlar diğer değerlerle
+  olan `0`'dan sonra gelen `(0212) 555 12 34` (`TCKN 10 00 00 00 45 0 (0212) …`) ilk geçişte
+  maskelenir. Sabitlenen sınır: parantezli telefondan tek boşlukla sonra gelen öneksiz cep
+  (`(0212) 555 12 34 533 555 05 30`) ve virgülle sonra gelen boşluklu TCKN ilk geçişte kalır,
+  yeniden maskeleme bulur; `(0212) 555 12 34, GSM: 533 555 05 30` ilk geçişte iki değerdir.
+  Değişmez, tohumlu üretimle (3.000 girdi; parantezli yazımlar diğer değerlerle
   karışık, bir kısmı bilerek boşluklu bir TCKN ile örtüşür) sınanır: parantezli kalıp kapalıyken
-  maskelenen her (başlangıç, bitiş, ham değer) aralığı, açıkken de birebir aynı maskelenir.
+  maskelenen her (başlangıç, bitiş, ham değer) aralığı, açıkken de birebir aynı maskelenir. Aynı
+  karşılaştırma hazırlığın çağrı düzeniyle de yapılır (önce metnin tamamı, sonra her satır,
+  eşleme çağrıdan çağrıya taşınarak): eşlemede duran parantezli telefon sonraki çağrıda da
+  başka bir değerden metin almaz (`… (0212) 555 12 34 533 555 05 30` ardından gelen satırda
+  `533 555 05 30 64 27 928 34` içindeki boşluklu TCKN bütün kalır; avukatın düzenlediği taslakta
+  da).
 - **Tutar, süre ve tarih maskelenmez:** "1.250.000 TL", "5.000.000,00 TL", "90 gün", "otuz (30) gün",
   "01.01.2026", "2026-01-01", "%15", "Madde 12" ve yan yana yazılmış "01.01.2026 1.250 TL" içeren
   metin maskelemeden aynen çıkar. Telefon kalıbı bunların hiçbirini yakalamaz; "+90 532 123 45 67"

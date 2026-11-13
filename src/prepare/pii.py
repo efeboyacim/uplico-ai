@@ -723,33 +723,14 @@ def mask(text: str, mapping: Mapping[str, str]) -> tuple[MaskedText, dict[str, s
                 spans.append((start, end, spelling))
 
     weak = {value for value, kind in kind_of.items() if _is_weak(kind, value)}
-    last = {value for value, kind in kind_of.items() if _in_parentheses(kind, value)}
-    resolved = _resolve(spans, weak, frozenset(last))
-    in_parens = [span for span in resolved if span[2] in last]
-    if in_parens:
-        # A number right after a parenthesized phone is found when the digit before it belongs to
-        # a value, as in `_discover`'s later passes: a mobile number without prefix ("(0212) 555
-        # 12 34 533 555 05 30"), a spaced TCKN after a comma. The same discovery runs once more
-        # on what masking again would see (every value placed so far blanked). What it finds is
-        # placed last as well, so it cannot displace anything either. Names are left out: a label
-        # glued to a number is the documented re-masking limit.
-        blanked = list(scan)
-        for start, end, _ in resolved:
-            blanked[start:end] = _FILLER * (end - start)
-        late: dict[str, str] = {}
-        for kind, value in _discover("".join(blanked)):
-            if kind != "KISI" and value not in kind_of:
-                late.setdefault(value, kind)
-        if late:
-            for start, end, value in _occurrences(scan, late):
-                before, after = _BOUNDARY_PATTERNS[late[value]]
-                if before.match(scan, start) and after.match(scan, end):
-                    spans.append((start, end, value))
-            kind_of.update(late)
-            resolved = _resolve(spans, weak, frozenset(last | set(late)))
+    # A value with "(" is told apart by its spelling, in this call and in every later call that
+    # gets the mapping (per clause, per edited draft): it is placed last each time. Nothing else
+    # is discovered because of it, so the values of the two earlier rounds are exactly the ones
+    # found without this spelling.
+    last = frozenset(value for value, kind in kind_of.items() if _in_parentheses(kind, value))
     parts: list[str] = []
     position = 0
-    for start, end, value in resolved:
+    for start, end, value in _resolve(spans, weak, last):
         assigned = placeholder_of.get(value)
         if assigned is None:
             kind = kind_of[value]

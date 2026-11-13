@@ -601,10 +601,16 @@ yoktur.**
     - Adaylar örtüşerek aranır (her başlangıç denenir): `… 45 0 (0212) 555 12 34` içinde başka bir
       değerin son hanesi olan `0`'dan başlayan aday yerini kaybeder, `(`'ten başlayan aday yine
       bulunur.
-    - Parantezli bir telefon yerleştiyse keşif, o ana kadar yerleşen her değer boşaltılmış metinde
-      bir kez daha çalışır (yeniden maskelemenin göreceği metin; adlar hariç). Böylece önündeki
-      rakam artık bir değere ait olan numaralar ilk geçişte bulunur: `(0212) 555 12 34 533 555 05
-      30` iki telefondur. Bu geçişin buldukları da en son yerleşir.
+    - Parantezli telefon başka hiçbir değerin keşfini etkilemez; bilerek. Keşif onu görmediği için
+      "önündeki rakam bulunmuş bir değere aitse engellemez" istisnaları parantezli telefona
+      uygulanmaz: ondan tek ayraçla sonra gelen öneksiz cep (`(0212) 555 12 34 533 555 05 30`) ve
+      virgül ya da noktayla sonra gelen boşluklu TCKN ilk geçişte bulunmaz (bu biçim eklenmeden
+      önce de bulunmuyordu); maskeli metni yeniden maskelemek bulur. Araya başka bir ayraç ya da
+      sözcük girince (`(0212) 555 12 34, GSM: 533 555 05 30`) ikisi de ilk geçişte maskelenir.
+      Sebep: böyle bulunan bir numara eşlemeye sıradan bir değer olarak girer ve eşleme sonraki
+      çağrıya taşındığında (madde düzeyi, avukatın düzenlediği taslak) zayıf turda yarışıp başka
+      bir değeri bölebilirdi; "en son yerleşir" güvencesi yalnızca yazımından tanınan değerde
+      (`(` içeren telefon) çağrıdan çağrıya korunur.
     - Bilinen yanlış pozitif: parantez içinde `0` + üç hane ve ardından 3-2-2 hane, tutar
       bağlamında bile telefon sayılır (`(0347) 3284041 TL`); bedeli öneksiz cep kalıbınınkiyle
       aynıdır (aşağıda).
@@ -705,8 +711,9 @@ yoktur.**
     bulabilir (ilk geçişte sınırı kapatan komşu rakam artık yer tutucudur); ikinci geçiş yalnızca
     daha fazlasını maskeler, hiçbir şeyi açmaz. Bu sınıf Adım 17b'den önce de vardı; yeni biçimlerle
     sıklaşır (rastgele yapışık girdilerde ölçülen: yaklaşık %0,7 yalnızca yeni sürümde, %1,4 iki
-    sürümde de). Boşluk, virgül ya da satır sonuyla ayrılmış değerlerde görülmedi (parantezli
-    telefon eklendikten sonra 50.000 rastgele girdide de). Öneksiz cep kalıbı
+    sürümde de). Boşluk, virgül ya da satır sonuyla ayrılmış değerlerde görülmedi; tek istisnası
+    parantezli telefondan hemen sonra gelen numaradır (yukarıda "Telefon, önekli ve alan kodu
+    parantez içinde"). Öneksiz cep kalıbı
     checksum'sızdır; kapsamı bilerek dardır. Örtüşen iki geçerli TCKN adayından yalnızca önce
     başlayan maskelenir. Ad sözleşmenin hiçbir yerinde bir etiketin
     ("Ad Soyad:", "Yetkili:", "temsilen") yanında geçmiyorsa hiçbir yazımı yakalanmaz: imza

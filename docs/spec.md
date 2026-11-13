@@ -244,10 +244,11 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   gibi gruplanmış TCKN (`21 473 873 960`; tutardan
   ayrılamadığı için bilerek) kaçabilir. Boşluklu TCKN, serbest gruplu IBAN, 3-3-2-2 ayraçla
   yazılmış öneksiz cep numarası ve alan kodu parantez içinde yazılmış önekli telefon
-  (`0 (532) 123 45 67`, `+90 (533) 555 05 30`, `(0212) 555 12 34`) yakalanır. İki bilinen yanlış pozitif vardır (`agent_design.md` "PII
+  (`0 (532) 123 45 67`, `+90 (533) 555 05 30`, `(0212) 555 12 34`) yakalanır. Üç bilinen yanlış pozitif vardır (`agent_design.md` "PII
   maskeleme"): öneksiz cep kalıbı checksum'sızdır ve `5` ile başlayan 3-3-2-2 gruplu bir sayıyı
   (`500 000 00 00`) telefon sayar; tek boşlukla ayrılmış ayrı sayılar birlikte 11 hane edip
-  checksum'ı tutarsa (`10 30 120 10 20`, yaklaşık yüzde bir) TCKN sayılır.
+  checksum'ı tutarsa (`10 30 120 10 20`, yaklaşık yüzde bir) TCKN sayılır; parantez içinde `0` +
+  üç hane ve ardından 3-2-2 hane, tutar bağlamında bile telefon sayılır (`(0347) 3284041 TL`).
 - Varsayılan mod bir Groq hesabı ve `GROQ_API_KEY` gerektirir. Geliştirme hesabı ücretsiz
   katmandadır (belgelenen sınırlar: 8K TPM / 200K TPD); önce/sonra tablolu tam eval (tek geçiş) Adım 18'de 206K ve
   242K token tuttu, yani bu limitlerle bir güne sığmaz (2026-11-12'de iki tam koşu 429 almadan
