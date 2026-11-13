@@ -302,7 +302,8 @@ doğrulama sinyalidir (biri haklı, biri gürültü).
 | Kaçırılan uygunsuzluk | 1 / 12 | ≤ %20 |
 | Yanlış bulgu | 0 / 11 | ≤ %20 |
 | Etiket doğruluğu | 33 / 35 | raporlanır |
-| Alıntı geçerliliği (avukata gitmeyen alıntılı kararlar) | 23 / 23 | %100 |
+| Alıntı geçerliliği (avukata gitmeyen alıntılı kararlar; bekçi, aşağıda) | 23 / 23 | %100 |
+| Alıntı geçerliliği, ham oran (alıntılı bütün kararlar) | 30 / 30 | raporlanır |
 | Doğru madde | 30 / 30 | raporlanır |
 | Arama isabeti | 30 / 32 | raporlanır |
 | Taslak oranı (uygun değil → taslak var) | 11 / 11 | raporlanır |
@@ -321,6 +322,13 @@ satır 2,9 puan). Kaçırılan tek uygunsuzluk sözleşme 4 `termination_notice`
 bulamadı, satır "bulunamadı" olarak avukata gitti. Sözleşme 7'deki (tarama kalıbında olmayan)
 gizli talimatı tarama yakalamadı, model de kanmadı.
 
+**Alıntı geçerliliği eşiği ölçüm değil bekçidir.** Alıntısı maddede bulunmayan bulgu
+`quote_not_found` ile avukata gittiği için, avukata gitmeyenlerde oran yapı gereği %100'dür; eşik
+yalnızca bu bağı bozan bir kod yolunu yakalar. Modelin alıntı kalitesini ham oran gösterir
+(alıntılı bütün kararlar, kuyruğa bakılmadan; komutun tablosunda yoktur, sonuç dosyasındaki
+satırların `quote_valid` alanından sayılır): 2. koşuda 30 / 30, 1. koşuda 29 / 30. 1. koşudaki tek
+geçersiz satırın olası sebebi o günkü `verify` kusurudur, kesin değildir (`docs/evals.md` §4).
+
 **PII.** Maskelenmesi garanti edilen değerlerde sızıntı 0 / 52; bu sayı yapı gereği 0'dır
 (maskeleme deterministiktir, sayı yalnızca maskelemeyi atlayan bir kod yolunu yakalar).
 Maskeleyicinin kapsamını ikinci sayı gösterir: garanti edilmeyen 5 değerden 2'si modele gitti;
@@ -336,14 +344,15 @@ cümle sonunda biten doğru alıntıyı reddediyordu) ve `4ccc03d` ("uygun deği
 |---|---|---|
 | Taslak oranı | 1 / 11 | 11 / 11 |
 | Avukata yönlendirme | 19 / 35 | 12 / 35 |
-| Alıntı geçerliliği | 16 / 16 | 23 / 23 |
+| Alıntı geçerliliği (bekçi; parantezde ham oran) | 16 / 16 (29 / 30) | 23 / 23 (30 / 30) |
 | Gereksiz yönlendirme | 17 / 19 | 10 / 12 |
 | Token | 206.387 | 241.576 |
 
 Neyi göstermez: iki koşu aynı günün, tek modelin iki koşusudur. 35 kararın `status`'ü iki koşuda
 aynıdır; fark taslaklardan ve kuyruktan gelir (1. koşuda kuyruğun 10 satırı taslaksız "uygun
 değil", `missing_proposal`). Alıntı geçerliliğinin paydası kuyruk küçüldüğü için büyüdü (metrik
-yalnızca avukata gitmeyen alıntılı kararları sayar). Taslak farkının ne kadarının tool yanıtından,
+yalnızca avukata gitmeyen alıntılı kararları sayar ve yapı gereği %100'dür; karşılaştırılabilir
+olan parantezdeki ham orandır). Taslak farkının ne kadarının tool yanıtından,
 ne kadarının prompt değişikliğinden geldiği ayrı ölçülmedi; başka modelde denenmedi. Taslak
 yazımı yönlendirmedir, kodla zorlanmaz.
 
@@ -401,10 +410,10 @@ koşuldu. İlk sözleşme yeniden koşulmadı; araya kod, prompt ya da etiket de
 | Avukata yönlendirme | 0 / 10 | 4 / 10 |
 | Gereksiz yönlendirme | — (kuyruk boş) | 4 / 4 |
 
-Diğer değerler ("sonra"): doğru madde 8 / 8, arama isabeti 8 / 8, alıntı geçerliliği 6 / 6, taslak
-oranı 4 / 4 (dördü de kod kontrolünden geçti), kaçırılan uygunsuzluk 0 / 4, yanlış bulgu 0 / 4,
-garanti edilen PII 0 / 18, garanti edilmeyen 4 / 4. Token 72.058 + 3.508 = 75.566; 364,2 sn;
-$0,0129.
+Diğer değerler ("sonra"): doğru madde 8 / 8, arama isabeti 8 / 8, alıntı geçerliliği 6 / 6 (ham
+oran 8 / 8), taslak oranı 4 / 4 (dördü de kod kontrolünden geçti), kaçırılan uygunsuzluk 0 / 4,
+yanlış bulgu 0 / 4, garanti edilen PII 0 / 18, garanti edilmeyen 4 / 4. Token 72.058 + 3.508 =
+75.566; 364,2 sn; $0,0129.
 
 Kuyruğa düşen 4 satır:
 

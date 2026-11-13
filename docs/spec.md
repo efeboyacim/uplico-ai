@@ -299,7 +299,8 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
       aşağıda ("Adım 12 gözlemleri"): tek sözleşmede tool çağrıları ve alıntılar hatasızdı, ama
       model `get_clause` ve `propose_change`'i atladı.
       **Adım 18 (2026-11-12, 7 sözleşme, iki koşu; `evals.md` §4 "İlk koşuların sonucu"):** iki
-      koşuda 35 kararın 33'ü doğru; alıntı geçerliliği 23 / 23 (2. koşu), doğru madde 30 / 30,
+      koşuda 35 kararın 33'ü doğru; alıntılı 30 kararın 30'unda alıntı maddede geçiyor (2. koşu,
+      ham oran; 1. koşuda 29 / 30, `evals.md` §4), doğru madde 30 / 30,
       sonuçsuz görev 0. İki yanlış alıntı ya da tool çağrısından değil aramadan geliyor (sözleşme
       4'te iki dolaylı yazılmış madde, BM25 sınırı). `propose_change` atlaması: taslak oranı 1 / 11
       → `submit_finding` yanıtındaki yönlendirmeyle 11 / 11 (kodla zorlanmaz; başka modelde

@@ -471,6 +471,12 @@
   taşıyıcılarla karşılaştırıldı, fark yok (model koşusu değil). Gemini tek sözleşmede denendi,
   ölçülmedi: inceleme `awaiting_lawyer`'a ulaştı, status 5'te 4 doğru, bir kuralın koşusu
   ücretsiz katman hız limitiyle kesildi (ayrıntı Adım 18d "Elle deneme").
+- **Teslim öncesi inceleme (2026-11-13):** "alıntı geçerliliği %100" eşiği "sonra" modunda yapı
+  gereği tutar (alıntısı geçersiz bulgu `quote_not_found` ile kuyruğa gider, paydaya girmez).
+  `evals.md` §4–§6 ve README satırı bekçi olarak etiketler ve ham oranı yazar; `spec.md` §10 ham
+  oranı verir (1. koşu 29 / 30, 2. koşu 30 / 30, holdout 8 / 8; sonuç dosyalarındaki
+  `quote_valid`). Yalnızca doküman; kod, test ve sonuç dosyaları değişmedi. Bu bölümün eski
+  kayıtlarındaki "alıntı geçerliliği 16 / 16 → 23 / 23" ve "6 / 6" bu notla okunur.
 - **Açık (kullanıcıya sorulacak):** `langchain-core` değiştiği için `evals.md` §1 kuralı gereği
   modelli eval yeniden koşulsun mu? Koşulmadı; README'deki ölçülen sayılar `4ccc03d` koduna ve
   `langchain-core` 1.7.7'ye aittir.
