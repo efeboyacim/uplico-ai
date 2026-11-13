@@ -11,9 +11,14 @@ _LINE_START = r"(?:\A|(?<=[\r\n]))"
 _LINE_END = r"(?=[\r\n]|\Z)"
 _NEWLINE = r"(?:\r\n|\r(?!\n)|\n)"
 
+# One byte order mark at the very start of the text (editors write it) is the start of the first
+# line: a heading right after it is still a heading, and the mark stays in that clause's text.
+_BOM = chr(0xFEFF)
+_HEADING_START = r"(?:\A" + _BOM + r"?|(?<=[\r\n]))"
+
 # "Madde 3.2 uyarınca" at the start of a line is a reference: "." must not be followed by a digit.
 _HEADING = re.compile(
-    _LINE_START
+    _HEADING_START
     + r"[ \t]*(?:#+[ \t]+)?(?:\*\*)?(?:Madde|MADDE)[ \t]+(\d+)"
     + r"(?:[ \t]*(?:\.(?!\d)|[:\-"
     + _DASHES

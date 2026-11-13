@@ -174,3 +174,55 @@ def test_split_clauses_every_non_whitespace_character_is_covered_once() -> None:
     covered = [i for c in clauses for i in range(c.start, c.end)]
     assert len(covered) == len(set(covered))
     assert {i for i, ch in enumerate(text) if not ch.isspace()} <= set(covered)
+
+
+# --- A byte order mark at the start of the text ---------------------------------------------------
+
+BOM = chr(0xFEFF)
+
+
+def test_split_clauses_bom_before_first_heading_heading_is_recognized() -> None:
+    text = BOM + "Madde 1 - Konu\nBirinci metin.\n\nMadde 2 - Süre\nİkinci metin."
+    clauses = _split(text)
+    assert [(c.clause_id, c.clause_no) for c in clauses] == [("c1", "1"), ("c2", "2")]
+    # The mark stays in the first clause: every non-whitespace character is in a clause.
+    assert (clauses[0].start, clauses[0].text[0]) == (0, BOM)
+    assert clauses[0].text.endswith("Birinci metin.")
+
+
+def test_split_clauses_bom_same_clauses_as_without_it_offsets_shifted() -> None:
+    body = "## Madde 1: Konu\r\nA\r\n**MADDE 2.** Süre\r\nB\r\nİmzalar\r\nX A.Ş."
+    plain = _split(body)
+    marked = _split(BOM + body)
+    assert [(c.clause_id, c.clause_no) for c in marked] == [
+        (c.clause_id, c.clause_no) for c in plain
+    ]
+    assert marked[0].text == BOM + plain[0].text
+    assert [(c.start, c.end, c.text) for c in marked[1:]] == [
+        (c.start + 1, c.end + 1, c.text) for c in plain[1:]
+    ]
+
+
+def test_split_clauses_bom_then_spaces_before_heading_is_recognized() -> None:
+    clauses = _split(BOM + "  \tMadde 1 - Konu\nMetin")
+    assert [c.clause_no for c in clauses] == ["1"]
+
+
+def test_split_clauses_bom_before_preamble_changes_nothing() -> None:
+    clauses = _split(BOM + "Taraflar şunlardır.\n\nMadde 1 - Konu\nMetin")
+    assert [c.clause_no for c in clauses] == [None, "1"]
+    assert clauses[0].text == BOM + "Taraflar şunlardır."
+
+
+def test_split_clauses_bom_elsewhere_or_doubled_is_not_a_line_start() -> None:
+    # Only one mark at the very start of the text counts; any other invisible character before
+    # "Madde" keeps the line from being a heading (the injection scan flags it).
+    assert [c.clause_no for c in _split(BOM + BOM + "Madde 1 - Konu\nMetin")] == [None]
+    assert [c.clause_no for c in _split("Madde 1 - Konu\nA\n" + BOM + "Madde 2 - Süre\nB")] == ["1"]
+    zero_width = chr(0x200B)
+    assert [c.clause_no for c in _split(zero_width + "Madde 1 - Konu\nMetin")] == [None]
+
+
+def test_split_clauses_bom_without_headings_paragraphs_unchanged() -> None:
+    clauses = _split(BOM + "Birinci paragraf.\n\nİkinci paragraf.")
+    assert [c.text for c in clauses] == [BOM + "Birinci paragraf.", "İkinci paragraf."]

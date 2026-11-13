@@ -176,7 +176,10 @@ Tek etkileri agent state'ine bir öneri yazmaktır; dış sisteme dokunmazlar.
   Arama yalnızca BM25'tir.
   - **Başlık kalıbı:** satır başında (isteğe bağlı `#` ya da `**` ile) `Madde` / `MADDE`, sayı ve
     ardından `.`, `:`, `-`, `–`, `—` ya da satır sonu. Satır başına denk gelen "Madde 5'e göre" gibi
-    bir atıf başlık sayılmaz.
+    bir atıf başlık sayılmaz. Metnin en başındaki tek `U+FEFF` (BOM; editörlerden gelir) ilk
+    satırın başı sayılır: ardından gelen başlık yine başlıktır ve BOM o maddenin metninde kalır
+    (`start = 0`; modelin kopyasından §5'teki gibi çıkarılır). Başka bir görünmez karakter ya da
+    ikinci bir BOM satır başını bozar; o satır başlık sayılmaz ve karakter §5'teki gibi işaretlenir.
   - **Giriş ve imza:** ilk başlıktan önceki metin ayrı bir maddedir. Son başlıktan sonra satır
     başında `İmza` / `İmzalar` / `Taraflar adına` başlığı varsa orada yeni bir madde başlar; yoksa
     son madde metnin sonuna kadar sürer. Başlık hiç yoksa metin boş satırlardan paragraflara bölünür.

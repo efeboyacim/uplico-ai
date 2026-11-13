@@ -154,6 +154,25 @@ def test_prepare_crlf_and_bom_input_stored_unchanged(data_dir: Path) -> None:
     _assert_no_raw(_visible_texts(prepared, store.list_audit(prepared.review_id)), ALL_RAW)
 
 
+def test_prepare_bom_before_first_heading_keeps_clause_number(data_dir: Path) -> None:
+    store = Store(data_dir, "acme")
+    bom = chr(0xFEFF)
+    body = "Madde 1 - Konu\nMal teslimi.\n\nMadde 2 - Süre\nSüre 12 aydır."
+    with_bom = _prepare(store, bom + body)
+    without = _prepare(store, body)
+    # The same clauses as without the mark; only the offsets move by one.
+    assert [(c.clause_id, c.clause_no, c.text) for c in with_bom.clauses] == [
+        (c.clause_id, c.clause_no, c.text) for c in without.clauses
+    ]
+    assert [c.clause_no for c in with_bom.clauses] == ["1", "2"]
+    assert (with_bom.clauses[0].start, without.clauses[0].start) == (0, 0)
+    assert with_bom.clauses[1].start == without.clauses[1].start + 1
+    assert with_bom.injection_flags == ()
+    record = store.get_review(with_bom.review_id)
+    assert record is not None
+    assert record.original_text == bom + body
+
+
 # Model copy
 
 
