@@ -560,10 +560,13 @@ yoktur.**
     kaybetmez. Adım 17b'nin üç yeni biçimi **zayıftır**: boşluklu TCKN, standart kalıba (bitişik ya
     da `TR` + 2 hane ve dörtlü gruplar, gruplar arasında en fazla birer boşluk) uymayan serbest
     gruplu IBAN ve öneksiz cep telefonu. Sonradan eklenen dördüncü biçim, alan kodu parantez içinde
-    yazılmış telefon da zayıftır: parantezli bir yazım, kendisinden sonra başlayan önekli bir
-    telefonun hanelerini ödünç alıp onu bölemez (`(0212)123 0532 123 45 67` →
-    `(0212)123 [TELEFON_1]`, bu biçim eklenmeden öncekiyle aynı). **Katı** olanlar Adım 17b'den
-    önce de bulunanlardır:
+    yazılmış telefon, **en son yerleşir**: yalnızca katı ya da zayıf hiçbir değerin kaplamadığı
+    metni alır. Böylece bu biçim olmadan maskelenen her aralık, onunla da birebir aynı maskelenir:
+    parantezli bir yazım, kendisinden sonra başlayan önekli bir telefonun hanelerini ödünç alıp
+    onu bölemez (`(0212)123 0532 123 45 67` → `(0212)123 [TELEFON_1]`), son grubuyla başlayan
+    boşluklu bir TCKN'yi de bölemez (`(0212) 214 73 87 39 60` → `(0212) [TCKN_1]`; zayıflar
+    arasındaki "önce başlayan kazanır" kuralı burada TCKN'nin son hanelerini açıkta bırakırdı).
+    **Katı** olanlar Adım 17b'den önce de bulunanlardır:
     e-posta, bitişik ya da standart gruplu IBAN, `+90` / `0` önekli telefon, bitişik TCKN, ad.
     Çakışan aralıklar iki turda çözülür: önce katı değerler arasında önce başlayan, eşit başlangıçta
     uzun olan kazanır (sonuç Adım 17b öncesiyle aynıdır); sonra zayıf değerler yalnızca katı bir
@@ -587,12 +590,24 @@ yoktur.**
   - Telefon, önekli ve alan kodu parantez içinde: önek parantezin dışında (`0 (532) 123 45 67`,
     `0(532)1234567`, `+90 (533) 555 05 30`, `+90 (0532) 123 45 67`) ya da `0` parantezin içinde
     (`(0212) 555 12 34`, `(0 212) 555 12 34`). Parantezin içinde yalnızca üç hane, başında
-    isteğe bağlı `0` ve `0`'dan sonra en fazla tek bir ayraç olur; parantezden sonraki 3-2-2
+    isteğe bağlı `0` ve `0`'dan sonra en fazla tek bir **boşluk** olur; nokta ya da tire olmaz
+    (`(0.125)` bir oran, `(0-100)` bir aralıktır, alan kodu değil). Parantezden sonraki 3-2-2
     haneli gruplar ve ayraç kuralı önekli telefonla aynıdır. Önek yine zorunludur: parantez tek
     başına telefon yapmaz (`(532) 123 45 67`, `(212) 555 12 34` yakalanmaz; aşağıda "Sınır"), bu
     yüzden "otuz (30) gün", "(1.250.000) TL" ya da "Madde 10 (123)" gibi parantezli sayılar
-    eşleşmez. Önünde rakam ya da `+` olamaz (`10 (532) 123 45 67`), ardında rakam olamaz. Ayrı bir
-    kalıptır ve zayıftır (yukarıda "Öncelik"); önekli telefon kalıbının kendisi değişmemiştir.
+    eşleşmez. Önünde rakam ya da `+` olamaz (`10 (532) 123 45 67`), ardında rakam olamaz.
+    - Ayrı bir kalıptır; önekli telefon kalıbının kendisi ve diğer kalıpların keşfi değişmemiştir.
+      En son yerleşir (yukarıda "Öncelik").
+    - Adaylar örtüşerek aranır (her başlangıç denenir): `… 45 0 (0212) 555 12 34` içinde başka bir
+      değerin son hanesi olan `0`'dan başlayan aday yerini kaybeder, `(`'ten başlayan aday yine
+      bulunur.
+    - Parantezli bir telefon yerleştiyse keşif, o ana kadar yerleşen her değer boşaltılmış metinde
+      bir kez daha çalışır (yeniden maskelemenin göreceği metin; adlar hariç). Böylece önündeki
+      rakam artık bir değere ait olan numaralar ilk geçişte bulunur: `(0212) 555 12 34 533 555 05
+      30` iki telefondur. Bu geçişin buldukları da en son yerleşir.
+    - Bilinen yanlış pozitif: parantez içinde `0` + üç hane ve ardından 3-2-2 hane, tutar
+      bağlamında bile telefon sayılır (`(0347) 3284041 TL`); bedeli öneksiz cep kalıbınınkiyle
+      aynıdır (aşağıda).
   - Telefon, öneksiz cep: `5` ile başlayan 10 hane, 3-3-2-2 gruplanmış, gruplar arasında **zorunlu**
     tek bir ayraç (boşluk, nokta ya da tire; karışık olabilir): `533 555 05 30`, `533.555.05.30`,
     `533 555-05.30`. Checksum'ı olmadığı için kalıp dar tutulur: önünde rakam, `+` ya da rakam + tek
@@ -690,7 +705,8 @@ yoktur.**
     bulabilir (ilk geçişte sınırı kapatan komşu rakam artık yer tutucudur); ikinci geçiş yalnızca
     daha fazlasını maskeler, hiçbir şeyi açmaz. Bu sınıf Adım 17b'den önce de vardı; yeni biçimlerle
     sıklaşır (rastgele yapışık girdilerde ölçülen: yaklaşık %0,7 yalnızca yeni sürümde, %1,4 iki
-    sürümde de). Boşluk, virgül ya da satır sonuyla ayrılmış değerlerde görülmedi. Öneksiz cep kalıbı
+    sürümde de). Boşluk, virgül ya da satır sonuyla ayrılmış değerlerde görülmedi (parantezli
+    telefon eklendikten sonra 50.000 rastgele girdide de). Öneksiz cep kalıbı
     checksum'sızdır; kapsamı bilerek dardır. Örtüşen iki geçerli TCKN adayından yalnızca önce
     başlayan maskelenir. Ad sözleşmenin hiçbir yerinde bir etiketin
     ("Ad Soyad:", "Yetkili:", "temsilen") yanında geçmiyorsa hiçbir yazımı yakalanmaz: imza

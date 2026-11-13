@@ -141,7 +141,7 @@ def test_mask_phone_double_separator_or_no_prefix_not_masked(text: str) -> None:
         "(0212) 5551234",
         "(0212)5551234",
         "(0 212) 555 12 34",
-        "(0-212) 555 12 34",
+        "+90 (0 532) 123 45 67",
     ],
 )
 def test_mask_phone_area_code_in_parentheses_masked(phone: str) -> None:
@@ -228,12 +228,78 @@ def test_mask_phone_in_parentheses_never_takes_text_from_an_older_value(
     assert unmask(masked, mapping) == text
 
 
-def test_mask_phone_in_parentheses_is_a_weak_value() -> None:
-    assert pii._is_weak("TELEFON", "(0212) 555 12 34")
-    assert pii._is_weak("TELEFON", "0 (532) 123 45 67")
-    assert pii._is_weak("TELEFON", "+90 (533) 555 05 30")
-    assert not pii._is_weak("TELEFON", "0532 123 45 67")
-    assert not pii._is_weak("TELEFON", "+90 532 123 45 67")
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # A spaced TCKN (17b, weak) that starts with the last group of a parenthesized spelling:
+        # 46583829454 and 21473873960 pass the checksum. The TCKN keeps its place.
+        ("Tel: 0 (532) 378 00 46 58 38 29 45 4", "Tel: 0 (532) 378 00 [TCKN_1]"),
+        ("TCKN: (0212) 214 73 87 39 60", "TCKN: (0212) [TCKN_1]"),
+        ("TCKN: 0 (212) 214 73 87 39 60", "TCKN: 0 (212) [TCKN_1]"),
+    ],
+)
+def test_mask_phone_in_parentheses_never_takes_text_from_a_weak_value(
+    text: str, expected: str
+) -> None:
+    masked, mapping = _mask(text)
+    assert masked == expected
+    assert unmask(masked, mapping) == text
+    assert mask(masked, mapping) == (masked, mapping)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("(0212) 555 12 34 533 555 05 30", "[TELEFON_1] [TELEFON_2]"),
+        (
+            "Tel 0 (532) 123 45 67 533 555 05 30 532 123 45 67.",
+            "Tel [TELEFON_1] [TELEFON_2] [TELEFON_3].",
+        ),
+        # Not a mobile number without prefix after the parenthesized one: nothing more is found.
+        ("(0212) 555 12 34 212 555 05 30", "[TELEFON_1] 212 555 05 30"),
+        ("(0212) 555 12 34 500 000", "[TELEFON_1] 500 000"),
+    ],
+)
+def test_mask_bare_mobile_right_after_phone_in_parentheses_found_first_pass(
+    text: str, expected: str
+) -> None:
+    masked, mapping = _mask(text)
+    assert masked == expected
+    assert unmask(masked, mapping) == text
+    assert mask(masked, mapping) == (masked, mapping)
+
+
+def test_mask_phone_in_parentheses_after_a_value_ending_in_zero_found_first_pass() -> None:
+    # "0 (0212) 555 12 34" would start at the last digit of the TCKN (10000000450 is valid) and
+    # lose to it; the candidate that starts at "(" is found all the same.
+    text = "TCKN 10 00 00 00 45 0 (0212) 555 12 34 numaralı hat."
+    masked, mapping = _mask(text)
+    assert masked == "TCKN [TCKN_1] [TELEFON_1] numaralı hat."
+    assert mapping == {"[TCKN_1]": "10 00 00 00 45 0", "[TELEFON_1]": "(0212) 555 12 34"}
+    assert mask(masked, mapping) == (masked, mapping)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # A rate or a range in parentheses before an unseparated amount is not an area code.
+        "Katsayı (0.125) 1250000 TL üzerinden hesaplanır.",
+        "Puan aralığı (0-100) 2500000 TL bedelin yüzdesi olarak uygulanır.",
+        "Tel: (0.212) 555 12 34",
+        "Tel: (0-212) 555 12 34",
+        "Tel: +90 (0.532) 123 45 67",
+    ],
+)
+def test_mask_dot_or_hyphen_after_zero_inside_parentheses_is_not_an_area_code(text: str) -> None:
+    assert _mask(text) == (text, {})
+
+
+def test_mask_phone_in_parentheses_is_placed_last_not_weak() -> None:
+    for value in ("(0212) 555 12 34", "0 (532) 123 45 67", "+90 (533) 555 05 30"):
+        assert pii._in_parentheses("TELEFON", value)
+        assert not pii._is_weak("TELEFON", value)
+    for value in ("0532 123 45 67", "+90 532 123 45 67", "533 555 05 30"):
+        assert not pii._in_parentheses("TELEFON", value)
 
 
 def test_mask_unclosed_parenthesis_before_a_phone_masked_as_before() -> None:
@@ -1341,22 +1407,38 @@ def _gen_phone_in_parens(rng: random.Random) -> str:
     return f"({area}){sep()}{rest}"  # no prefix: not a phone number for the masker
 
 
+def _gen_phone_in_parens_into_weak_value(rng: random.Random) -> str:
+    """A parenthesized spelling whose last group is the start of a spaced TCKN: the two
+    candidates overlap."""
+    area = f"{rng.choice([5, 2, 3, 4])}{rng.randint(0, 99):02d}"
+    head = f"{rng.choice(['0 ', '+90 ', ''])}({'' if rng.random() < 0.5 else '0'}{area})"
+    tckn = _gen_tckn(rng)
+    tail = tckn[:2] + " " + " ".join(tckn[i : i + 2] for i in range(2, 10, 2)) + " " + tckn[10]
+    return f"{head} {rng.randint(0, 999):03d} {rng.randint(0, 99):02d} {tail}"
+
+
 def test_mask_phone_in_parentheses_never_takes_place_of_old_value(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # The same invariant with parenthesized area codes mixed into the text: whatever is masked
-    # with every later spelling switched off is masked identically with them switched on.
+    # Whatever is masked with the parenthesized spelling switched off (the masker as it was
+    # before it, step 17b spellings included) is masked identically with it switched on. The
+    # texts mix parenthesized area codes with every other value, and a part of them makes the
+    # spelling overlap a spaced TCKN on purpose.
     rng = random.Random(2613)
-    found = 0
+    found = overlapping = 0
     for _ in range(3_000):
-        parts = [
-            _gen_phone_in_parens(rng) if rng.random() < 0.4 else _gen_token(rng)
-            for _ in range(rng.randint(2, 7))
-        ]
+        parts = []
+        for _ in range(rng.randint(2, 7)):
+            pick = rng.random()
+            if pick < 0.3:
+                parts.append(_gen_phone_in_parens(rng))
+            elif pick < 0.45:
+                parts.append(_gen_phone_in_parens_into_weak_value(rng))
+            else:
+                parts.append(_gen_token(rng))
         text = "".join(part + rng.choice(_JOINTS) for part in parts)
         with monkeypatch.context() as patched:
-            for name, pattern in _OLD_PATTERNS.items():
-                patched.setattr(pii, name, pattern)
+            patched.setattr(pii, "_PHONE_PARENS", re.compile(r"(?!)"))
             old_masked, old_mapping = mask(text, {})
         new_masked, new_mapping = mask(text, {})
         old = _masked_spans(text, old_masked, old_mapping)
@@ -1364,5 +1446,13 @@ def test_mask_phone_in_parentheses_never_takes_place_of_old_value(
         assert old <= new, (text, sorted(old - new))
         assert unmask(new_masked, new_mapping) == text
         found += sum("(" in value for _, _, value in new - old)
-    # The generator must produce the spelling under test, or the test proves nothing.
+        candidates = [(m.start(1), m.end(1)) for m in pii._PHONE_PARENS.finditer(text)]
+        overlapping += any(
+            start < o_end and o_start < end
+            for start, end in candidates
+            for o_start, o_end, _ in old
+        )
+    # The generator must produce the spelling under test and the overlaps, or the test proves
+    # nothing.
     assert found > 500
+    assert overlapping > 100

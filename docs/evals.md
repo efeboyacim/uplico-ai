@@ -223,15 +223,23 @@
   değiştirmez ve maske açma metni aynen geri verir.
 - **Parantezli alan kodlu telefon:** önekli telefon, alan kodu parantez içinde yazılınca da
   maskelenir: `0 (532) 123 45 67`, `0(532)1234567`, `+90 (533) 555 05 30`, `+90 (0532) 123 45 67`,
-  `(0212) 555 12 34`, `(0 212) 555 12 34` (nokta ve tire ayraçlı varyantlarıyla); maske açma metni
-  aynen geri verir, yeniden maskeleme bir şey değiştirmez, aynı yazım aynı yer tutucuyu alır.
+  `+90 (0 532) 123 45 67`, `(0212) 555 12 34`, `(0 212) 555 12 34` (parantezin dışında nokta ve
+  tire ayraçlı varyantlarıyla); maske açma metni aynen geri verir, yeniden maskeleme bir şey
+  değiştirmez, aynı yazım aynı yer tutucuyu alır.
   Maskelenmez: öneksiz `(532) 123 45 67` ve `(212) 555 12 34`; hanesi eksik ya da fazla, çift
-  ayraçlı, parantezin içinde boşlukla başlayan yazımlar; önünde rakam ya da `+`, ardında rakam
-  olanlar (`10 (532) 123 45 67`); parantezli tutar, süre, oran ve madde atıfları ("otuz (30) gün",
-  "(1.250.000) TL", "Madde 10 (123) uyarınca 456 78 90"). Biçim zayıftır: `(0212)123 0532 123 45
-  67` içinde önekli telefon tek `[TELEFON_1]` kalır, `(0212) 555 12 34-info@ornek.com` e-postayı
-  bölmez. Aynı değişmez (eski kalıpların bulduğu değer yer kaybetmez) parantezli yazımların
-  karıştığı ayrı bir tohumlu üretimle (3.000 girdi) sınanır.
+  ayraçlı, parantezin içinde boşlukla başlayan yazımlar; parantezin içinde `0`'dan sonra nokta ya
+  da tire olanlar (`(0.212) 555 12 34`, `(0-212) 555 12 34`, "Katsayı (0.125) 1250000 TL", "Puan
+  aralığı (0-100) 2500000 TL"); önünde rakam ya da `+`, ardında rakam
+  olanlar (`10 (532) 123 45 67`); şu parantezli tutar, süre, oran ve madde atıfları: "otuz (30)
+  gün", "(1.250.000) TL", "Madde 10 (123) uyarınca 456 78 90". Biçim en son yerleşir, başka bir
+  değerden metin almaz: `(0212)123 0532 123 45 67` içinde önekli telefon tek `[TELEFON_1]` kalır,
+  `(0212) 555 12 34-info@ornek.com` e-postayı bölmez, `Tel: 0 (532) 378 00 46 58 38 29 45 4` ve
+  `TCKN: (0212) 214 73 87 39 60` içinde boşluklu TCKN bütün kalır. Başka bir değerin son hanesi
+  olan `0`'dan sonra gelen `(0212) 555 12 34` (`TCKN 10 00 00 00 45 0 (0212) …`) ve parantezli
+  telefondan tek boşlukla sonra gelen öneksiz cep (`(0212) 555 12 34 533 555 05 30`) ilk geçişte
+  maskelenir. Değişmez, tohumlu üretimle (3.000 girdi; parantezli yazımlar diğer değerlerle
+  karışık, bir kısmı bilerek boşluklu bir TCKN ile örtüşür) sınanır: parantezli kalıp kapalıyken
+  maskelenen her (başlangıç, bitiş, ham değer) aralığı, açıkken de birebir aynı maskelenir.
 - **Tutar, süre ve tarih maskelenmez:** "1.250.000 TL", "5.000.000,00 TL", "90 gün", "otuz (30) gün",
   "01.01.2026", "2026-01-01", "%15", "Madde 12" ve yan yana yazılmış "01.01.2026 1.250 TL" içeren
   metin maskelemeden aynen çıkar. Telefon kalıbı bunların hiçbirini yakalamaz; "+90 532 123 45 67"

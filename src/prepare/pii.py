@@ -82,22 +82,23 @@ _PHONE = re.compile(
 )
 # The same number with the area code in parentheses: after the prefix ("0 (532) 123 45 67",
 # "+90 (533) 555 05 30") or with the "0" inside them ("(0212) 555 12 34", "(0 212) 555 12 34").
-# The prefix is still required: "(532) 123 45 67" is not matched. A pattern of its own, and weak
-# (see `_is_weak`): it never takes text from a value `_PHONE` finds ("(0212)123 0532 123 45 67").
+# The prefix is still required: "(532) 123 45 67" is not matched. Inside the parentheses only a
+# space may follow the "0": "(0.125)" and "(0-100)" are a rate and a range, not an area code.
+# A pattern of its own, searched by `mask` after everything else and placed last (see
+# `_in_parentheses`): it only takes text that no other value covers, so nothing that was masked
+# without it loses its place ("(0212)123 0532 123 45 67", "(0212) 214 73 87 39 60"). Searched
+# inside a lookahead so candidates may overlap: in "... 45 0 (0212) 555 12 34" the candidate that
+# starts at a "0" belonging to another value must not hide the one that starts at "(".
 _PHONE_PARENS = re.compile(
-    r"(?<![0-9+])(?:(?:\+90|0)"
+    r"(?<![0-9+])(?=((?:(?:\+90|0)"
     + _SEP
-    + r"\((?:0"
-    + _SEP
-    + r")?[0-9]{3}\)|\(0"
-    + _SEP
-    + r"[0-9]{3}\))"
+    + r"\((?:0 ?)?[0-9]{3}\)|\(0 ?[0-9]{3}\))"
     + _SEP
     + r"[0-9]{3}"
     + _SEP
     + r"[0-9]{2}"
     + _SEP
-    + r"[0-9]{2}(?![0-9])"
+    + r"[0-9]{2})(?![0-9]))"
 )
 # A mobile number without prefix: "5" and 3-3-2-2 digits with exactly one space, dot or hyphen
 # between the groups ("533 555 05 30"). It has no checksum, so the pattern stays narrow: not inside
@@ -476,16 +477,22 @@ def _iban_valid(iban: str) -> bool:
 
 
 def _is_weak(kind: str, value: str) -> bool:
-    """A spelling added after the first patterns: a spaced TCKN, a freely grouped IBAN, a mobile
-    number without prefix or a phone number with its area code in parentheses. It only takes text
-    that no strict value covers (see `_resolve`), so a value the older patterns find (e-mail,
-    compact or standard-grouped IBAN, prefixed phone, compact TCKN, name) never loses its place to
-    one."""
+    """A spelling first found in step 17b: a spaced TCKN, a freely grouped IBAN or a mobile number
+    without prefix. It only takes text that no strict value covers (see `_resolve`), so a value the
+    older patterns find (e-mail, compact or standard-grouped IBAN, prefixed phone, compact TCKN,
+    name) never loses its place to one."""
     if kind == "TCKN":
         return not value.isdigit()
     if kind == "IBAN":
         return _IBAN_STANDARD.fullmatch(value) is None
-    return kind == "TELEFON" and (value.startswith("5") or "(" in value)
+    return kind == "TELEFON" and value.startswith("5")
+
+
+def _in_parentheses(kind: str, value: str) -> bool:
+    """A phone number with its area code in parentheses, the spelling added last. It is placed
+    after every other value, strict or weak (see `_resolve`): it only takes text none of them
+    covers, so the text masked without this spelling is masked exactly the same with it."""
+    return kind == "TELEFON" and "(" in value
 
 
 def _discover(text: str) -> Iterator[tuple[str, str]]:
@@ -495,7 +502,6 @@ def _discover(text: str) -> Iterator[tuple[str, str]]:
         (_EMAIL, "EPOSTA"),
         (_IBAN, "IBAN"),
         (_PHONE, "TELEFON"),
-        (_PHONE_PARENS, "TELEFON"),
         (_PHONE_BARE, "TELEFON"),
     ):
         for m in pattern.finditer(text):
@@ -593,11 +599,15 @@ def _greedy(spans: Iterable[_Span], blocked: list[_Span]) -> list[_Span]:
     return kept
 
 
-def _resolve(spans: list[_Span], weak: set[str]) -> list[_Span]:
+def _resolve(spans: list[_Span], weak: set[str], last: frozenset[str] = frozenset()) -> list[_Span]:
     """Strict spans first; a weak span (see `_is_weak`) only takes text that no kept strict span
-    covers."""
-    strong = _greedy((s for s in spans if s[2] not in weak), [])
-    return sorted(strong + _greedy((s for s in spans if s[2] in weak), strong))
+    covers; a span of `last` (see `_in_parentheses`) only takes text that no kept span of the
+    two rounds before covers."""
+    strong = _greedy((s for s in spans if s[2] not in weak and s[2] not in last), [])
+    kept = sorted(strong + _greedy((s for s in spans if s[2] in weak), strong))
+    if not last:
+        return kept
+    return sorted(kept + _greedy((s for s in spans if s[2] in last), kept))
 
 
 _BOUNDARY_PATTERNS = {
@@ -686,6 +696,10 @@ def mask(text: str, mapping: Mapping[str, str]) -> tuple[MaskedText, dict[str, s
     scan = _blank_placeholders(text)
     for kind, value in _discover(scan):
         kind_of.setdefault(value, kind)
+    # Outside `_discover`: what it finds, and what it blanks for its later passes, stays exactly
+    # what it was before this spelling existed.
+    for m in _PHONE_PARENS.finditer(scan):
+        kind_of.setdefault(m.group(1), "TELEFON")
 
     spans: list[tuple[int, int, str]] = []
     exact = [value for value, kind in kind_of.items() if kind != "KISI"]
@@ -709,9 +723,33 @@ def mask(text: str, mapping: Mapping[str, str]) -> tuple[MaskedText, dict[str, s
                 spans.append((start, end, spelling))
 
     weak = {value for value, kind in kind_of.items() if _is_weak(kind, value)}
+    last = {value for value, kind in kind_of.items() if _in_parentheses(kind, value)}
+    resolved = _resolve(spans, weak, frozenset(last))
+    in_parens = [span for span in resolved if span[2] in last]
+    if in_parens:
+        # A number right after a parenthesized phone is found when the digit before it belongs to
+        # a value, as in `_discover`'s later passes: a mobile number without prefix ("(0212) 555
+        # 12 34 533 555 05 30"), a spaced TCKN after a comma. The same discovery runs once more
+        # on what masking again would see (every value placed so far blanked). What it finds is
+        # placed last as well, so it cannot displace anything either. Names are left out: a label
+        # glued to a number is the documented re-masking limit.
+        blanked = list(scan)
+        for start, end, _ in resolved:
+            blanked[start:end] = _FILLER * (end - start)
+        late: dict[str, str] = {}
+        for kind, value in _discover("".join(blanked)):
+            if kind != "KISI" and value not in kind_of:
+                late.setdefault(value, kind)
+        if late:
+            for start, end, value in _occurrences(scan, late):
+                before, after = _BOUNDARY_PATTERNS[late[value]]
+                if before.match(scan, start) and after.match(scan, end):
+                    spans.append((start, end, value))
+            kind_of.update(late)
+            resolved = _resolve(spans, weak, frozenset(last | set(late)))
     parts: list[str] = []
     position = 0
-    for start, end, value in _resolve(spans, weak):
+    for start, end, value in resolved:
         assigned = placeholder_of.get(value)
         if assigned is None:
             kind = kind_of[value]
