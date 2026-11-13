@@ -471,6 +471,34 @@ Groq `openai/gpt-oss-120b`, Docker, `MAX_CONCURRENCY=1`, 7 / 7 sözleşme, 35 ka
   satırın alıntısı geçerli, satır `ambiguous_value` ile kuyrukta ("yüzde on beşini": çekimli sayı
   sözcüğü, doğrulama gürültüsü).
 
+### Görülmemiş iki sözleşme (holdout; 2026-11-12 ve 2026-11-13)
+`docs/plan.md` "Adım 18b". Projeyi görmeyen bir oturumun yazdığı 2 sözleşme ve 10 beklenen sonuç
+(`evals/holdout/`); tek koşu, sonuç olduğu gibi. Eşiklere ve §5'teki tabloya girmez.
+
+- **Dosya:** `evals/results/holdout/20261113-085836_groq_openai-gpt-oss-120b.json`;
+  `commit` `aa1e40e…` (etiket commit'i), Groq `openai/gpt-oss-120b`, `MAX_CONCURRENCY=1`,
+  `langsmith: "local"`. `resumed: true`: `holdout-01` 2026-11-12'de tamamlandı, `holdout-02`
+  limite takıldı (çıkış kodu 2) ve 2026-11-13'te `--resume` ile koşuldu.
+- **Önce → sonra:** güvensiz hata 0 / 10 → 0 / 10; geçersiz alıntıyla kabul edilen bulgu 0 → 0;
+  yönlendirme 0 / 10 → 4 / 10; gereksiz yönlendirme 4 / 4.
+- **Sonra:** etiket doğruluğu 10 / 10; kaçırılan uygunsuzluk 0 / 4; yanlış bulgu 0 / 4; alıntı
+  geçerliliği 6 / 6; doğru madde 8 / 8; arama isabeti 8 / 8; taslak oranı 4 / 4
+  (`propose_change` çağrısı 4, hata 0); öneri uygunluğu 4 / 4; sonuçsuz görev 0; PII sızıntısı
+  0 / 18; garanti edilmeyen PII 4 / 4 (Bildirimler maddesindeki dört irtibat adı). Enjeksiyon
+  metrikleri ölçülmedi (kümede enjeksiyon etiketi yok). Token 72.058 + 3.508 = 75.566; 364,2 sn;
+  $0,0129.
+- **Kuyruk (4 satır):** 2 beklenen `not_found` (`unverified_not_found`; biri ayrıca
+  `critical_not_found`), tasarım gereği. 2 `numeric_mismatch` (`holdout-01`: `termination_notice`
+  `non_compliant`, `late_penalty_cap` `compliant`): status, madde ve alıntı doğru; modelin
+  `value` / `unit` alanı kodun alıntıdan okuduğuyla uyuşmadı. `verify` tek başına çalıştırıldı
+  (model yok): kod iki maddeyi doğru okuyor (2 hafta; %8) ve etiketteki alıntıyla, uyumlu ya da
+  boş `value` ile sebep üretmiyor; "yüzde" diye yazılmış birim ya da 14 ile "hafta" gibi bir
+  uyuşmazlık aynı sebebi veriyor. Modelin gerçekte yazdığı değer kayıtlı değil; hangisi olduğu
+  bilinmiyor. Düzeltilmedi (tek atış).
+- **Sınırı:** 10 karar, tek model, tek koşu. Sözleşmeleri yine bir LLM yazdı ve madde başlıkları
+  kural sözcüklerini kullanıyor; aramanın bilinen sınırını ve enjeksiyonu sınamaz. Yanlış sonuç
+  olmadığı için doğrulama katmanının yakaladığı bir hata yok; görünen yalnızca bedeli.
+
 ## 5. Önce/sonra karşılaştırması
 **Değişiklik:** doğrulama katmanı kapalı → açık.
 
@@ -583,7 +611,8 @@ Sonuç `evals/results/` altına ve README'ye yazılır.
   rehber geçerlidir: eval `MAX_CONCURRENCY=1` ve `--limit N` (README'de N=3) ile kısmi, `--resume`
   ile günlere bölünerek ya da çevrimdışı modda koşulur (`tech_stack.md` "Hangi plan?"). Çıkış
   kodu 2 gerçek limitte görüldü (holdout koşusu, 2026-11-12; tamamlanan sözleşme önbellekte
-  kaldı); gerçek limitte `--resume` ile devam henüz denenmedi.
+  kaldı); ertesi gün aynı komut `--resume` ile kalan sözleşmeyi koşup tamamladı (ilk sözleşme
+  önbellekten alındı).
 - **`--limit N`:** Düşük limitli hesaplar için koşucu `--limit N` ile yalnızca `labels.json`
   sırasındaki ilk N sözleşmeyi koşar (N < 1 ya da N > veri kümesinin sözleşme sayısı, varsayılan
   kümede 7, argüman hatasıdır). Tablo başlığı "N/M sözleşme" yazar (M veri kümesinin sözleşme

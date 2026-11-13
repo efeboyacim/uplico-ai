@@ -398,8 +398,19 @@
   model gerektirmeyen kısmı (README ve karar dokümanı) öne alındı. README'nin holdout bölümü ve
   temiz klonda model çağıran eval doğrulaması açık kalır; Adım 19 kutusu 18b tamamlanıp bu ikisi
   kapanınca işaretlenir. README yazılırken holdout önbelleğine bakılmaz.
-- **Sıradaki:** Adım 18b'nin `--resume` koşusu (kota yenilenince, kullanıcı onayıyla); bu sırada
-  Adım 19 — README ve karar dokümanı.
+- **Eklenen adım (2026-11-13, kullanıcı):** Adım 18c — sağlayıcıdan bağımsız model kurulumu
+  (`LLM_PROVIDER` listesi kalkar; `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_TEMPERATURE`). Yalnızca plana
+  yazıldı; kod Adım 18b'nin koşusu bitmeden başlamaz (`src/` ve `uv.lock` değişir). README'yi ve
+  karar dokümanını da değiştirdiği için Adım 19'un kutusu 18c'den sonra işaretlenir.
+- **Adım 18b bitti (2026-11-13):** `--resume` ≈ 09:00 UTC'de kalan sözleşmeyi koştu (çıkış 0;
+  ilk sözleşme önbellekten). Sonuç: 10 / 10 status doğru; doğru madde 8 / 8, arama isabeti
+  8 / 8, alıntı geçerliliği 6 / 6, taslak 4 / 4 (kod kontrolü 4 / 4); güvensiz hata önce de
+  sonra da 0 / 10; yönlendirme 4 / 10 (2 beklenen `not_found`, 2 `numeric_mismatch`: modelin
+  `value` / `unit` alanı kodun okuduğuyla uyuşmadı, hangi değer olduğu kayıtlı değil);
+  75.566 token. Hiçbir şey düzeltilmedi. Ayrıntı `evals.md` §4 "Görülmemiş iki sözleşme" ve
+  README. Gerçek limitte çıkış kodu 2 ve `--resume` bu koşuda bir kez görüldü.
+- **Sıradaki:** Adım 18c (kullanıcı onayıyla); Adım 19'un kapanışı (temiz klonda README
+  doğrulaması, kutunun işaretlenmesi) 18c'den sonra.
 - **Adım 19'a başlarken (Adım 18'in devri):** README'ye taşınacaklar:
   1. Asıl önce/sonra tablosu 2. koşudan (`evals.md` §5), altında dürüst not: farkın tamamı
      sözleşme 4'teki iki `not_found` satırından; tablo bu koşuda alıntı / sayı kontrolünün değerini
@@ -1181,7 +1192,10 @@ gereksiz yönlendirme satırları bunu gösterir.
   denenmedi, README'ye yazılacak.
 - **Commit:** `docs: record first eval results and calibrated thresholds`
 
-### [ ] Adım 18b — Görülmemiş iki sözleşmede tek koşu (holdout)
+### [x] Adım 18b — Görülmemiş iki sözleşmede tek koşu (holdout)
+- **Gerçekleşen:** `7166fd1` (koşucu seçeneği), `aa1e40e` (sözleşmeler ve etiketler), tek koşu
+  iki güne yayıldı (limit, `--resume`); sonuç `evals/results/holdout/20261113-085836_groq_openai-gpt-oss-120b.json`.
+  10 / 10 doğru, 4 / 10 avukata gitti; hiçbir şey düzeltilmedi.
 - **Karar (2026-11-12, kullanıcı):** Adım 18'de prompt ve `verify` 7 sözleşmeye bakılarak
   değiştirildi; o set artık geliştirme setidir. Projeyi hiç görmeyen ayrı bir oturuma, yalnızca
   `CASE.md` ve iki tenant'ın kural setleri verilerek 2 sözleşme ve beklenen sonuçları yazdırıldı
@@ -1250,6 +1264,84 @@ gereksiz yönlendirme satırları bunu gösterir.
   klasörüne dosya yazılmamış.
 - **Commit:** `docs: record the single held-out eval run`
 
+### [ ] Adım 18c — Sağlayıcıdan bağımsız model kurulumu
+- **Karar (2026-11-13, kullanıcı):** `LLM_PROVIDER` bugün yalnızca `groq` ve `ollama` kabul ediyor;
+  başka bir sağlayıcıyı kullanmak isteyen kodu değiştirmek zorunda. Kod sağlayıcıdan ve modelden
+  bağımsız hale getirilir: sağlayıcı, model ve anahtar yalnızca env ile verilir. "Ölçüldü" denebilen
+  tek yapılandırma yine Groq `openai/gpt-oss-120b`'dir; diğerleri "çalışır, ölçülmedi" diye yazılır.
+- **Ne zaman:** Adım 18b'nin `--resume` koşusu bittikten sonra. Bu adım `src/`, `pyproject.toml` ve
+  `uv.lock`'ı değiştirir; önce yapılırsa holdout önbelleği geçersiz olur ve "tek atış" bozulur.
+- **Değişmeyenler:** `src/config.py` ve `src/llm.py` dışındaki kod (agent, graph, tool'lar,
+  `verify`, maskeleme) zaten yalnızca `BaseChatModel` görür; dokunulmaz. Groq ve Ollama'ya giden
+  istek aynı kalır (aynı parametreler, aynı varsayılan modeller, `GROQ_API_KEY` ve
+  `OLLAMA_BASE_URL` çalışmaya devam eder). Maskeleme sırası ve "modele maskesiz PII gitmez" kuralı
+  sağlayıcıdan bağımsızdır.
+- **Tasarım:**
+  1. **Sağlayıcı listesi kalkar.** `LLM_PROVIDER` `init_chat_model`'in `model_provider` değeridir;
+     boşsa `groq`. Config yalnızca biçimine bakar (küçük harf, rakam, `_`, `-`). `Provider` tipi
+     `Literal` olmaktan çıkar.
+  2. **Bilinen sağlayıcı tablosu** (`groq`, `ollama`) kalır ama kapı değildir: varsayılan model,
+     birim fiyat ve o sağlayıcıya özel parametreler (`reasoning_effort`, `num_ctx`, `seed`,
+     `reasoning=False`) buradadır. Tabloda olmayan sağlayıcıda `LLM_MODEL` zorunludur (boşsa
+     `ConfigError`), eşzamanlılık varsayılanı 1'dir, eval'in maliyet tahmini "bilinmiyor" yazar.
+  3. **Anahtar ve adres:** iki yeni env. `LLM_API_KEY` verilmişse `api_key` olarak, `LLM_BASE_URL`
+     verilmişse `base_url` olarak geçirilir (OpenAI uyumlu servisler bu ikisiyle çalışır). `groq`
+     için anahtar `GROQ_API_KEY` ya da `LLM_API_KEY`'dir; ikisi de yoksa bugünkü hata verilir.
+     Birden çok kimlik bilgisi isteyen sağlayıcılar (Bedrock, Azure, Vertex) kendi standart env
+     değişkenlerini kendileri okur; bu, "env'e yalnızca `config.py` dokunur" kuralının yazılı
+     istisnasıdır. `LLM_API_KEY` `GROQ_API_KEY` gibi loglanmaz, `repr`'de görünmez.
+  4. **Ortak parametreler:** tabloda olmayan sağlayıcıya yalnızca `max_tokens`, `timeout`,
+     `max_retries` ve `temperature` verilir. `LLM_TEMPERATURE` yeni env'dir: boşsa 0; `none` ise
+     parametre hiç gönderilmez (bazı modeller `temperature`'ı 400 ile reddediyor).
+  5. **Hata sınıflandırma** istisna tipine değil HTTP durum koduna bakar (istisnanın
+     `status_code`'u, yoksa `response.status_code`'u): 401 / 403 / 404 → `config`, 429 →
+     `rate_limit`, gerisi `other`. Groq ve Ollama için sonuç bugünküyle aynı kalmalıdır.
+  6. **Başlangıç kontrolü:** model, giriş noktaları (API ve eval koşucusu) açılırken bir kez
+     kurulur. Paket kurulu değilse ya da kimlik bilgisi eksikse uygulama, eksik paketin ya da
+     değişkenin adını söyleyen `ConfigError` ile durur; hata ilk incelemeye kalmaz.
+  7. **Paketler:** `pyproject.toml`'a isteğe bağlı gruplar eklenir (`openai`, `anthropic`,
+     `google`); hepsi `uv.lock`'ta kilitlenir. İmaj varsayılan olarak `openai` ve `anthropic` ile
+     kurulur; başka grup Docker build argümanıyla (`LLM_EXTRAS`) eklenir. Grubu olmayan bir
+     sağlayıcı için kullanıcı paketi `pyproject.toml`'a kendisi ekler; README bunu yazar.
+  8. **`http_client`** (testin sahte taşıyıcısı) yalnızca onu kabul ettiği bilinen sağlayıcılarda
+     geçirilir (`groq`, `openai`); diğerlerinde bugünkü gibi `ValueError`.
+- **Kod yazmadan önce doğrulanacaklar** (LangChain dokümanı ve küçük betikle; tahminle yazılmaz):
+  `init_chat_model`'in paket eksikken verdiği hata ve mesajı; `max_tokens` / `timeout` /
+  `max_retries` / `api_key` / `base_url` adlarının `openai`, `anthropic` ve `google` entegrasyonlarında
+  kabul edildiği; bu üç SDK'nın hata sınıflarında durum kodunun hangi alanda durduğu; yeniden deneme
+  sayısının anlamı (Groq'ta `max_retries=3` dört istek demek). Tutmayan varsayım tasarıma ve bu
+  adıma yazılır.
+- **Önce dokümanlar:** `tech_stack.md` (model kurulumu satırı, env listesi, paketler, "sağlayıcıya
+  özel parametreler"), `spec.md` (FR-12; "kapsam dışı"ndaki "Groq dışındaki bulut sağlayıcıları"
+  maddesi kalkar, yerine "ölçülmedi" sınırı gelir), `architecture.md` (ADR-010; "veri nereye
+  gidiyor" tablosunda "Groq" yerine "seçilen sağlayıcı"; sıfır veri saklama notu Groq'a özeldir ve
+  öyle yazılır), `agent_design.md` §6 (hata sınıfları), `code_standards.md` (anahtar kuralı, env
+  istisnası), `evals.md` §2 (zorunlu testler), `decisions.md` (3. ve 4. soru), `README.md`,
+  `.env.example`, `CLAUDE.md` "Proje".
+- **Dosyalar:** `src/config.py`, `src/llm.py`, giriş noktaları (`src/api.py`, `evals/run.py`;
+  yalnızca başlangıç kontrolü), `evals/metrics.py` (maliyet "bilinmiyor"), `pyproject.toml`,
+  `uv.lock`, `Dockerfile`, `docker-compose.yml`, `.env.example`, `tests/test_config.py`,
+  `tests/test_llm.py`, yukarıdaki dokümanlar
+- **Doğrulama:** Mevcut Groq ve Ollama testleri **değiştirilmeden** geçer (istek gövdesi,
+  parametreler, hata sınıfları). Yeni testler: tabloda olmayan sağlayıcı modelle kabul edilir,
+  modelsiz `ConfigError`; `LLM_API_KEY` `repr`'de yok; `openai` sağlayıcısı sahte taşıyıcıyla
+  kurulur ve istek gövdesinde yalnızca ortak parametreler vardır (`reasoning_effort` yok);
+  `LLM_TEMPERATURE=none` iken gövdede `temperature` yok; `LLM_BASE_URL` isteğin gittiği adrestir;
+  durum kodu taşıyan sahte istisnalar doğru sınıflanır (401 / 403 / 404 / 429 / 400 / 500, kodsuz
+  istisna); kurulu olmayan paket başlangıçta paketin adını söyleyen hatayla durur; graph testi
+  sahte modelle üç ayarda da geçer. `docker compose build` varsayılan gruplarla ve `LLM_EXTRAS`
+  ile çalışır. pytest, ruff, mypy temiz.
+- **Eval:** Groq'a giden istek değişmediği için ortak kuraldaki tam eval bu adımda koşulmaz;
+  mevcut Groq testlerinden biri değişmek zorunda kalırsa kural geçerlidir ve koşu kullanıcıya
+  sorulur. `src/` değiştiği için 7'lik setin `--resume` önbelleği geçersiz olur (beklenen).
+- **Elle deneme:** kullanıcının üçüncü bir sağlayıcı anahtarı varsa tek sözleşmeyle, veri
+  kopyasında bir inceleme (kullanıcı onayıyla). Yoksa README'ye "Groq ve Ollama dışında gerçek
+  sağlayıcıyla denenmedi" yazılır.
+- **README (Adım 19 ile birlikte kapanır):** sağlayıcı değiştirme bölümü (dört env, paket grubu,
+  build argümanı), "ölçüldü / çalışır ama ölçülmedi" ayrımı, maskeli metnin seçilen sağlayıcıya
+  gittiği ve o sağlayıcının saklama koşullarının kullanıcının sorumluluğunda olduğu.
+- **Commit:** `feat: accept any chat model provider through env`
+
 ### [ ] Adım 19 — README ve karar dokümanı
 - **Ne:** README (kurulum, eval sonuçları ve önce/sonra tablosu, düşük Groq limiti notu, bilinen
   sınırlar, "daha fazla vaktim olsaydı"). Karar dokümanı: CASE.md'deki 5 soru sırasıyla, en fazla 2 sayfa.
@@ -1307,7 +1399,7 @@ gereksiz yönlendirme satırları bunu gösterir.
 | Eval: metrikler ve gerekçeleri | 17 (gerekçe `evals.md` §4 ve README) |
 | Eval: tek komut + önce/sonra | 17, 18 |
 | Çalıştırma: `docker compose up`; API | 11, 12, 13, 14 |
-| Çalıştırma: sağlayıcı env ile değişir | 2, 7, 12 |
+| Çalıştırma: sağlayıcı env ile değişir | 2, 7, 12, 18c |
 | Çalıştırma: tenant ayrımı + bunu gösteren test | 3, 11 |
 | Karar dokümanı (zorunlu) | 19 |
 | Bonus: prompt injection savunması + ölçen testler | 4, 6, 16–18 |

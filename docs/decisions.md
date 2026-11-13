@@ -2,8 +2,8 @@
 
 İlke: **LLM önerir, kod karar verir, yalnızca avukat onaylar.** Sayılar 2. eval koşusundandır
 (Groq `openai/gpt-oss-120b`, 7 sentetik sözleşme, 35 karar; `evals.md` §4–§5). Örneklem küçüktür:
-bir karar 2,9 puan. Görülmemiş iki sözleşmede ayrı bir ölçüm sürüyor; tamamlanınca sonucu
-README'nin ilgili bölümüne yazılacak.
+bir karar 2,9 puan. Ayar yapılırken görülmemiş iki sözleşmede tek koşu:
+10 / 10 karar doğru, 4'ü avukata gitti (README "Görülmemiş iki sözleşme").
 
 ## 1. Parçalama: tam metin mi, arama mı?
 **Karar:** sabit graph. Hazırlık (maddelere bölme, enjeksiyon taraması, PII maskeleme) graph'tan

@@ -299,7 +299,6 @@ dataset'teki bilinen boşluklara (3 örnek) bakılarak yazıldı; tablonun göst
 düzeltme döngüsüdür, maskelemenin genel kapsamı değil. Üç değer, kayıt görünür kalsın diye
 etikette "garanti edilmeyen" listesinde bırakıldı (`docs/evals.md` §3).
 
-<!-- HOLDOUT-SONUC: koşu tamamlanınca doldurulacak -->
 ## Görülmemiş iki sözleşme (holdout)
 
 Adım 18'de prompt ve `verify` 7 sözleşmeye bakılarak değiştirildi; o set artık geliştirme setidir.
@@ -326,8 +325,38 @@ docker compose run --rm app python -m evals.run --dataset-dir evals/holdout \
 `aa1e40e`): garanti edilen PII sızıntısı 0 / 18; garanti edilmeyen 4 / 4 (dördü de kişi
 adı); iki sözleşmede de enjeksiyon taraması işaret koymadı.
 
-**Durum:** model koşusu 2026-11-12'de ikinci sözleşmede Groq limitine takıldı (çıkış kodu 2);
-sonuç, koşu `--resume` ile tamamlanınca buraya yazılacak.
+**Sonuç** (`evals/results/holdout/20261113-085836_groq_openai-gpt-oss-120b.json`, commit `aa1e40e`; Groq `openai/gpt-oss-120b`). Koşu iki güne
+yayıldı: 1. sözleşme 2026-11-12'de tamamlandı, 2. sözleşme Groq limitine takıldı (çıkış kodu 2) ve
+2026-11-13'te `--resume` ile koşuldu. İlk sözleşme yeniden koşulmadı; araya kod, prompt ya da
+etiket değişikliği girmedi.
+
+| Metrik | Önce (doğrulama kapalı) | Sonra |
+|---|---|---|
+| Etiket doğruluğu | 10 / 10 | 10 / 10 |
+| Güvensiz hata | 0 / 10 | 0 / 10 |
+| Avukata yönlendirme | 0 / 10 | 4 / 10 |
+| Gereksiz yönlendirme | — (kuyruk boş) | 4 / 4 |
+
+Diğer değerler ("sonra"): doğru madde 8 / 8, arama isabeti 8 / 8, alıntı geçerliliği 6 / 6, taslak
+oranı 4 / 4 (dördü de kod kontrolünden geçti), kaçırılan uygunsuzluk 0 / 4, yanlış bulgu 0 / 4,
+garanti edilen PII 0 / 18, garanti edilmeyen 4 / 4. Token 72.058 + 3.508 = 75.566; 364,2 sn;
+$0,0129.
+
+Kuyruğa düşen 4 satır:
+
+- 2 satır beklenen "bulunamadı" (`governing_law`, `confidentiality`): tasarım gereği.
+- 2 satır `numeric_mismatch` (1. sözleşme: `termination_notice` ve `late_penalty_cap`): sonuç ve
+  alıntı doğru, ama modelin `value` / `unit` alanına yazdığı değer kodun alıntıdan okuduğuyla
+  uyuşmadı. Kod iki maddeyi de doğru okuyor (2 hafta; %8). Modelin yazdığı değer kayıtlı olmadığı
+  için uyuşmazlığın ne olduğu bilinmiyor. Tek atış kuralı gereği düzeltilmedi.
+
+**Ne gösterir, ne göstermez.** Taslak yönlendirmesi ve alıntı / madde bulma, ayar yapılırken
+görülmemiş iki sözleşmede de çalıştı; dolaylı yazılmış değerler ("iki hafta", "üç ay", "18 ay",
+"bedelin iki katı") doğru sonuçlandı. Ama bu 10 karar, tek model, tek koşudur; bir oran değil,
+bir yoklamadır. Sözleşmeler yine bir LLM'e yazdırıldı ve madde başlıkları kuralın sözcüklerini
+kullanıyor ("Fesih", "Garanti", "Sigorta"): aramanın bilinen sınırını (kural sözcüklerini
+kullanmayan madde) ve enjeksiyonu sınamıyor. Doğrulama katmanı burada hiçbir hatayı yakalamadı
+(yakalanacak yanlış sonuç yoktu); yalnızca bedeli görünüyor (10 kararın 4'ü avukata gitti).
 
 ## Groq hız limiti
 
@@ -339,7 +368,8 @@ Gözlemler (2026-11-12, aynı anahtar):
 - Ardından holdout koşusunda 1. sözleşme tamamlandı, 2. sözleşmenin 5 kuralının 5'i hız limitine
   takıldı (≈ 22:04 UTC). Koşucu çıkış kodu 2 ile durdu, tablo ve sonuç dosyası yazmadı; tamamlanan
   sözleşme önbellekte kaldı. Çıkış kodu 2 gerçek limitte ilk kez burada görüldü ve tasarlandığı
-  gibi çalıştı. `--resume` ile devam henüz denenmedi.
+  gibi çalıştı. Ertesi gün (≈ 09:00 UTC) aynı komut `--resume` ile kalan sözleşmeyi koşup
+  tamamladı; ilk sözleşme önbellekten alındı.
 - 22:51 UTC'de yanıt başlıkları: `x-ratelimit-limit-requests` 1000 (günlük istek),
   `x-ratelimit-limit-tokens` 8000 (dakikalık token). Günlük token sınırı başlıklarda yok. O anda
   küçük istekler başarılı dönüyordu; istek sayacı sürekli dolan bir kova gibi davranıyordu (kalan
@@ -414,7 +444,8 @@ Tam liste: `docs/spec.md` §8 "Bilinen sınırlar".
 ## Denenmeyenler
 
 - LangSmith'e yükleme gerçek sunucuya karşı (yalnızca sahte anahtar ve yakalanan isteklerle).
-- Gerçek limitte `--resume` ile devam; çıkış kodu 3 (yalnızca sahte modelle).
+- Çıkış kodu 3 (yalnızca sahte modelle). Gerçek limitte çıkış kodu 2 ve `--resume` holdout
+  koşusunda bir kez görüldü.
 - Ollama ile eval; varsayılan çevrimdışı model `qwen3.5:9b` (çevrimdışı mod yalnızca `qwen3.5:4b`
   ile, tek sözleşmede denendi).
 - Taslak yönlendirmesinin başka modelde etkisi; 1 / 11 → 11 / 11 farkının kaynağı.
