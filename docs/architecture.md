@@ -444,7 +444,7 @@ model adını basan `python -m src.config` eklenir.
 |---|---|---|---|
 | Groq | Sohbet modeli (varsayılan mod) | `GROQ_API_KEY` (ya da `LLM_API_KEY`) | Maskeli metin gider. 429'da `max_retries=3`; limitler organizasyon başına. Eşzamanlılık `MAX_CONCURRENCY` ile sınırlı |
 | Ollama | Sohbet modeli (yalnızca çevrimdışı mod) | Yok (yerel ağ) | Varsayılan modda çalışmaz. Çevrimdışı modda `OLLAMA_NUM_PARALLEL=1`, `MAX_CONCURRENCY=1` |
-| Başka bir sağlayıcı (isteğe bağlı; ör. OpenAI, Anthropic, OpenAI uyumlu bir servis) | Sohbet modeli (`LLM_PROVIDER` ile seçilirse) | `LLM_API_KEY` (çok kimlik bilgili sağlayıcılarda kendi env değişkenleri) | Maskeli metin gider. Çalışır, ölçülmedi. `max_retries=3`, 60 sn zaman aşımı; ADR-012 |
+| Başka bir sağlayıcı (isteğe bağlı; ör. OpenAI, Anthropic, Gemini Developer API, OpenAI uyumlu bir servis) | Sohbet modeli (`LLM_PROVIDER` ile seçilirse) | `LLM_API_KEY` (çok kimlik bilgili sağlayıcılarda kendi env değişkenleri) | Maskeli metin gider. OpenAI, Anthropic gibi sağlayıcılar: çalışır, ölçülmedi. Gemini Developer API (`google_genai`): eklendi, denenmedi (Adım 18d elle deneme planlı). `max_retries=3`, 60 sn zaman aşımı; ADR-012 |
 | LangSmith | Eval + tracing (isteğe bağlı) | `LANGSMITH_API_KEY` | Trace'lere yalnızca maskeli veri gider. Eval yüklemesinde sözleşme metni, alıntı ve PII listesi gitmez; giden yalnızca kimlikler, beklenen bulgular, etiketler, kural satırları ve sayımlardır (`evals.md` §7). Anahtar yoksa hiçbir şey gitmez |
 
 ### Veri nereye gidiyor
@@ -598,41 +598,54 @@ insanlar okuyabilir. Maskeleme her sağlayıcıda graph'tan önce aynı şekilde
 - **Karar:**
   - `LLM_PROVIDER` `init_chat_model`'in `model_provider` değeridir (boşsa `groq`); config yalnızca
     biçimine bakar (LangChain gibi normalleştirilir, sonra `[a-z][a-z0-9_]*`). Kapalı liste yoktur.
-  - Bilinen sağlayıcı tablosu (`groq`, `ollama`, `openai`, `anthropic`) kapı değildir; varsayılan
-    modeli, birim fiyatı ve o sağlayıcıya özel parametreleri tutar. `openai` / `anthropic`'te ve
-    tabloda olmayan sağlayıcıda `LLM_MODEL` zorunludur; `openai` / `anthropic`'te `LLM_API_KEY` de.
+  - Bilinen sağlayıcı tablosu (`groq`, `ollama`, `openai`, `anthropic`, `google_genai`) kapı
+    değildir; varsayılan modeli, birim fiyatı ve o sağlayıcıya özel parametreleri tutar. `openai` /
+    `anthropic` / `google_genai`'de ve tabloda olmayan sağlayıcıda `LLM_MODEL` zorunludur; `openai`
+    / `anthropic` / `google_genai`'de `LLM_API_KEY` de.
   - Groq ve Ollama dışındaki sağlayıcılar yalnızca ortak parametreleri alır (`max_tokens`,
     `timeout`, `max_retries`, `temperature`; verilmişse `api_key`, `base_url`; `openai` ile
-    `base_url` verilmişse ayrıca `use_responses_api=False`). `LLM_BASE_URL` boşsa `openai` ve
-    `anthropic`'e genel adresleri açıkça verilir: adresi entegrasyonun kendi env değişkeni
-    (`OPENAI_BASE_URL` gibi) belirlemez. Yeni env'ler:
+    `base_url` verilmişse ayrıca `use_responses_api=False`). `LLM_BASE_URL` boşsa `openai`,
+    `anthropic` ve `google_genai`'ye genel adresleri açıkça verilir: adresi entegrasyonun kendi env
+    değişkeni (`OPENAI_BASE_URL`, `GOOGLE_GEMINI_BASE_URL`, `LANGSMITH_GATEWAY` gibi) belirlemez.
+    `google_genai` seçiliyken `GOOGLE_GENAI_USE_VERTEXAI` ya da `GOOGLE_GENAI_USE_ENTERPRISE`
+    ortamda açıksa uygulama başlamaz (`ConfigError`): ikisi isteği Gemini Developer API yerine
+    Vertex'e çevirir ve bunu kapatan bir parametre yoktur (`tech_stack.md`). Boş olmayan
+    `GOOGLE_GENAI_CLIENT_MODE` de aynı yolla reddedilir: SDK'nın kayıt istemcisi isteği anahtar
+    başlığıyla stdout'a basar, `replay`'de yanıtlar bir dosyadan gelir. Yeni env'ler:
     `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_TEMPERATURE`, `LLM_MAX_TOKENS` (`tech_stack.md`). Hiçbiri
     verilmediğinde Groq ve Ollama'ya giden istek bayt bayt aynı kalır.
   - Hata sınıflandırma sağlayıcı tipine değil, `langchain_core` hata sınıflarına ve HTTP durum
     koduna bakar (`agent_design.md` §6).
   - Model iki giriş noktasında başlangıçta bir kez kurulur; eksik paket, tanınmayan sağlayıcı ve
     kurulumda reddedilen kimlik bilgisi `ConfigError` olur.
-  - Paketler: `[project.optional-dependencies]` altında `openai` ve `anthropic` grupları; imaj
-    varsayılan olarak ikisiyle kurulur (`LLM_EXTRAS` build argümanı). Grubu olmayan sağlayıcının
-    paketini kullanıcı ekler.
+  - Paketler: `[project.optional-dependencies]` altında `openai`, `anthropic` ve `google`
+    grupları; imaj varsayılan olarak üçüyle kurulur (`LLM_EXTRAS` build argümanı). Grubu olmayan
+    sağlayıcının paketini kullanıcı ekler.
 - **Alternatifler:**
   - Kodda sağlayıcı başına dal ve kapalı liste (bugünkü yapı): her yeni sağlayıcı kod değişikliği
     ister.
-  - Google için paket grubu, üç biçimde tartıldı: (b) `google` grubu + sabitleme grubu (`pins`,
-    `default-groups`, `conflicts`): varsayılan kurulum aynı kalır, Google imajı `--no-group pins`
-    ile ayrı bir `langchain-core` üzerinde çalışır, sabitler elle güncel tutulur; (c) `google`
-    grubu düz eklenir: `langchain-core` herkes için 1.8.0 olur ve Groq eval'i yeniden koşulmak
-    zorunda kalır. Sebep: `langchain-google-genai` 4.x kilide girince, grup seçilmese de herkesin
-    kurduğu `langchain-core` 1.7.7 → 1.8.0 ve `tenacity` 9.2.1 → 9.1.4 olur; uv'nin düz
-    `conflicts` ayarı bunu çözmez. Seçilen (a): kilitte yalnızca `openai` + `anthropic` (67 kaydın
-    67'si aynı kalır); Gemini OpenAI uyumlu adresle seçilebilir, ama 2026-11-13 denemesinde
-    inceleme tamamlanmadı (Gemini 3.x tool çağrısının düşünce imzasını ister, `langchain-openai`
-    1.7.4 göndermez: her kuralın ikinci isteği HTTP 400, bütün kurallar avukata gitti; 2.5
-    modelleri 404; Groq ve Ollama dışında hiçbir sağlayıcı bir incelemeyi uçtan uca tamamlamadı;
-    README "Denenmeyenler"). Yerel `google_genai` için paketi kullanıcı ekler.
+  - Google için paket grubu, üç biçimde tartıldı. Sebep: `langchain-google-genai` 4.x kilide
+    girince, grup seçilmese de herkesin kurduğu `langchain-core` 1.7.7 → 1.8.0 ve `tenacity`
+    9.2.1 → 9.1.4 olur; uv'nin düz `conflicts` ayarı bunu çözmez. (a) Kilitte yalnızca `openai` +
+    `anthropic` (67 kaydın 67'si aynı kalır); Gemini OpenAI uyumlu adresle seçilir. Adım 18c'de
+    seçildi, Adım 18d'de geri alındı: 2026-11-13 denemesinde inceleme OpenAI uyumlu adresle
+    tamamlanmadı (Gemini 3.x tool çağrısının düşünce imzasını ister, `langchain-openai` 1.7.4
+    göndermez: her kuralın ikinci isteği HTTP 400, bütün kurallar avukata gitti; 2.5 modelleri
+    404). (b) `google` grubu + sabitleme grubu (`pins`, `default-groups`, `conflicts`): varsayılan
+    kurulum aynı kalır, Google imajı `--no-group pins` ile ayrı bir `langchain-core` üzerinde
+    çalışır, sabitler elle güncel tutulur; reddedildi (iki kilitli çekirdek, elle güncel tutulan
+    sabitler). (c) `google` grubu düz eklenir: **seçilen** (Adım 18d). Yerel entegrasyon
+    (`langchain-google-genai`) düşünce imzasını tool döngüsünde geri taşır (sahte
+    taşıyıcıyla test edilir, `evals.md` §2; gerçek Gemini ile denenmedi); tek kilit, tek
+    `langchain-core`.
 - **Sonuçlar / ödünleşimler:**
   - "Ölçüldü" denebilen tek yapılandırma yine Groq `openai/gpt-oss-120b`'dir; diğerleri "çalışır,
-    ölçülmedi"dir (`spec.md` §8 "Bilinen sınırlar").
+    ölçülmedi"dir; `google_genai` henüz denenmedi (`spec.md` §8 "Bilinen sınırlar"). Yerel
+    `google_genai` ile Gemini denemesi planlıdır, henüz koşulmadı.
+  - Bilerek kabul edilen bedel (c): `google` grubu seçilmese de her kurulum `langchain-core`
+    1.8.0 ve `tenacity` 9.1.4 alır. Groq'a giden istek değişmese de yanıtın ayrıştırılması
+    `langchain-core`'dadır; ölçülen sayılar 1.7.7'ye aittir ve modelli eval yeniden koşulana dek
+    öyle yazılır (`evals.md` §1).
   - Maskeli metin seçilen sağlayıcıya gider; sıfır veri saklama notu yalnızca Groq içindir, başka
     sağlayıcının koşulları kullanıcının sorumluluğundadır ("Veri nereye gidiyor"). Maskeleme, tenant
     ayrımı, yalnızca ekleme yapılan audit log ve onay tool'unun yokluğu sağlayıcıdan bağımsızdır.

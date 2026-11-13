@@ -463,7 +463,9 @@
   `LLM_MAX_TOKENS`, build argümanı `LLM_EXTRAS`). Groq isteği değişmedi; eval yeniden koşulmadı.
   Gemini ile elle deneme uçtan uca çalışmadı (ayrıntı Adım 18c "Elle deneme"). Bekleyen üç
   düzeltmeden sonraki modelli eval koşusu hâlâ yapılmadı (README sayıları `4ccc03d` kodunundur).
-- **Sıradaki:** Adım 20 — teslim (kullanıcı onayıyla push).
+- **Eklenen adım (2026-11-13, kullanıcı):** Adım 18d — Gemini kendi paketiyle. 18c'nin "(a)"
+  kararını geri alır; `langchain-core` herkes için 1.8.0 olur.
+- **Sıradaki:** Adım 18d, sonra Adım 20 — teslim (kullanıcı onayıyla push).
 - **Adım 18c'ye başlarken (2026-11-13 oturumunun devri):**
   1. Depo temiz; son commit bu notun commit'i. `origin`'e push yapılmadı (push Adım 20'dir).
   2. Holdout koşusu bitti; eval önbelleği yok. `src/`, `evals/*.py` ve `uv.lock` artık
@@ -1565,6 +1567,45 @@ gereksiz yönlendirme satırları bunu gösterir.
   build argümanı), "ölçüldü / çalışır ama ölçülmedi" ayrımı, maskeli metnin seçilen sağlayıcıya
   gittiği ve o sağlayıcının saklama koşullarının kullanıcının sorumluluğunda olduğu.
 - **Commit:** `feat: accept any chat model provider through env`
+
+### [ ] Adım 18d — Gemini kendi paketiyle (`google_genai`)
+- **Karar (2026-11-13, kullanıcı):** "Gemini'yi ekle, denemek istiyorum." Adım 18c'deki (a) kararı
+  (kilitte `google` grubu yok) geri alınır: Gemini OpenAI uyumlu adreste tool döngüsünü
+  tamamlayamadı (düşünce imzası); yerel `langchain-google-genai` entegrasyonu imzayı taşır (sahte
+  taşıyıcıyla görüldü; gerçek Gemini ile bu adımın elle denemesinde sınanır).
+- **Bedeli (bilinerek):** `google` grubu kilide girince herkesin kurduğu iki paket değişir:
+  `langchain-core` 1.7.7 → 1.8.0, `tenacity` 9.2.1 → 9.1.4 (Adım 18c "Ön doğrulama 8"). Sabitleme
+  grubu (18c seçenek b) kurulmaz; tek kilit, tek `langchain-core`.
+- **Tasarım:**
+  1. `pyproject.toml`: `google = ["langchain-google-genai>=4.5"]`; paket `dev` grubuna da girer
+     (testler gerçek sarmalayıcı hata sınıflarıyla ve `client_args` taşıyıcısıyla koşar).
+     `LLM_EXTRAS` varsayılanı `"openai anthropic google"` olur (`docker compose up` Gemini için
+     yeniden kurulum istemesin).
+  2. Bilinen sağlayıcı tablosuna `google_genai` girer: varsayılan model yok, `LLM_API_KEY` zorunlu
+     (boş anahtar entegrasyonu `GOOGLE_API_KEY` / `GEMINI_API_KEY`'e düşürürdü), birim fiyat yok,
+     eksik pakette mesaj `google` grubunu söyler. Ortak parametreler dışında bir şey verilmez;
+     `http_client` reddi, `temperature=None` ve hata sınıflandırma 18c'de Google'a göre yazıldı.
+  3. Ortam düşüşleri kapatılır ya da sınır olarak yazılır (kod yazmadan önce betikle bakılır):
+     `GOOGLE_GENAI_USE_VERTEXAI` (kurulumda Vertex'e ve ağa çıkıyor) ve varsa adres değişkeni.
+  4. `max_retries=3` Google'da 3 istek demektir; eşitlenmez (18c kararı).
+- **Önce dokümanlar:** `architecture.md` ADR-012 (karar ve gerekçe güncellenir), `tech_stack.md`
+  (paketler, tablo, `LLM_EXTRAS`), `spec.md` §8, `evals.md` §2 (testler), `.env.example`.
+- **Doğrulama:** kilit farkı yalnızca beklenen iki paket + eklenenler; `uv run pytest`, ruff, mypy
+  temiz (test takımı `langchain-core` 1.8.0 ile ilk kez koşar); mevcut testlerde tasarımın zorunlu kıldığı iki
+  değişiklik dışında bir şey değişmez: `test_common_parameters_only_outside_groq_and_ollama`'nın
+  `google_genai` satırı artık `base_url`'i de bekler; `test_load_settings_provider_name_is_normalized`
+  ortamına `LLM_API_KEY` eklendi (`google-genai` satırları artık anahtar ister). Hiçbir Groq /
+  Ollama beklentisi değişmedi; Groq
+  isteği bu adımdan önceki kodla (`b650a97`) yan yana karşılaştırılır (model alanları, tel
+  üzerindeki istek); imaj kurulur.
+- **Eval:** `langchain-core` değiştiği için `evals.md` §1 kuralı geçerlidir (istek aynı kalsa da
+  yanıtın ayrıştırılması bu pakettedir). Koşu kullanıcıya sorulur; koşulmazsa README sayıların
+  `langchain-core` 1.7.7 ve `4ccc03d` koduna ait olduğunu yazar.
+- **Elle deneme:** `LLM_PROVIDER=google_genai`, `LLM_MODEL=gemini-3.5-flash-lite` (18c'de seçilen),
+  `02_ihlalli`, `data/` kopyasında, tek koşu; anahtar `.env`'deki `LLM_API_KEY` (okunmaz). Sonuç
+  olduğu gibi yazılır; boş yanıt (`MAX_TOKENS`) görülürse `LLM_MAX_TOKENS` yükseltilmeden önce
+  sorulur.
+- **Commit:** `docs:` (tasarım), `feat: add the google_genai provider group`, `docs:` (sonuç).
 
 ### [x] Adım 19 — README ve karar dokümanı
 - **Gerçekleşen:** `3e55346` (README, karar dokümanı), `1c961e2` (holdout sonucu),

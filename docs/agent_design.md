@@ -773,13 +773,13 @@ kural için avukattan taslak kararı istenmez); ikisi de audit'teki `tool_call` 
     1. `langchain_core.exceptions` sınıfları: `ModelAuthenticationError`,
        `ModelPermissionDeniedError`, `ModelNotFoundError` → `config`; `ModelRateLimitError` →
        `rate_limit`. `openai`, `anthropic` ve `google_genai` entegrasyonları bunlardan türeyen
-       hatalar fırlatır; `groq` ve `ollama` fırlatmaz. Sınıflar kilitli `langchain-core` 1.7.7'de
-       vardır.
+       hatalar fırlatır; `groq` ve `ollama` fırlatmaz. Sınıflar kilitli `langchain-core` 1.8.0'da
+       (ve önceki kilitteki 1.7.7'de) vardır.
     2. Yoksa HTTP durum kodu, önce istisnanın kendisinden, sonra `__cause__`'undan okunur
        (`__context__` yürünmez): `status_code`, yoksa `response.status_code`, yoksa tam sayı
        `code`. `bool` ve metin değerler sayılmaz (`openai`'de `code` metindir). 401 / 403 / 404 →
-       `config`, 429 → `rate_limit`, başka her kod ve kodsuz hata → `other`. Google'ın hatalarında
-       kod yalnızca `__cause__` üzerindedir.
+       `config`, 429 → `rate_limit`, başka her kod ve kodsuz hata → `other`. Google'ın 4xx
+       hatalarında kod yalnızca `__cause__` üzerindedir; 5xx'te istisnanın kendisindedir.
   - **Durum kodu okuyucusu tektir:** aynı yardımcı `src/agent.py` `_error_payload`'da da kullanılır;
     `model_call` hata satırının `code` alanı (§7) sınıflandırmanın gördüğü kodun aynısıdır. Bu,
     sağlayıcıya bağlı kodun `src/config.py` ve `src/llm.py`'de durmasının (`architecture.md`
@@ -809,7 +809,7 @@ kural için avukattan taslak kararı istenmez); ikisi de audit'teki `tool_call` 
 
 | Durum | Davranış |
 |---|---|
-| Sağlayıcı anahtarı ya da zorunlu model yok / sağlayıcı adı bozuk / geçersiz `LLM_TEMPERATURE`, `LLM_MAX_TOKENS` / `groq` ile `LLM_TEMPERATURE=none` (`ChatGroq` sıcaklıksız istek göndermez) / `ollama` ile `LLM_BASE_URL` | Uygulama başlamaz; `config.py` açık hatayla durur (inceleme hiç başlamaz) |
+| Sağlayıcı anahtarı ya da zorunlu model yok / sağlayıcı adı bozuk / geçersiz `LLM_TEMPERATURE`, `LLM_MAX_TOKENS` / `groq` ile `LLM_TEMPERATURE=none` (`ChatGroq` sıcaklıksız istek göndermez) / `ollama` ile `LLM_BASE_URL` / `google_genai` ile ortamda açık `GOOGLE_GENAI_USE_VERTEXAI` ya da `GOOGLE_GENAI_USE_ENTERPRISE` (istek Vertex'e dönerdi) ya da boş olmayan `GOOGLE_GENAI_CLIENT_MODE` (SDK'nın kayıt istemcisi isteği anahtar başlığıyla stdout'a basar; `replay`'de yanıtlar bir dosyadan gelir) | Uygulama başlamaz; `config.py` açık hatayla durur (inceleme hiç başlamaz) |
 | Sağlayıcı paketi kurulu değil / LangChain sağlayıcıyı tanımıyor / kimlik bilgisi kurulumda reddedildi | Uygulama başlamaz: giriş noktası modeli başlangıçta bir kez kurar, hata `ConfigError` olur (eksik pakette mesaj paketi, grubu ve `LLM_EXTRAS`'ı söyler; çekirdek bağımlılık olan `langchain-groq` / `langchain-ollama` eksikse ortamın kilitten kurulmadığını söyler: `uv sync` ya da imajı yeniden kur). `--prepare-only` modeli kurmaz |
 | Hız limiti (429; Ollama dahil her sağlayıcıda) | Model en fazla 3 kez yeniden dener (kaç istek olduğu sağlayıcıya göre değişir; `ChatOllama`'da `max_retries` yoktur). Tükenirse `review_rule` yakalar → `no_finding` (sebep `rate_limited`) → avukat kuyruğu |
 | Kimlik / yapılandırma hatası (`langchain_core` kimlik / izin / bulunamadı hatası ya da HTTP 401 / 403 / 404; Groq, Ollama ve diğer sağlayıcılar) | **İstisna:** `review_rule`'da yakalanmaz, yeniden fırlatılır; graph durur, API incelemeyi `failed` yapar ve 502 döner. Tabloda olmayan, anahtarsız kurulabilen bir sağlayıcıda eksik anahtar buraya düşer (ilk çağrıda 401) |

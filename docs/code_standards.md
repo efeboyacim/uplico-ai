@@ -41,22 +41,23 @@
 ## LLM / agent kodu
 - Model yalnızca `src/llm.py`'de `init_chat_model` ile kurulur; başka yerde `ChatGroq(...)`,
   `ChatOllama(...)` ya da başka bir sohbet modeli sınıfı yazılmaz. Sağlayıcıya özel parametreler
-  yalnızca o sağlayıcı seçiliyken verilir; `groq` ve `ollama` dışındaki her sağlayıcıya (`openai`
-  ve `anthropic` dahil) yalnızca ortak parametreler verilir (`tech_stack.md` "Sürüm sabitleri /
-  kısıtlar"). Kodda kapalı sağlayıcı
-  listesi yoktur; sağlayıcıya göre ayrılan kod yalnızca bilinen tablonun sağlayıcıları içindir.
+  yalnızca o sağlayıcı seçiliyken verilir; `groq` ve `ollama` dışındaki her sağlayıcıya (`openai`,
+  `anthropic` ve `google_genai` dahil) yalnızca ortak parametreler verilir (`tech_stack.md`
+  "Sürüm sabitleri / kısıtlar"). Kodda kapalı sağlayıcı listesi yoktur; sağlayıcıya göre ayrılan kod yalnızca bilinen tablonun sağlayıcıları içindir.
 - Model adı, sağlayıcı, anahtar ve adres env'den okunur. Model adı yalnızca `src/config.py`'deki
   sağlayıcı varsayılanlarında sabit yazılır; başka yerde yazılmaz.
 - Env yalnızca `src/config.py`'de okunur ve başlangıçta doğrulanır: `LLM_PROVIDER=groq` iken ne
-  `GROQ_API_KEY` ne `LLM_API_KEY` varsa, `openai` / `anthropic` için `LLM_API_KEY` boşsa, sağlayıcı
-  adı bozuksa, varsayılan modeli olmayan sağlayıcıda `LLM_MODEL` boşsa, `LLM_TEMPERATURE` ya da
-  `LLM_MAX_TOKENS` geçersizse, `groq` ile `LLM_TEMPERATURE=none` verilmişse (`ChatGroq`
-  sıcaklıksız istek göndermez), `ollama` ile `LLM_BASE_URL` verilmişse ya da `TENANT_API_KEYS`
-  boşsa uygulama değişkenin adını söyleyen hatayla durur. Varsayılan değere ya da başka
-  sağlayıcıya sessizce düşülmez; boş anahtar `api_key` olarak geçirilmez (entegrasyon kendi env
-  değişkenine düşerdi). Aynı sebeple `LLM_BASE_URL` boşken `openai` ve `anthropic`'e genel adres
-  açıkça verilir (`tech_stack.md` "Ortam değişkenleri"). **Yazılı istisna:** `LLM_API_KEY`
-  verilmemişse bilinen tablonun dışındaki sağlayıcının (ve birden çok kimlik bilgisi isteyen her
+  `GROQ_API_KEY` ne `LLM_API_KEY` varsa, `openai` / `anthropic` / `google_genai` için
+  `LLM_API_KEY` boşsa, sağlayıcı adı bozuksa, varsayılan modeli olmayan sağlayıcıda `LLM_MODEL`
+  boşsa, `LLM_TEMPERATURE` ya da `LLM_MAX_TOKENS` geçersizse, `groq` ile `LLM_TEMPERATURE=none`
+  verilmişse (`ChatGroq` sıcaklıksız istek göndermez), `ollama` ile `LLM_BASE_URL` verilmişse,
+  `google_genai` ile `GOOGLE_GENAI_USE_VERTEXAI` / `GOOGLE_GENAI_USE_ENTERPRISE` açıksa ya da
+  `GOOGLE_GENAI_CLIENT_MODE` boş değilse ya da
+  `TENANT_API_KEYS` boşsa uygulama değişkenin adını söyleyen hatayla durur. Varsayılan değere ya
+  da başka sağlayıcıya sessizce düşülmez; boş anahtar `api_key` olarak geçirilmez (entegrasyon
+  kendi env değişkenine düşerdi). Aynı sebeple `LLM_BASE_URL` boşken `openai`, `anthropic` ve
+  `google_genai`'ye genel adres açıkça verilir (`tech_stack.md` "Ortam değişkenleri"). **Yazılı
+  istisna:** `LLM_API_KEY` verilmemişse bilinen tablonun dışındaki sağlayıcının (ve birden çok kimlik bilgisi isteyen her
   sağlayıcının; ör. Bedrock, Azure, Vertex) entegrasyon paketi kendi standart env değişkenlerini
   kendisi okur; Groq'un adres değişkenleri ve entegrasyonların ikincil değişkenleri (organizasyon,
   vekil) de bilinen sınırdır (`tech_stack.md`). Env'i `src/config.py`'den başka bir şeyin okuduğu
@@ -169,8 +170,10 @@
 - `src/llm.py`'nin kurduğu modeli istek düzeyinde sınayan testler sahte HTTP taşıyıcısını
   `http_client` ile verir; bu yalnızca `groq` ve `openai`'de mümkündür (diğer sağlayıcılarda
   `build_chat_model` `ValueError` fırlatır, çünkü taşıyıcı ya çağrıda hata verir ya da sessizce yok
-  sayılıp istek gerçek ağa çıkar). Paket kurulu olmama durumu, ortamda hangi grubun kurulu olduğuna
-  bağlı kalmasın diye import monkeypatch ile düşürülerek sınanır.
+  sayılıp istek gerçek ağa çıkar). `google_genai`'nin isteği, testte `init_chat_model`
+  sarılarak entegrasyonun `client_args={"transport": …}` parametresiyle sınanır; üretim koduna
+  yalnızca testin kullandığı bir parametre eklenmez. Paket kurulu olmama durumu, ortamda hangi
+  grubun kurulu olduğuna bağlı kalmasın diye import monkeypatch ile düşürülerek sınanır.
 
 ## Güvenlik
 - Secret'lar yalnızca env'den okunur; `.env` commit edilmez, `.env.example` edilir.

@@ -83,6 +83,30 @@
   sayılmaz. Gerçek `ollama.ResponseError` ile 401 / 403 → `config`, 429 → `rate_limit` (kabul
   edilen genişleme, `agent_design.md` §6). Mevcut Groq / Ollama sınıflandırma tablosu değişmeden
   geçer.
+- **`google_genai` (Adım 18d; `langchain-google-genai` `dev` grubunda, gerçek sınıflarla, ağ
+  yok):** `LLM_MODEL` ya da `LLM_API_KEY` olmadan `ConfigError` (mesaj değişkeni söyler); ortamda
+  `GOOGLE_API_KEY` ve `GEMINI_API_KEY` varken boş `LLM_API_KEY` yine `ConfigError`;
+  `GOOGLE_GENAI_USE_VERTEXAI` ya da `GOOGLE_GENAI_USE_ENTERPRISE` açıkken (`true`, `1`, `yes`)
+  `ConfigError` (mesaj değişkeni söyler), `false` / `0` / `no` / boş iken kabul;
+  `GOOGLE_GENAI_CLIENT_MODE` `record`, `replay`, `auto`, `api` ya da rastgele bir değerle
+  `ConfigError` (mesaj değişkeni söyler, değeri tekrarlamaz), boş ya da yalnızca boşluk iken
+  kabul, `groq` / `openai` seçiliyken değişken yok sayılır.
+  `init_chat_model`'e giden argümanlar ortak parametrelerdir, `LLM_BASE_URL` boşken
+  `base_url=https://generativelanguage.googleapis.com/`. Tel üzerinde (test `init_chat_model`'i
+  sarıp `client_args` taşıyıcısı ekler): çıktı sınırı `LLM_MAX_TOKENS`, varsayılan `temperature`
+  0, `LLM_TEMPERATURE=none` iken `temperature` alanı yok, anahtar `LLM_API_KEY` (ortamdaki
+  `GOOGLE_API_KEY` / `GEMINI_API_KEY` değil), istek `LLM_BASE_URL`'e gider; boşken ortamda
+  `GOOGLE_GEMINI_BASE_URL` ve `LANGSMITH_GATEWAY` olsa da `generativelanguage.googleapis.com`'a
+  gider. `http_client` → `ValueError`. Taşıyıcıdan dönen 401 / 403 / 404 → `config`, 429 →
+  `rate_limit`, 400 / 500 → `other` (entegrasyonun kendi sarmalayıcı sınıflarıyla) ve
+  `provider_status_code` 4xx'te kodu `__cause__`'tan okur. Düşünce imzası: tool'lar
+  (`TOOLS`) bağlıyken `thoughtSignature` taşıyan bir `functionCall` yanıtı ve tool sonucundan
+  sonra ikinci isteğin model parçası aynı `thoughtSignature`'ı geri gönderir. Eksik paket (import monkeypatch ile
+  düşürülür) başlangıçta `langchain-google-genai`'yi ve `google` grubunu söyler. Tasarımın
+  sonucu olarak iki mevcut test değişir: `test_common_parameters_only_outside_groq_and_ollama`'nın
+  `google_genai` satırı genel adresi de bekler; `test_load_settings_provider_name_is_normalized`
+  ortamına `LLM_API_KEY` eklenir (`google-genai` satırları artık anahtarsız `ConfigError` olurdu).
+  Groq / Ollama testlerinden hiçbiri değişmez.
 - **Hız limiti → `rate_limited`:** sahte model gerçek `groq.RateLimitError` fırlatır → kural
   `no_finding` (sebep `rate_limited`, `needs_review=true`) döner, diğer kurallar etkilenmez.
 - **Yarıda kesilen koşu avukata gider:** agent bulgu bildirir, sonra (a) adım limitine takılır ya da
