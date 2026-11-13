@@ -438,7 +438,8 @@
   satırları harfiyen çalıştırılmadı, aynı uçlar ve gövdeler çağrıldı. **Denenmedi:** temiz
   klonda modelli eval ve çevrimdışı mod; `edit` ve `correct` karar yolları gerçek modelle;
   arayüzün tarayıcıda kullanımı.
-- **Sıradaki:** Adım 18c (kullanıcı onayıyla); o adım README'yi ve karar dokümanını yeniden açar.
+- **Sıradaki:** bekleyen üç düzeltme (aşağıda madde 3), sonra Adım 18c; 18c README'yi ve karar
+  dokümanını yeniden açar.
 - **Adım 18c'ye başlarken (2026-11-13 oturumunun devri):**
   1. Depo temiz; son commit bu notun commit'i. `origin`'e push yapılmadı (push Adım 20'dir).
   2. Holdout koşusu bitti; eval önbelleği yok. `src/`, `evals/*.py` ve `uv.lock` artık
@@ -452,8 +453,8 @@
      yönde; yüzde ve tutarda da). (b) `src/prepare/pii.py`: parantezli alan kodlu telefon
      (`0 (532) 123 45 67`, `+90 (533) 555 05 30`, `(0212) 555 12 34`) maskelenmiyor ve
      "maskelenmeyenler" listelerinde yok. (c) `src/prepare/clauses.py`: metin BOM ile başlar ve
-     ilk satır `Madde 1 - …` ise başlık tanınmıyor (küçük). 18c'den önce mi sonra mı yapılacağı
-     ve sırası kullanıcıya sorulur; her biri ayrı `fix:` commit'i, önce doküman ve test.
+     ilk satır `Madde 1 - …` ise başlık tanınmıyor (küçük). **Karar (2026-11-13, kullanıcı):**
+     önce bu üç düzeltme, sonra Adım 18c. Her biri ayrı `fix:` commit'i, önce doküman ve test.
      (a) ve (b) `verify` / maskeleme davranışını değiştirir: `evals.md` §1'e göre eval yeniden
      koşulur ve README'deki sayılar (kod `4ccc03d`) güncellenir ya da hangi koda ait oldukları
      yazılır. Holdout sonucu sabit bir kayıttır; yeniden koşulmaz.
