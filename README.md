@@ -612,7 +612,12 @@ LLM_API_KEY=<Gemini API anahtarı>
 - **Daha büyük ve bağımsız bir eval seti**, birden çok koşu ve günle; yerel model ile büyük modelin
   aynı sette karşılaştırılması.
 - **Üretimde izleme açıkken uygulamanın başlamayı reddetmesi** (bugün koruma işletim kuralıdır).
-- Audit log için imza ya da hash zinciri; anahtar döndürme ve kişi bazlı kimlik.
+- **Giriş sistemi ve işlevsel bir avukat arayüzü.** Bugün sayfa yalnızca okur; anahtar ve
+  inceleme kimliği elle yazılır, karar API'den verilir. Eklenecekler: kullanıcı adı / parola ile
+  giriş ve sunucu taraflı oturum (API anahtarları betikler için kalır), inceleme listesi,
+  arayüzden sözleşme yükleme, karar ve taslak düzenleme formu, rapor ve audit görünümü; avukatın
+  düzenlediği taslağın da kodla denetlenip sonucun rapora yazılması.
+- Audit log için imza ya da hash zinciri; anahtar döndürme.
 
 ## Depo haritası
 
