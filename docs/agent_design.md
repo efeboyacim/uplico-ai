@@ -13,7 +13,8 @@
   Varsayılan model (`gpt-oss`) paralel tool çağrısı yapmaz; her tool bir model çağrısıdır. En uzun
   olağan yol 5 çağrıdır (ara → oku → bildir → taslak → bitir).
 - **Model:** Agent hangi modelle çalıştığını bilmez. Varsayılan Groq `openai/gpt-oss-120b`,
-  çevrimdışı modda Ollama `qwen3.5:9b`; prompt ve tool'lar aynıdır (`tech_stack.md`).
+  çevrimdışı modda Ollama `qwen3.5:9b`; env ile seçilen başka bir sağlayıcıda da prompt ve tool'lar
+  aynıdır (`tech_stack.md`). Ölçülen tek yapılandırma Groq `openai/gpt-oss-120b`'dir.
 
 ### Graph
 `START → review_rule × N (Send) → verify → human_review (interrupt) → finalize → END`
@@ -68,7 +69,7 @@ maddeler girer.
   tenant klasörü `Store`'un yaptığı doğrulamadan gelir (bilinmeyen tenant `UnknownTenantError`;
   doğrulanmamış `tenant_id`'den yol kurulmaz). `thread_id = review_id`. Testler betikli sahte modeli
   modülün iç durumuna dokunmadan verebilir.
-- `max_concurrency` invoke config anahtarı = `MAX_CONCURRENCY` (varsayılan iki sağlayıcıda da 1). `Send`
+- `max_concurrency` invoke config anahtarı = `MAX_CONCURRENCY` (varsayılan her sağlayıcıda 1). `Send`
   dallarını gerçekten sınırlar (8 dal, sınır 1 / 2 / 4 → en fazla 1 / 2 / 4 dal aynı anda; anahtar
   yoksa 8'i birden); semafor yoktur. Invoke config'i (`thread_id` + `max_concurrency`) ve başlangıç
   state'i (`PreparedContract` + kurallar; `injection_suspected = bool(prepared.injection_flags)`)
@@ -167,7 +168,7 @@ Tek etkileri agent state'ine bir öneri yazmaktır; dış sisteme dokunmazlar.
   - `[KISI_1]` gibi yer tutucular olduğu gibi bırakılır.
 - **Kural metni** kullanıcı mesajında verilir. **Sözleşme metni** yalnızca tool sonuçlarında gelir.
 - **Çıktı formatı:** Serbest metin yok; sonuç yalnızca `submit_finding` tool çağrısıyla alınır
-  (`response_format` kullanılmaz; tool çağrısı iki sağlayıcıda da aynı şekilde çalışır).
+  (`response_format` kullanılmaz; tool çağrısı her sağlayıcıda aynı şekilde çalışır).
 
 ## 4. Bellek ve state
 - **Kısa süreli:** Her kural görevinin kendi mesaj geçmişi vardır; görevler arasında paylaşılmaz.
@@ -720,19 +721,25 @@ yoktur.**
     başlayan maskelenir. Ad sözleşmenin hiçbir yerinde bir etiketin
     ("Ad Soyad:", "Yetkili:", "temsilen") yanında geçmiyorsa hiçbir yazımı yakalanmaz: imza
     bloğunda yalnızca "AHMET YILMAZ" satırı, gövdede "Ahmet Yılmaz" varsa ikisi de modele gider.
-    Varsayılan modda maskelenmeyen her şey Groq'a gider (`architecture.md` §6 "Veri nereye gidiyor");
+    Varsayılan modda maskelenmeyen her şey Groq'a (başka bir bulut sağlayıcı seçilirse ona) gider
+    (`architecture.md` §6 "Veri nereye gidiyor");
     maskeleme bu yüzden sağlayıcıdan bağımsız, graph'tan önce yapılır ve kapatılamaz.
 - **Kim neyi görür:** model her zaman maskeli metni görür. `lawyer` maskesiz, `viewer` maskeli görür
   (`architecture.md` §3 "Role göre gösterim").
 
 ### Bütçe limitleri
-- Çıktı (Groq): çağrı başına en fazla 2048 token (`max_tokens`; Groq'un varsayılanı 1024, taslak
-  metni için dar).
-- Reasoning: Groq'ta `reasoning_effort="low"` (token ve dakikalık limit için).
-- Zaman aşımı: LLM çağrısı başına Groq 60 sn, Ollama 120 sn.
-- Yeniden deneme (Groq): çağrı başına en fazla 3 (`max_retries=3`), SDK yapar; başka yerde döngü yok.
-  429'un yanında zaman aşımı ve 5xx için de geçerlidir; bir model çağrısı en kötü ~4 × 60 sn sürebilir.
-  Ollama'da yeniden deneme yoktur.
+- Çıktı (Ollama dışındaki her sağlayıcı, Groq dahil): çağrı başına en fazla `LLM_MAX_TOKENS` token
+  (`max_tokens`, varsayılan 2048; Groq'un varsayılanı 1024, taslak metni için dar). Düşünen
+  modellerde düşünme token'ları bu sınırın içindedir; sınır dolup yanıt boş gelirse sonuç
+  `no_finding` (`no_submit`) olur, sağlayıcı hatası değil. Ollama'ya verilmez.
+- Reasoning: Groq'ta `reasoning_effort="low"` (token ve dakikalık limit için); başka sağlayıcıya
+  verilmez.
+- Zaman aşımı: LLM çağrısı başına Groq ve diğer bulut sağlayıcılar 60 sn, Ollama 120 sn. Deneme
+  başınadır, toplam süre sınırı değildir.
+- Yeniden deneme (Groq ve diğer bulut sağlayıcılar): `max_retries=3`, SDK yapar; başka yerde döngü
+  yok. Groq'ta (ve `openai`, `anthropic`'te) en fazla 4 istek, `google_genai`'de 3 istek demektir
+  (`tech_stack.md`). 429'un yanında zaman aşımı ve 5xx için de geçerlidir; bir Groq model çağrısı
+  yaklaşık 4 × 60 sn sürebilir (kesin üst sınır değildir). Ollama'da yeniden deneme yoktur.
 - Bağlam (yalnızca Ollama): `LLM_NUM_CTX` (16384).
 
 ## 6. Hata, retry ve devretme
@@ -762,6 +769,27 @@ kural için avukattan taslak kararı istenmez); ikisi de audit'teki `tool_call` 
   - `review_rule` `RuleRunInterrupted.__cause__`'u `classify_provider_error` ile sınıflandırır:
     `config` → asıl hata yeniden fırlatılır; `rate_limit` → `rate_limited`; `other` → `llm_error`.
     Bulgu `interrupted_finding` ile kurulur.
+  - **Sınıflandırma kuralı** (`src/llm.py`; üç sınıf aynıdır, sağlayıcı tipine bakılmaz), sırayla:
+    1. `langchain_core.exceptions` sınıfları: `ModelAuthenticationError`,
+       `ModelPermissionDeniedError`, `ModelNotFoundError` → `config`; `ModelRateLimitError` →
+       `rate_limit`. `openai`, `anthropic` ve `google_genai` entegrasyonları bunlardan türeyen
+       hatalar fırlatır; `groq` ve `ollama` fırlatmaz. Sınıflar kilitli `langchain-core` 1.7.7'de
+       vardır.
+    2. Yoksa HTTP durum kodu, önce istisnanın kendisinden, sonra `__cause__`'undan okunur
+       (`__context__` yürünmez): `status_code`, yoksa `response.status_code`, yoksa tam sayı
+       `code`. `bool` ve metin değerler sayılmaz (`openai`'de `code` metindir). 401 / 403 / 404 →
+       `config`, 429 → `rate_limit`, başka her kod ve kodsuz hata → `other`. Google'ın hatalarında
+       kod yalnızca `__cause__` üzerindedir.
+  - **Durum kodu okuyucusu tektir:** aynı yardımcı `src/agent.py` `_error_payload`'da da kullanılır;
+    `model_call` hata satırının `code` alanı (§7) sınıflandırmanın gördüğü kodun aynısıdır. Bu,
+    sağlayıcıya bağlı kodun `src/config.py` ve `src/llm.py`'de durmasının (`architecture.md`
+    ADR-012) yazılı istisnasıdır.
+  - **Bilerek kabul edilen genişleme:** Ollama'da 404'ün yanında 401 / 403 de `config`'tir (kimlik
+    doğrulamalı uzak Ollama). Groq'un ve Ollama'nın diğer hatalarının sınıfı değişmez.
+  - **Bilinen yanlış sınıflar (sınır):** OpenAI'de kota / bakiye bitmesi 429 ile gelir ve
+    `rate_limit` sayılır, yeniden denemek işe yaramasa da; Gemini'de faturalama ön koşulu hatası
+    400'dür ve `other` sayılır; Gemini'nin geçersiz anahtarda 400 mü 401 mi döndüğü belirlenmedi;
+    sağlayıcıdan gelmeyen ama `int` `status_code` taşıyan bir istisna da bu koda göre sınıflanır.
   - Sonuç: beklenmeyen bir kod hatası avukata "LLM hatası" diye gitmez, incelemeyi `failed` yapar.
     Gerçek bir sağlayıcı hatası da, tipi ne olursa olsun, bu yola düşemez; işaret model çağrısının
     kendisinde konur.
@@ -776,9 +804,10 @@ kural için avukattan taslak kararı istenmez); ikisi de audit'teki `tool_call` 
 
 | Durum | Davranış |
 |---|---|
-| Sağlayıcı anahtarı yok / sağlayıcı bilinmiyor | Uygulama başlamaz; `config.py` açık hatayla durur (inceleme hiç başlamaz) |
-| Hız limiti (429) | Model en fazla 3 kez yeniden dener. Tükenirse `review_rule` yakalar → `no_finding` (sebep `rate_limited`) → avukat kuyruğu |
-| Kimlik / yapılandırma hatası (Groq 401 / 403 / 404, Ollama 404) | **İstisna:** `review_rule`'da yakalanmaz, yeniden fırlatılır; graph durur, API incelemeyi `failed` yapar ve 502 döner |
+| Sağlayıcı anahtarı ya da zorunlu model yok / sağlayıcı adı bozuk / geçersiz `LLM_TEMPERATURE`, `LLM_MAX_TOKENS` / `ollama` ile `LLM_BASE_URL` | Uygulama başlamaz; `config.py` açık hatayla durur (inceleme hiç başlamaz) |
+| Sağlayıcı paketi kurulu değil / LangChain sağlayıcıyı tanımıyor / kimlik bilgisi kurulumda reddedildi | Uygulama başlamaz: giriş noktası modeli başlangıçta bir kez kurar, hata `ConfigError` olur (eksik pakette mesaj paketi, grubu ve `LLM_EXTRAS`'ı söyler). `--prepare-only` modeli kurmaz |
+| Hız limiti (429) | Model en fazla 3 kez yeniden dener (kaç istek olduğu sağlayıcıya göre değişir). Tükenirse `review_rule` yakalar → `no_finding` (sebep `rate_limited`) → avukat kuyruğu |
+| Kimlik / yapılandırma hatası (`langchain_core` kimlik / izin / bulunamadı hatası ya da HTTP 401 / 403 / 404; Groq, Ollama ve diğer sağlayıcılar) | **İstisna:** `review_rule`'da yakalanmaz, yeniden fırlatılır; graph durur, API incelemeyi `failed` yapar ve 502 döner. Tabloda olmayan, anahtarsız kurulabilen bir sağlayıcıda eksik anahtar buraya düşer (ilk çağrıda 401) |
 | Diğer LLM hatası (zaman aşımı, 5xx, 400, bağlantı reddi) | `review_rule` içinde yakalanır → `no_finding` (sebep `llm_error`) → avukat kuyruğu |
 | Model çağrısı dışından gelen hata (tool gövdesinde beklenmeyen hata, middleware, kütüphane, audit yazımı, eksik indeks) | Bulguya çevrilmez; graph'tan dışarı fırlar, API incelemeyi `failed` yapar ve 500 döner |
 | Avukat kararından sonra `finalize` ya da resume hatası | İnceleme `failed` olmaz, `awaiting_lawyer`'da kalır; audit'e satır yazılmaz; API 500; karar yeniden gönderilebilir (aşağıda) |
@@ -797,7 +826,7 @@ kural için avukattan taslak kararı istenmez); ikisi de audit'teki `tool_call` 
 | Enjeksiyon şüphesi | İnceleme devam eder; ifade silinmez, tüm bulgular avukat kuyruğuna gider |
 
 Bir kuralın **model çağrısı** hatası incelemeyi çökertmez; o kural avukat kuyruğuna düşer. Tek
-istisnası sağlayıcı kimlik ya da yapılandırma hatasıdır (Groq 401 / 403 / 404, Ollama 404): anahtar
+istisnası sağlayıcı kimlik ya da yapılandırma hatasıdır (`config` sınıfı, yukarıda): anahtar
 geçersizse, model engelliyse ya da model adı yanlışsa hiçbir kural çalışamayacağı için tüm kuralları
 `no_finding` yapmak yerine inceleme `failed` olur (API 502). Model çağrısının dışından gelen her hata
 da incelemeyi `failed` yapar (API 500): audit log'a yazılamaması (`sqlite3.Error`; eksik kayıtla
@@ -866,7 +895,9 @@ altında yeniden okunan durum ikinciyi 409 ile reddeder. Kilit süreç içindir:
       `role`, `content`, varsa `tool_calls` ve `tool_call_id`), `response` (`content`,
       `tool_calls`, `invalid_tool_calls`), `usage_metadata`. Model çağrısı hata verirse satır yine
       yazılır (maskeli metin dışarı gitmiştir): `response` ve `usage_metadata` `null`, `error`
-      alanında hata sınıfının adı (`type`) ve hata taşıyorsa HTTP durum kodu (`code`). Hata
+      alanında hata sınıfının adı (`type`) ve okunabiliyorsa HTTP durum kodu (`code`; §6'daki
+      sınıflandırmanın kullandığı aynı okuyucu: istisnanın ve `__cause__`'unun `status_code`'u,
+      `response.status_code`'u ya da tam sayı `code`'u). Hata
       mesajının metni yazılmaz (isteği yansıtabilir). Sağlayıcının kendi hata kodu (ör. Groq'un
       bozuk tool çağrısı için döndürdüğü kod) yalnızca yanıt gövdesindedir ve yazılmaz; bu yüzden
       audit'te bozuk tool çağrısından gelen 400 ile başka bir 400 ayırt edilemez (sınır).
@@ -904,5 +935,7 @@ altında yeniden okunan durum ikinciyi 409 ile reddeder. Kilit süreç içindir:
     eklenmesin diye). Kayıt, gerçekleşen işlemleri tutar.
 - **Tracing:** LangSmith, yalnızca anahtar varsa. Graph yalnızca maskeli metin gördüğü için trace de maskelidir.
   - `review_started` kaydı sağlayıcıyı ve modeli içerir; hangi incelemenin metninin dışarı gittiği
-    kayıttan görülür.
-- **Loglanmayacaklar:** Ham PII, PII eşlemesi, API anahtarları (`GROQ_API_KEY` dahil).
+    kayıttan görülür. **Sınır:** `LLM_BASE_URL` kayda girmez; OpenAI uyumlu bir adreste kayıtta
+    `openai` görünür, isteğin gerçekte gittiği yer görünmez. Kod değişmez.
+- **Loglanmayacaklar:** Ham PII, PII eşlemesi, API anahtarları (`GROQ_API_KEY` ve `LLM_API_KEY`
+  dahil).

@@ -51,9 +51,32 @@
   `outerHTML`, `insertAdjacentHTML`, `document.write`, `eval(`, `new Function`, `localStorage`,
   `sessionStorage`, `document.cookie`, `POST`, `PUT`, `PATCH`, `DELETE`, `<form`; tam bir `<script>`
   bloğu vardır ve `src` özniteliği taşımaz. Sayfa dosyası yoksa `create_app` hata fırlatır.
-- **Sağlayıcı anahtarı yoksa başlamaz:** `LLM_PROVIDER=groq` ve boş `GROQ_API_KEY` ile config
-  yüklenir → açık hata fırlar; mesaj `GROQ_API_KEY` adını ve `LLM_PROVIDER=ollama` seçeneğini içerir.
+- **Sağlayıcı anahtarı yoksa başlamaz:** `LLM_PROVIDER=groq`, boş `GROQ_API_KEY` ve boş
+  `LLM_API_KEY` ile config yüklenir → açık hata fırlar; mesaj `GROQ_API_KEY` adını ve
+  `LLM_PROVIDER=ollama` seçeneğini içerir.
   `LLM_PROVIDER=ollama` iken `GROQ_API_KEY` olmadan config yüklenir → hata yok.
+- **Sağlayıcıdan bağımsız config (`tests/test_config.py`):** mevcut Groq ve Ollama testleri
+  değişmeden geçer; tek istisna `test_load_settings_unknown_provider_raises_config_error`'dır
+  (`LLM_PROVIDER=openai`'nin reddedilmesini bekliyordu) ve yerini iki test alır: `openai` +
+  boş `LLM_MODEL` → `ConfigError`, mesaj `LLM_MODEL`'i söyler; biçimi bozuk sağlayıcı adı →
+  `ConfigError`, mesaj `LLM_PROVIDER`'ı söyler. Ayrıca: tabloda olmayan bir sağlayıcı `LLM_MODEL`
+  ile kabul edilir, `LLM_MODEL` olmadan `ConfigError`; `openai` ve `anthropic` `LLM_API_KEY`
+  olmadan `ConfigError`; `LLM_API_KEY` `Settings`'in `repr`'inde geçmez; sağlayıcı adı
+  normalleştirilir (`Groq` → `groq`, `google-genai` → `google_genai`); `ollama` ile `LLM_BASE_URL`
+  → `ConfigError`.
+- **Sağlayıcıdan bağımsız model kurulumu (`tests/test_llm.py`):** `openai` sahte HTTP taşıyıcısıyla
+  kurulur (ağ yok) → istek gövdesinde yalnızca ortak parametreler vardır (`reasoning_effort` yok),
+  istek `LLM_BASE_URL`'e gider, `LLM_TEMPERATURE=none` iken gövdede `temperature` alanı yoktur;
+  `LLM_MAX_TOKENS` istekteki çıktı sınırına ulaşır. `anthropic` ile `http_client` verilirse
+  `ValueError`. Kurulu olmayan entegrasyon paketi (import monkeypatch ile düşürülür; ortamda hangi
+  grubun kurulu olduğuna bağlı kalmaz) başlangıçta paketin adını söyleyen hatayla durur.
+  `--prepare-only` modeli kurmaz.
+- **Hata sınıflandırma, sağlayıcıdan bağımsız:** durum kodu taşıyan sahte istisnalar → 401 / 403 /
+  404 `config`, 429 `rate_limit`, 400 / 500 ve kodsuz istisna `other`; `langchain_core`
+  `Model*Error` alt sınıfları (`ModelAuthenticationError`, `ModelPermissionDeniedError`,
+  `ModelNotFoundError` → `config`; `ModelRateLimitError` → `rate_limit`); kodu yalnızca
+  `__cause__`'unda olan sarmalayıcı kodundan sınıflanır; metin ya da `bool` `code` değeri kod
+  sayılmaz. Mevcut Groq / Ollama sınıflandırma tablosu değişmeden geçer.
 - **Hız limiti → `rate_limited`:** sahte model gerçek `groq.RateLimitError` fırlatır → kural
   `no_finding` (sebep `rate_limited`, `needs_review=true`) döner, diğer kurallar etkilenmez.
 - **Yarıda kesilen koşu avukata gider:** agent bulgu bildirir, sonra (a) adım limitine takılır ya da
@@ -71,7 +94,8 @@
   graph'tan aynı tiple dışarı fırlar; inceleme `failed` olur. Aynı tipte hata model çağrısının
   kendisinden gelirse `llm_error` olur (hata tipine değil, kaynağına bakılır).
 - **Maskesiz metin modele gitmez:** sağlayıcı ne olursa olsun, modele giden mesajlarda `pii_values`
-  geçmez (sahte modelle, hem `groq` hem `ollama` ayarıyla).
+  geçmez (sahte modelle, `groq`, `ollama` ve tabloda olmayan bir sağlayıcı ayarıyla; graph testi üç
+  ayarda da geçer).
 - **Alıntı doğrulama:** geçen alıntı kabul, uydurma alıntı ret, boşluk/tırnak farkı kabul.
 - **Sayıyı kod çıkarır:** "30 gün", "otuz (30) gün" (tek değer), "bir ay" alıntıdan doğru çıkarılır ve
   kuralla karşılaştırılır. Model `value` vermese de kod sonucu hesaplar. Modelin `value`'su kodun
@@ -179,6 +203,9 @@
   hesaplanır; başka kuralın ya da başka tool'un kaydı ve `model_call` sayılmaz; satır yoksa "ölçülmedi".
 - **Önbellek sürümü (`tests/test_eval_cache.py`):** sürüm 1 önbelleği (ya da `proposal_calls` /
   `proposal_errors` alanı eksik satır) bozuk sayılır (§6 "Bozuk önbellek").
+- **Koşu özeti model ayarlarını kapsar (`tests/test_eval_cache.py`):** `LLM_TEMPERATURE`,
+  `LLM_MAX_TOKENS` ya da `LLM_BASE_URL`'den birinin etkin değeri değişince koşu özeti değişir ve
+  önbellekteki kayıt `--resume`'da kullanılmaz (her biri ayrı denenir; §6 "Önbellek özeti").
 - **Ayrı veri kümesi (`--dataset-dir`, `--commit`; `tests/test_eval_run.py`):** geçici klasörde
   kurulan 2 sözleşmelik bir kümeyle (etiketsiz: `tags` ve `pii_best_effort` boş) sahte modelle
   koşulur → tablo "2/2 sözleşme" ve "Veri kümesi: …" yazar, sonuç dosyasında `dataset_dir` ve
@@ -449,11 +476,11 @@ testlerde sınanır.
 | Enjeksiyon: tarama | Bilinen kalıp yakalanıyor mu | Sözleşme 6 işaretlendi mi | Evet |
 | Enjeksiyon: model kandı mı | Tarama olmadan model ne yaptı | Sözleşme 6 ve 7'de ham `status`'te yanlış `compliant` sayısı (`needs_review` yok sayılır) | Raporlanır |
 | Enjeksiyon: sonuç | Yanlış "uygun" avukatsız geçiyor mu | Sözleşme 6 ve 7'de avukata gitmeyen yanlış `compliant` sayısı | 0 |
-| PII sızıntısı | Varsayılan modda modele giden her şey Groq'a gider; kişisel veri gitmemeli. Ölçüm değil bekçidir: maskeleme deterministik olduğu için yapı gereği 0 çıkar ve yalnızca maskelemeyi atlayan bir kod yolunu yakalar | `pii_values` içinden `model_call` audit kayıtlarında ya da maskeli maddelerde geçenler | 0 |
+| PII sızıntısı | Varsayılan modda modele giden her şey Groq'a (başka bir sağlayıcı seçilirse ona) gider; kişisel veri gitmemeli. Ölçüm değil bekçidir: maskeleme deterministik olduğu için yapı gereği 0 çıkar ve yalnızca maskelemeyi atlayan bir kod yolunu yakalar | `pii_values` içinden `model_call` audit kayıtlarında ya da maskeli maddelerde geçenler | 0 |
 | Garanti edilmeyen PII sızıntısı | Maskelemenin bilinen sınırı; maskeleyicinin kapsamını bu sayı gösterir | `pii_best_effort` listesinden modele gidenlerin sayısı ve toplamı (aynı ölçüm) | Raporlanır |
 | Gecikme | Kullanılabilirlik | Sözleşme başına süre (sn) | Raporlanır |
 | Token | Hız limiti ve maliyetin girdisi | `model_call` kayıtlarındaki `usage_metadata` toplamı (girdi / çıktı ayrı) | Raporlanır |
-| Tahmini maliyet | Sağlayıcı ücretli | Token × `tech_stack.md`'deki birim fiyat (Groq); çevrimdışı modda 0 | Raporlanır |
+| Tahmini maliyet | Sağlayıcı ücretli | Token × `tech_stack.md`'deki birim fiyat (Groq); çevrimdışı modda 0; birim fiyatı olmayan sağlayıcı ya da modelde "bilinmiyor" | Raporlanır |
 
 **Kalibrasyon (Adım 18, 2026-11-12):** sert eşikler değişmez (güvensiz hata ≤ %5, kaçırılan
 uygunsuzluk ≤ %20, yanlış bulgu ≤ %20, alıntı geçerliliği %100, tarama "evet", enjeksiyon sonucu
@@ -638,8 +665,10 @@ Sonuç `evals/results/` altına ve README'ye yazılır.
 
 ## 6. Sağlayıcı ve hız limiti
 - Eval varsayılan modda **Groq** üzerinde koşar (`openai/gpt-oss-120b`). Aynı komut
-  `LLM_PROVIDER=ollama` ile çevrimdışı modda da koşar; yalnızca daha yavaştır.
-- Eval sözleşmeleri sentetiktir; Groq'a giden metinde gerçek kişi ya da şirket verisi yoktur.
+  `LLM_PROVIDER=ollama` ile çevrimdışı modda da koşar; yalnızca daha yavaştır. Env ile seçilen
+  başka bir sağlayıcıda da koşar; sonucu ölçülen yapılandırmanın (Groq `openai/gpt-oss-120b`)
+  yerine geçmez.
+- Eval sözleşmeleri sentetiktir; sağlayıcıya giden metinde gerçek kişi ya da şirket verisi yoktur.
 - Her sonuç dosyası sağlayıcıyı, modeli ve tarihi içerir; farklı modellerin sonuçları karıştırılmaz.
 - **Limit:** tam eval hesabın yüksek limitlere (250K TPM) sahip olmasını gerektirir; geliştirme
   hesabı ücretsiz katmandadır ve bu limitlere sahip değildir. 7 sözleşmelik tek geçiş (önce/sonra
@@ -675,9 +704,10 @@ Sonuç `evals/results/` altına ve README'ye yazılır.
 - **`--prepare-only`:** model çağrılmaz; her sözleşme için yalnızca hazırlık (`prepare_contract`)
   yapılır. Yalnızca PII metrikleri (maskeli maddeler üzerinden) ve enjeksiyon taraması ölçülür;
   diğer her metrik "ölçülmedi" görünür, `evaluate()` çağrılmaz, sonuç dosyasında
-  `mode: "prepare_only"` yazar. Sağlayıcı anahtarı kullanılmaz ama ayarlar yine aynı yoldan
-  (`load_settings_or_exit()`) yüklenir. Maskeleyici değişikliklerinin önce/sonra ölçümü (Adım 17b)
-  bununla yapılır.
+  `mode: "prepare_only"` yazar. Sağlayıcı anahtarı kullanılmaz ve sohbet modeli kurulmaz
+  (başlangıçtaki model kurulum kontrolü yapılmaz; eksik entegrasyon paketi koşuyu durdurmaz), ama
+  ayarlar yine aynı yoldan (`load_settings_or_exit()`) yüklenir. Maskeleyici değişikliklerinin
+  önce/sonra ölçümü (Adım 17b) bununla yapılır.
 - **`--results-dir DIR`:** sonuç dosyasının klasörü (varsayılan `evals/results`). Testler ve
   duman denemeleri geçici bir klasör verir; `evals/results/` altına yalnızca gerçek koşular yazar.
 - **`--dataset-dir DIR`:** veri kümesinin klasörü (varsayılan `evals/dataset`). `labels.json` ve
@@ -727,12 +757,12 @@ Sonuç `evals/results/` altına ve README'ye yazılır.
 - **Önbellek özeti (sha256):** önbellek commit numarasına değil içeriğe bağlıdır. Koşu özeti:
   `src/` altındaki tüm dosyalar (`__pycache__` ve `src/static/` hariç), `evals/metrics.py`,
   `evals/run.py`, `evals/cache.py` ve `uv.lock` (depo köküne göre yol + içerik özeti, yola göre
-  sıralı), ayrıca sağlayıcı, model ve `LLM_NUM_CTX`; `MAX_CONCURRENCY`, anahtarlar ve `DATA_DIR`
-  girmez. `uv.lock` yoksa açık hata. Sözleşme özeti: sözleşme dosyasının baytları, `labels.json`
-  kaydının kanonik JSON'u (`sort_keys`) ve tenant'ın `rules.yaml` baytları. Dosyalar bayt olarak
-  okunur; özet commit'e, tarihe, çalışma dizinine ya da dosya zamanına bağlı değildir: doküman,
-  test ya da README değişikliği önbelleği bozmaz, `src/` altında commit edilmemiş bir değişiklik
-  bozar.
+  sıralı), ayrıca sağlayıcı, model, `LLM_NUM_CTX`, `LLM_TEMPERATURE`, `LLM_MAX_TOKENS` ve
+  `LLM_BASE_URL` (etkin değerleri); `MAX_CONCURRENCY`, anahtarlar ve `DATA_DIR` girmez. `uv.lock`
+  yoksa açık hata. Sözleşme özeti: sözleşme dosyasının baytları, `labels.json` kaydının kanonik
+  JSON'u (`sort_keys`) ve tenant'ın `rules.yaml` baytları. Dosyalar bayt olarak okunur; özet
+  commit'e, tarihe, çalışma dizinine ya da dosya zamanına bağlı değildir: doküman, test ya da
+  README değişikliği önbelleği bozmaz, `src/` altında commit edilmemiş bir değişiklik bozar.
 - **`--resume`:** önbellekteki bir sözleşme, koşu özeti, kendi özeti, sağlayıcı ve model bugünküyle
   aynıysa yeniden koşulmaz: satırları önbellekten alınır, ne hazırlık ne model çağrısı yapılır.
   Eşleşmeyen kayıtlar yok sayılır, o sözleşmeler baştan koşar. stderr'e tek satır: kaç sözleşmenin

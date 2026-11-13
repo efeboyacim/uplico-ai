@@ -97,11 +97,13 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   (b) 403 döner; inceleme durumu değişmez, graph devam etmez.
 
 ### Senaryo 5: Sağlayıcı sorunu
-- **Tetikleyici:** (a) Uygulama `GROQ_API_KEY` olmadan başlatılır. (b) İnceleme sırasında Groq hız
-  limiti aşılır (429).
-- **Beklenen davranış:** (a) Uygulama başlamaz; eksik değişkeni ve çevrimdışı moda geçişi söyleyen
-  açık bir hatayla durur. (b) Çağrı sınırlı sayıda yeniden denenir; yine olmazsa o kural avukat
-  kuyruğuna düşer, inceleme çökmez.
+- **Tetikleyici:** (a) Uygulama Groq anahtarı olmadan (`GROQ_API_KEY` ve `LLM_API_KEY` boş)
+  başlatılır (ya da seçilen sağlayıcının zorunlu modeli, anahtarı ya da entegrasyon paketi
+  olmadan). (b) İnceleme sırasında Groq hız limiti aşılır (429).
+- **Beklenen davranış:** (a) Uygulama başlamaz; eksik değişkeni ya da paketi söyleyen açık bir
+  hatayla durur (Groq anahtarı eksikse mesaj çevrimdışı moda geçişi de söyler; eksik pakette
+  paket grubunu ve `LLM_EXTRAS`'ı). (b) Çağrı sınırlı sayıda yeniden denenir; yine olmazsa o kural
+  avukat kuyruğuna düşer, inceleme çökmez.
 
 ## 5. Fonksiyonel gereksinimler
 - FR-1: Her kural için tam olarak bir sonuç: `compliant` / `non_compliant` / `not_found`.
@@ -131,9 +133,11 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
 - FR-10: Sözleşme prompt injection'a karşı taranır; şüpheli ifade silinmez, avukat için işaretlenir
   ve sözleşme avukata yönlendirilir.
 - FR-11: Eval tek komutla çalışır ve bir değişikliğin etkisini önce/sonra tablosuyla gösterir.
-- FR-12: `docker compose up` ile çalışır; LLM sağlayıcısı env ile değişir (varsayılan Groq,
-  çevrimdışı mod Ollama). Gerekli anahtar yoksa uygulama açık bir hatayla durur; hız limitinde
-  sınırlı yeniden deneme yapar.
+- FR-12: `docker compose up` ile çalışır; LLM sağlayıcısı, modeli, anahtarı ve adresi yalnızca env
+  ile değişir, kod değişmez (varsayılan Groq, çevrimdışı mod Ollama; `init_chat_model`'in tanıdığı
+  başka bir sağlayıcı da seçilebilir, entegrasyon paketi imajda kuruluysa). Gerekli anahtar, model
+  ya da paket yoksa uygulama başlangıçta açık bir hatayla durur; hız limitinde sınırlı yeniden
+  deneme yapar.
 - FR-13 (bonus): Bulguları sözleşme metni üzerinde gösteren basit bir arayüz.
 - FR-14: Son karardan sonra sonuçları, taslakları, avukat kararlarını ve talep edilen değişiklikleri
   içeren bir rapor üretilir (yalnızca JSON).
@@ -144,7 +148,8 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
 - **Performans:** Hedef yok; istek bloklar. Varsayılan modda (Groq) sözleşme başına bir dakikanın
   altı beklenir; çevrimdışı modda (yerel 8 GB VRAM) birkaç dakika kabul edilir.
 - **Maliyet:** Varsayılan modda token başına ücret (Groq); çevrimdışı modda API ücreti yok. Token
-  sayısı ve tahmini maliyet raporlanır.
+  sayısı ve tahmini maliyet raporlanır; birim fiyatı kodda olmayan sağlayıcı ya da modelde tahmini
+  maliyet "bilinmiyor" yazılır.
 - **Güvenlik & uyumluluk:**
   - Kimlik bilgileri (ad, TCKN, telefon, e-posta, IBAN) maskelenir; modele ve trace'e gitmez.
     Tutar, süre ve tarihler maskelenmez.
@@ -156,6 +161,11 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
     tireli ya da çift boşluklu IBAN, ayraçsız ya da bölünemez boşlukla gruplanmış öneksiz cep
     numarası, öneksiz sabit hat, öneksiz yazılmış parantezli alan kodu, binlik gibi gruplanmış
     TCKN).
+  - **Başka bir bulut sağlayıcı seçilirse aynı veri (maskeli metin ve maskelenmeyen her şey) o
+    sağlayıcıya gider.** Sıfır veri saklama (Zero Data Retention) notu yalnızca Groq içindir; başka
+    bir sağlayıcının saklama ve kullanım koşulları kullanıcının sorumluluğundadır (örneğin
+    Gemini'nin ücretsiz katmanında Google gönderilen içeriği ürün geliştirmede kullanabilir ve
+    insanlar okuyabilir).
   - **"Veri makineden çıkmaz" yalnızca çevrimdışı mod (`LLM_PROVIDER=ollama`, LangSmith kapalı) için
     doğrudur.**
   - Arama her iki modda yereldir (yalnızca BM25, süreç içinde). PII eşlemesi ve ham sözleşme hiçbir
@@ -163,13 +173,15 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   - Secret'lar yalnızca env'den okunur.
 - **Dil / kanal:** Sözleşmeler ve kurallar Türkçe. Kanal: HTTP API + tek sayfalık arayüz.
 - **Güvenilirlik:** Bir kuralın model çağrısı hata verirse inceleme çökmez; o kural avukat kuyruğuna
-  düşer. İstisna: sağlayıcı anahtarı geçersizse, model engelliyse ya da model adı yanlışsa (Groq 401 /
-  403 / 404, Ollama 404) hiçbir kural çalışamaz; inceleme `failed` olur ve API 502 döner. Audit
-  log'a yazılamıyorsa ya da model çağrısının dışında beklenmeyen bir kod hatası çıkarsa da inceleme
-  `failed` olur (API 500); eksik kayıtla tamamlanmaz, kod hatası avukata kural sonucu gibi gitmez
-  (`agent_design.md` §6). Bu kurallar incelemenin avukata gelene kadarki kısmı (`POST /reviews`)
-  içindir. Avukat kararı kaydedilirken hata çıkarsa inceleme `failed` olmaz: API 500 döner,
-  inceleme `awaiting_lawyer`'da kalır, audit'e satır yazılmaz ve karar yeniden gönderilebilir.
+  düşer. İstisna: sağlayıcı anahtarı geçersizse, model engelliyse ya da model adı yanlışsa
+  (`config` sınıfı: `langchain_core` kimlik / izin / bulunamadı hatası ya da HTTP 401 / 403 / 404;
+  bilinen yanlış sınıflar `agent_design.md` §6) hiçbir kural çalışamaz; inceleme `failed` olur ve
+  API 502 döner. Audit log'a yazılamıyorsa ya da model çağrısının dışında beklenmeyen bir kod
+  hatası çıkarsa da inceleme `failed` olur (API 500); eksik kayıtla tamamlanmaz, kod hatası
+  avukata kural sonucu gibi gitmez (`agent_design.md` §6). Bu kurallar incelemenin avukata gelene
+  kadarki kısmı (`POST /reviews`) içindir. Avukat kararı kaydedilirken hata çıkarsa inceleme
+  `failed` olmaz: API 500 döner, inceleme `awaiting_lawyer`'da kalır, audit'e satır yazılmaz ve
+  karar yeniden gönderilebilir.
 
 ## 7. İnsan dahil olma (human-in-the-loop)
 - Agent yalnızca **önerir**: bulgu, değişiklik taslağı, "avukata bırak" işareti.
@@ -194,9 +206,8 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
 - LLM-as-judge ile öneri kalitesi puanlama.
 - Kuyruk, arka plan işleri, yatay ölçekleme, streaming.
 - Ticari sırların (tutar, fiyat) maskelenmesi — kurallar bu değerlere ihtiyaç duyuyor. Varsayılan
-  modda bu değerler Groq'a gider; gitmemesi gerekiyorsa çevrimdışı mod kullanılır.
-- Groq dışındaki bulut sağlayıcıları (OpenAI, Anthropic) — `src/llm.py` tek satırla eklenebilir, ama
-  test edilmedi ve desteklenmiyor.
+  modda bu değerler Groq'a (başka bir bulut sağlayıcı seçilirse ona) gider; gitmemesi gerekiyorsa
+  çevrimdışı mod kullanılır.
 
 ### Bilinen sınırlar (bilerek çözülmedi)
 - **Sayısal olmayan kurallarda taslak doğrulaması:** kod taslağın kurala uyduğunu doğrulayamaz;
@@ -226,6 +237,16 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   ("Sözleşmenin Sona Ermesi … bir ay önceden … haber vererek") kaçtı, iki kural `not_found`
   döndü. Her `not_found` avukata gittiği için sessizce geçmez. Dataset ve tokenizer buna göre
   ayarlanmadı.
+- **Groq `openai/gpt-oss-120b` dışındaki her yapılandırma "çalışır, ölçülmedi"dir:** "ölçüldü"
+  denebilen tek yapılandırma budur (`evals.md` §4); Ollama da "ölçülmedi" tarafındadır. Gerçek
+  sağlayıcıyla denenenler Groq ve Ollama'dır. Başka bir sağlayıcı ya da modelle tool çağrısının,
+  birebir alıntının ve taslak yönlendirmesinin aynı çalışacağı varsayılmaz; prompt ve dataset
+  başka modele göre ayarlanmadı.
+  Sağlayıcı hatalarının sınıflandırılmasında bilinen yanlışlar vardır (OpenAI'de kota / bakiye
+  bitmesi `rate_limit`, Gemini'de faturalama hatası `other` sayılır; `agent_design.md` §6) ve
+  tabloda olmayan, anahtarsız kurulabilen bir sağlayıcıda eksik anahtar ancak ilk çağrıda görülür.
+  Audit `review_started` sağlayıcı adını ve modeli yazar, `LLM_BASE_URL`'i yazmaz: OpenAI uyumlu
+  bir adreste kayıtta `openai` görünür, isteğin gerçekte gittiği yer görünmez.
 - **Taslak yazımı kodla zorlanmaz:** `non_compliant` bulgudan sonra `propose_change`'i
   `submit_finding`'in yanıtı, prompt ve tool açıklaması ister; model çağırmazsa bulgu
   `missing_proposal` ile avukata gider. Eval'de 1 / 11 → 11 / 11 (tek model, tek koşu).
@@ -249,9 +270,9 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   (`500 000 00 00`) telefon sayar; tek boşlukla ayrılmış ayrı sayılar birlikte 11 hane edip
   checksum'ı tutarsa (`10 30 120 10 20`, yaklaşık yüzde bir) TCKN sayılır; parantez içinde `0` +
   üç hane ve ardından 3-2-2 hane, tutar bağlamında bile telefon sayılır (`(0347) 3284041 TL`).
-- Varsayılan mod bir Groq hesabı ve `GROQ_API_KEY` gerektirir. Geliştirme hesabı ücretsiz
-  katmandadır (belgelenen sınırlar: 8K TPM / 200K TPD); önce/sonra tablolu tam eval (tek geçiş) Adım 18'de 206K ve
-  242K token tuttu, yani bu limitlerle bir güne sığmaz (2026-11-12'de iki tam koşu 429 almadan
+- Varsayılan mod bir Groq hesabı ve `GROQ_API_KEY` (ya da `LLM_API_KEY`) gerektirir. Geliştirme
+  hesabı ücretsiz katmandadır (belgelenen sınırlar: 8K TPM / 200K TPD); önce/sonra tablolu tam
+  eval (tek geçiş) Adım 18'de 206K ve 242K token tuttu, yani bu limitlerle bir güne sığmaz (2026-11-12'de iki tam koşu 429 almadan
   bitti, ardından holdout koşusu limite takıldı; geçerli limit bilinmiyor, `tech_stack.md`
   "Hangi plan?").
 - Değerlendiricinin makinesinde GPU olmayabilir; varsayılan mod GPU gerektirmez.
@@ -259,6 +280,7 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   modeli indirilir (internet gerekir, ~7 GB); indirme bittikten sonra internet gerekmez.
 - Groq'un veri politikası (saklamama, 30 güne kadar kötüye kullanım logu, eğitimde kullanmama)
   2026-11-10 tarihinde okunduğu haliyle varsayılır; hesapta Zero Data Retention açılması önerilir.
+  Başka bir sağlayıcının veri politikası için bir varsayım yapılmaz; kullanıcının sorumluluğundadır.
 - README ve karar dokümanı (en fazla 2 sayfa) ayrıca yazılacak; bu dosyalar onların kaynağıdır.
 
 ## 10. Açık sorular

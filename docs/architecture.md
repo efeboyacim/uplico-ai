@@ -22,7 +22,7 @@ flowchart LR
         V --> H[human_review<br/>interrupt]
         H -->|Command resume| F[finalize]
     end
-    A <-->|maskeli metin| LLM[(Groq<br/>çevrimdışı modda Ollama)]
+    A <-->|maskeli metin| LLM[(Seçilen sağlayıcı<br/>varsayılan Groq · çevrimdışı modda Ollama)]
     A -. model + tool çağrıları .-> AUD[(Audit log)]
     API -. awaiting_lawyer · review_failed .-> AUD
     P -. hazırlık adımları .-> AUD
@@ -45,8 +45,8 @@ flowchart LR
 | Tool'lar | 5 tool; onay tool'u yok | `src/tools.py` |
 | Doğrulama | Alıntı, sayı/birim, taslak kontrolü, avukat kuyruğu sinyalleri (saf fonksiyon) | `src/verify.py` |
 | Karar | Avukat kararının saf fonksiyonları (I/O ve log yok): kayda bakan gövde kontrolleri (`check_decision`), son sonucun hesabı (`build_outcome`), karar ve kapanış audit olaylarının listesi (`decision_events`); biçim kuralları da burada tek yerde yazılır ve iki karar modeli onları çağırır | `src/decision.py` |
-| Config | Env okuma; başlangıçta sağlayıcı ve anahtar kontrolü (eksikse açık hatayla durur) | `src/config.py` |
-| LLM | Sohbet modeli (Groq ya da Ollama) kurulumu; yeniden deneme ayarı | `src/llm.py` |
+| Config | Env okuma; başlangıçta sağlayıcı adı, model ve anahtar kontrolü (eksikse açık hatayla durur); bilinen sağlayıcı tablosu (varsayılan model, birim fiyat) | `src/config.py` |
+| LLM | Sohbet modeli kurulumu (`init_chat_model`; Groq ve Ollama'ya özel parametreler, diğer her sağlayıcıya ortak parametreler); yeniden deneme ayarı; sağlayıcı hatasının sınıflandırılması ve hatadan HTTP durum kodunu okuyan yardımcı (audit'teki `code` alanı da onu kullanır) | `src/llm.py` |
 | Store | Tenant'a bağlı SQLite, üç tablo: `reviews` (asıl sözleşme metni, maskeli maddeler, işaretler, durum, doğrulanmış bulgular ve taslaklar, kararlar), `audit_log` (tetikleyiciyle yalnızca ekleme), `pii_map`. Maddeler, işaretler, bulgular ve karar `reviews` satırında JSON sütunlarıdır. Durum değiştiren yazımlar (`save_findings`, `complete_review`, `mark_failed`) beklenen durumu `WHERE status = ?` ile şart koşar ve geçişin olup olmadığını döner; aynı anda gelen iki karardan yalnızca biri yazılır. `save_findings` durumu `awaiting_lawyer` yaparken `awaiting_lawyer` audit satırını **aynı transaction'da** yazar (ya ikisi ya hiçbiri; ayrı yazılsaydı ikinci yazımın hatası audit satırı olmayan ve artık `failed` yapılamayan bir `awaiting_lawyer` incelemesi bırakırdı). `complete_review(review_id, status, decision: ReviewOutcome, decided_by, events)` de öyledir: tek `BEGIN IMMEDIATE` içinde `UPDATE … WHERE review_id = ? AND status = 'awaiting_lawyer'` çalışır; satır güncellendiyse verilen tüm olay satırları (karar olayları, `report_created`, `review_closed`) aynı transaction'da eklenir, güncellenmediyse hiçbir şey yazılmaz ve `False` döner. Bulguları (`findings`) yeniden yazmaz; `decided_by` sütununa yalnızca ad yazılır | `src/store.py` |
 | Modeller | pydantic şemaları: `RawClause`, `Clause`, `Rule`, `Finding`, `Proposal`, `InjectionFlag`, `FindingDecision` / `LawyerDecision` (avukat kararının iç modeli; `edited_text: MaskedText`, yalnızca maskelemeden sonra kurulur; resume yükü ve `finalize` onu kullanır), `FindingOutcome` / `ReviewOutcome` (saklanan son sonuç; `ReviewRecord.decision` bu tiptedir), `Report`. Karar ucunun istek modelleri (`DecisionRequest`, `FindingDecisionRequest`) burada değil `src/api.py`'dedir (§3 "Avukat kararı"). Ham ve maskeli madde tip düzeyinde ayrıdır: `RawClause` (`text: str`, asıl metnin `start`–`end` aralığı, birebir) yalnızca bölme ve enjeksiyon taramasında kullanılır; `Clause` (`text: MaskedText`) yalnızca maskelemeden sonra kurulur ve indeks, `save_prepared`, graph ve tool'lar yalnızca onu alır. `Clause`'ta `start` / `end` asıl metne göredir, `text` maskelidir ve uzunluğu `end - start`'a eşit olmayabilir. `MaskedText` bir `NewType`'tır; yalnızca `mypy`'de zorlanır, çalışma anında düz `str`'dir (sınır). `Finding` tektir: agent'ın ham önerisi ve doğrulanmış hali aynı modeldir (`needs_review`, `review_reasons` ve taslağın `code_check`'i doğrulamada dolar); `compliant` / `non_compliant` için `clause_id` ve `quote` zorunluluğu modelin kendisindedir. `interrupted_by` (`step_limit` / `rate_limited` / `llm_error`) bulgu bildirildikten sonra yarıda kesilen koşuyu işaretler; `no_finding_reason` ile birlikte dolu olamaz. Bilinmeyen alan reddedilir | `src/models.py` |
 | Arayüz | Bulguları ve enjeksiyon işaretlerini sözleşme metni üzerinde gösteren tek sayfa (karar API ucundan verilir) | `src/static/index.html` |
@@ -442,27 +442,33 @@ model adını basan `python -m src.config` eklenir.
 ## 6. Dış entegrasyonlar
 | Sistem | Erişim | Auth | Not |
 |---|---|---|---|
-| Groq | Sohbet modeli (varsayılan mod) | `GROQ_API_KEY` | Maskeli metin gider. 429'da `max_retries=3`; limitler organizasyon başına. Eşzamanlılık `MAX_CONCURRENCY` ile sınırlı |
+| Groq | Sohbet modeli (varsayılan mod) | `GROQ_API_KEY` (ya da `LLM_API_KEY`) | Maskeli metin gider. 429'da `max_retries=3`; limitler organizasyon başına. Eşzamanlılık `MAX_CONCURRENCY` ile sınırlı |
 | Ollama | Sohbet modeli (yalnızca çevrimdışı mod) | Yok (yerel ağ) | Varsayılan modda çalışmaz. Çevrimdışı modda `OLLAMA_NUM_PARALLEL=1`, `MAX_CONCURRENCY=1` |
+| Başka bir sağlayıcı (isteğe bağlı; ör. OpenAI, Anthropic, OpenAI uyumlu bir servis) | Sohbet modeli (`LLM_PROVIDER` ile seçilirse) | `LLM_API_KEY` (çok kimlik bilgili sağlayıcılarda kendi env değişkenleri) | Maskeli metin gider. Çalışır, ölçülmedi. `max_retries=3`, 60 sn zaman aşımı; ADR-012 |
 | LangSmith | Eval + tracing (isteğe bağlı) | `LANGSMITH_API_KEY` | Trace'lere yalnızca maskeli veri gider. Eval yüklemesinde sözleşme metni, alıntı ve PII listesi gitmez; giden yalnızca kimlikler, beklenen bulgular, etiketler, kural satırları ve sayımlardır (`evals.md` §7). Anahtar yoksa hiçbir şey gitmez |
 
 ### Veri nereye gidiyor
-| Veri | Varsayılan mod (Groq) | Çevrimdışı mod (Ollama) |
+| Veri | Dış sağlayıcı (varsayılan Groq ya da seçilen başka bir sağlayıcı) | Çevrimdışı mod (Ollama) |
 |---|---|---|
 | Asıl sözleşme metni | Makinede kalır (tenant `app.db`) | Makinede kalır |
 | PII eşlemesi (yer tutucu → gerçek değer) | Makinede kalır (tenant `app.db`) | Makinede kalır |
 | Bitişik ya da boşluklu TCKN, tek satırda yazılmış IBAN (bitişik, dörtlü ya da serbest gruplu), önekli telefon (alan kodu parantez içinde yazılmış olsa da), 3-3-2-2 ayraçla yazılmış öneksiz cep telefonu, e-posta, taraf/imza bloğundaki adlar | Gitmez (maskeli) | Gitmez |
-| Maskeli madde metni, kural metni, agent mesajları | **Groq'a gider** | Makinede kalır |
-| Tutarlar, fiyatlar, süreler, tarihler, ticari şartlar, şirket adları | **Groq'a gider** (maskelenmez; kurallar bunlara ihtiyaç duyar) | Makinede kalır |
+| Maskeli madde metni, kural metni, agent mesajları | **Seçilen sağlayıcıya gider** | Makinede kalır |
+| Tutarlar, fiyatlar, süreler, tarihler, ticari şartlar, şirket adları | **Seçilen sağlayıcıya gider** (maskelenmez; kurallar bunlara ihtiyaç duyar) | Makinede kalır |
 | Avukatın düzenlediği taslak metni | Modele gitmez (karar agent çalıştıktan sonra verilir); maskeli saklanır | Makinede kalır |
-| Maskelemenin kaçırdığı kimlik bilgileri (gövdede geçen ad, etiketsiz imza satırındaki ad, satıra bölünmüş, tireli ya da çift boşluklu IBAN, ayraçsız ya da bölünemez boşlukla gruplanmış öneksiz cep numarası, öneksiz sabit hat, öneksiz yazılmış parantezli alan kodu, binlik gibi gruplanmış TCKN) | **Groq'a gidebilir** | Makinede kalır |
+| Maskelemenin kaçırdığı kimlik bilgileri (gövdede geçen ad, etiketsiz imza satırındaki ad, satıra bölünmüş, tireli ya da çift boşluklu IBAN, ayraçsız ya da bölünemez boşlukla gruplanmış öneksiz cep numarası, öneksiz sabit hat, öneksiz yazılmış parantezli alan kodu, binlik gibi gruplanmış TCKN) | **Seçilen sağlayıcıya gidebilir** | Makinede kalır |
 | Trace (yalnızca `LANGSMITH_API_KEY` varsa) | LangSmith'e gider, maskeli | Kapalı tutulur |
 | Eval (yalnızca `LANGSMITH_API_KEY` varsa ve koşu kısmi değilse): `contract_id`, `tenant_id`, beklenen bulgular, etiketler, kural satırları (kimlik, durum kodu, madde numarası, bayrak, sayı), sayımlar, sağlayıcı ve model adı; ayrıca SDK'nın kendi eklediği ortam bilgisi (`evals.md` §7) | LangSmith'e gider. Sözleşme metni, alıntı, taslak, gerekçe ve PII listeleri gitmez | Kapalı tutulur |
 
-Groq tarafı (2026-11-10'da okunan belgeler, `tech_stack.md`): varsayılan olarak saklamaz; güvenilirlik
-ve kötüye kullanım incelemesi için girdi/çıktıyı 30 güne kadar loglayabilir; Zero Data Retention
-açılırsa bu da kapanır; saklanan veri ABD'dedir; sözleşmesine göre eğitimde kullanamaz. Bunlar
-Groq'un beyanıdır, sistemin garantisi değildir.
+Groq tarafı (2026-11-10'da okunan belgeler, `tech_stack.md`; **yalnızca Groq için geçerlidir**):
+varsayılan olarak saklamaz; güvenilirlik ve kötüye kullanım incelemesi için girdi/çıktıyı 30 güne
+kadar loglayabilir; Zero Data Retention açılırsa bu da kapanır; saklanan veri ABD'dedir;
+sözleşmesine göre eğitimde kullanamaz. Bunlar Groq'un beyanıdır, sistemin garantisi değildir.
+
+Başka bir sağlayıcı seçilirse maskeli metin o sağlayıcıya gider ve onun saklama ve kullanım
+koşulları kullanıcının sorumluluğundadır; sistem bunlar hakkında bir şey varsaymaz. Örnek:
+Gemini'nin ücretsiz katmanında Google gönderilen içeriği ürün geliştirmede kullanabilir ve
+insanlar okuyabilir. Maskeleme her sağlayıcıda graph'tan önce aynı şekilde yapılır.
 
 ## 7. Mimari kararlar (kısa ADR)
 ### ADR-001: Parçala ve ara (tam sözleşmeyi modele verme)
@@ -523,7 +529,8 @@ Groq'un beyanıdır, sistemin garantisi değildir.
   sonradan yazdığı düzenlenmiş taslak metni de aynı maskeleyiciden geçer.
 - **Sonuç:** Modele ad, TCKN, telefon, e-posta, IBAN gitmez. Yalnızca kimlik bilgileri maskelenir;
   tutarlar, süreler, tarihler ve ticari şartlar maskelenmez (kurallar bunlara ihtiyaç duyuyor).
-  Varsayılan modda "model" Groq olduğu için bunlar makineden çıkar; çıkmaması gerekiyorsa çevrimdışı
+  Varsayılan modda "model" Groq (ya da seçilen başka bir bulut sağlayıcı) olduğu için bunlar
+  makineden çıkar; çıkmaması gerekiyorsa çevrimdışı
   mod kullanılır (ADR-010).
 
 ### ADR-007: Tenant başına ayrı dosyalar
@@ -566,7 +573,7 @@ Groq'un beyanıdır, sistemin garantisi değildir.
 - **Karar:** Varsayılan `LLM_PROVIDER=groq`, model `openai/gpt-oss-120b`. `LLM_PROVIDER=ollama`
   çevrimdışı moddur. Ollama yalnızca çevrimdışı modda çalışır; varsayılan modda başlamaz ve imajı
   inmez. PII maskeleme, arama, doğrulama, graph ve tool'lar iki modda aynıdır; fark yalnızca
-  `src/llm.py`'dedir.
+  `src/config.py` ve `src/llm.py`'dedir.
 - **Alternatifler:** Yalnızca yerel model (yavaş, GPU ister); Groq'ta Llama modelleri (artık Enterprise).
 - **Sonuçlar / ödünleşimler:**
   - Varsayılan modda maskeli metin, tutarlar ve ticari şartlar Groq'a gider ("Veri nereye gidiyor").
@@ -579,3 +586,63 @@ Groq'un beyanıdır, sistemin garantisi değildir.
   - İnternetsiz kurulumda değişen: `LLM_PROVIDER=ollama`, LangSmith kapalı. Docker imajları ve Ollama
     sohbet modeli (`qwen3.5:9b`) internet olan bir makinede hazırlanıp içeri taşınır
     (`ollama-pull` çalıştırılmaz; yalnızca `app` ve `ollama` başlatılır); sohbet modeli için ~8 GB VRAM'li GPU gerekir. Kod değişmez.
+  - Groq ve Ollama kodda kapalı bir liste değildir; başka bir sağlayıcı da env ile seçilebilir
+    (ADR-012). Varsayılan ve çevrimdışı mod bu ADR'deki gibi kalır.
+
+### ADR-012: Sağlayıcı ve model yalnızca env ile seçilir
+- **Bağlam:** `LLM_PROVIDER` yalnızca `groq` ve `ollama` kabul ediyordu; başka bir sağlayıcıyı
+  kullanmak isteyen kodu değiştirmek zorundaydı. Agent, graph, tool'lar, `verify` ve maskeleme
+  zaten yalnızca `BaseChatModel` görür; sağlayıcıya bağlı olan yalnızca `src/config.py` ve
+  `src/llm.py`'dir. Ölçüm tek yapılandırmada (Groq `openai/gpt-oss-120b`) yapıldı ve Groq'a giden
+  istek değişmemelidir.
+- **Karar:**
+  - `LLM_PROVIDER` `init_chat_model`'in `model_provider` değeridir (boşsa `groq`); config yalnızca
+    biçimine bakar (LangChain gibi normalleştirilir, sonra `[a-z][a-z0-9_]*`). Kapalı liste yoktur.
+  - Bilinen sağlayıcı tablosu (`groq`, `ollama`, `openai`, `anthropic`) kapı değildir; varsayılan
+    modeli, birim fiyatı ve o sağlayıcıya özel parametreleri tutar. `openai` / `anthropic`'te ve
+    tabloda olmayan sağlayıcıda `LLM_MODEL` zorunludur; `openai` / `anthropic`'te `LLM_API_KEY` de.
+  - Groq ve Ollama dışındaki sağlayıcılar yalnızca ortak parametreleri alır (`max_tokens`,
+    `timeout`, `max_retries`, `temperature`; verilmişse `api_key`, `base_url`; `openai` ile
+    `base_url` verilmişse ayrıca `use_responses_api=False`). Yeni env'ler:
+    `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_TEMPERATURE`, `LLM_MAX_TOKENS` (`tech_stack.md`). Hiçbiri
+    verilmediğinde Groq ve Ollama'ya giden istek bayt bayt aynı kalır.
+  - Hata sınıflandırma sağlayıcı tipine değil, `langchain_core` hata sınıflarına ve HTTP durum
+    koduna bakar (`agent_design.md` §6).
+  - Model iki giriş noktasında başlangıçta bir kez kurulur; eksik paket, tanınmayan sağlayıcı ve
+    kurulumda reddedilen kimlik bilgisi `ConfigError` olur.
+  - Paketler: `[project.optional-dependencies]` altında `openai` ve `anthropic` grupları; imaj
+    varsayılan olarak ikisiyle kurulur (`LLM_EXTRAS` build argümanı). Grubu olmayan sağlayıcının
+    paketini kullanıcı ekler.
+- **Alternatifler:**
+  - Kodda sağlayıcı başına dal ve kapalı liste (bugünkü yapı): her yeni sağlayıcı kod değişikliği
+    ister.
+  - Google için paket grubu, üç biçimde tartıldı: (b) `google` grubu + sabitleme grubu (`pins`,
+    `default-groups`, `conflicts`): varsayılan kurulum aynı kalır, Google imajı `--no-group pins`
+    ile ayrı bir `langchain-core` üzerinde çalışır, sabitler elle güncel tutulur; (c) `google`
+    grubu düz eklenir: `langchain-core` herkes için 1.8.0 olur ve Groq eval'i yeniden koşulmak
+    zorunda kalır. Sebep: `langchain-google-genai` 4.x kilide girince, grup seçilmese de herkesin
+    kurduğu `langchain-core` 1.7.7 → 1.8.0 ve `tenacity` 9.2.1 → 9.1.4 olur; uv'nin düz
+    `conflicts` ayarı bunu çözmez. Seçilen (a): kilitte yalnızca `openai` + `anthropic` (67 kaydın
+    67'si aynı kalır); Gemini OpenAI uyumlu adresle kullanılabilir (henüz denenmedi), yerel
+    `google_genai` için paketi kullanıcı ekler.
+- **Sonuçlar / ödünleşimler:**
+  - "Ölçüldü" denebilen tek yapılandırma yine Groq `openai/gpt-oss-120b`'dir; diğerleri "çalışır,
+    ölçülmedi"dir (`spec.md` §8 "Bilinen sınırlar").
+  - Maskeli metin seçilen sağlayıcıya gider; sıfır veri saklama notu yalnızca Groq içindir, başka
+    sağlayıcının koşulları kullanıcının sorumluluğundadır ("Veri nereye gidiyor"). Maskeleme, tenant
+    ayrımı, yalnızca ekleme yapılan audit log ve onay tool'unun yokluğu sağlayıcıdan bağımsızdır.
+  - `max_retries` ve `timeout` her sağlayıcıda aynı anlama gelmez (`tech_stack.md`); kodla
+    eşitlenmez.
+  - Sınıflandırmanın bilinen yanlışları ve tabloda olmayan, anahtarsız kurulabilen sağlayıcıda
+    eksik anahtarın ancak ilk çağrıda görülmesi sınır olarak yazılır (`agent_design.md` §6).
+  - `LLM_API_KEY` verilmemişse bilinen tablonun dışındaki sağlayıcının (ve birden çok kimlik
+    bilgisi isteyen her sağlayıcının; ör. Bedrock, Azure, Vertex) entegrasyonu kendi standart env
+    değişkenlerini okur: env'i `src/config.py`'den başka bir şeyin okuduğu tek yerdir, "env'e
+    yalnızca `src/config.py` dokunur" kuralının yazılı istisnası (`code_standards.md`).
+  - Hatadan durum kodunu okuyan yardımcı `src/agent.py` `_error_payload`'da da kullanılır
+    (audit'teki `code` alanı); sağlayıcıya bağlı kodun `src/config.py` ve `src/llm.py`'de
+    durmasının yazılı istisnasıdır (`agent_design.md` §6).
+  - Audit `review_started` sağlayıcı adını ve modeli yazar, `LLM_BASE_URL`'i yazmaz: OpenAI uyumlu
+    bir adreste kayıtta `openai` görünür, isteğin gerçekte gittiği yer görünmez (bilinen sınır).
+  - Testin sahte HTTP taşıyıcısı yalnızca `groq` ve `openai`'de kabul edilir; diğerlerinde
+    baştan `ValueError`.

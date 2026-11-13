@@ -1384,12 +1384,111 @@ gereksiz yönlendirme satırları bunu gösterir.
      sağlayıcı için kullanıcı paketi `pyproject.toml`'a kendisi ekler; README bunu yazar.
   8. **`http_client`** (testin sahte taşıyıcısı) yalnızca onu kabul ettiği bilinen sağlayıcılarda
      geçirilir (`groq`, `openai`); diğerlerinde bugünkü gibi `ValueError`.
+- **Planlama kararları (2026-11-13; kod okunarak bulunan boşluklar):**
+  1. `tests/test_config.py` `test_load_settings_unknown_provider_raises_config_error`
+     (`LLM_PROVIDER=openai` → `ConfigError`) tasarımla çelişir ve değişir: modelsiz `openai` hatası
+     `LLM_MODEL`'i söyler; biçimi bozuk sağlayıcı adı `LLM_PROVIDER`'ı söyler. Groq / Ollama isteğini
+     ölçen bir test değildir; aşağıdaki "Eval" kuralını tetiklemez. Bunun dışında mevcut Groq /
+     Ollama testlerine dokunulmaz (`git diff` ile denetlenir).
+  2. Durum koduna göre sınıflandırma Ollama'da davranışı genişletir: bugün yalnızca 404 `config`,
+     yeni kuralda 401 / 403 de `config` (kimlik doğrulamalı uzak Ollama). Kabul edildi;
+     `agent_design.md` §6'ya yazılır.
+  3. `LLM_PROVIDER=ollama` iken `LLM_BASE_URL` verilirse `ConfigError` ("`OLLAMA_BASE_URL` kullan"):
+     compose `OLLAMA_BASE_URL`'i her zaman doldurduğu için değer sessizce yok sayılırdı.
+  4. Paket grupları `[project.optional-dependencies]` altındadır (Docker `uv sync --extra …`).
+     `langchain-openai` `dev` grubuna da girer; `openai` sahte taşıyıcı testi yerelde atlanmadan
+     koşar. "Paket kurulu değil" testi import'u monkeypatch ile düşürür (ortamda hangi grubun
+     kurulu olduğuna bağlı kalmaz).
+  5. Başlangıç kontrolü `create_app`'e değil iki `main()`'e konur (`src/api.py`, `evals/run.py`);
+     `--prepare-only` modeli kurmaz.
+  6. Commit'ler üçe bölünür ("önce doküman"): `docs:` (tasarım dokümanları), `feat:` (test + kod +
+     paketler), `docs:` (README, karar dokümanı, `CLAUDE.md`).
 - **Kod yazmadan önce doğrulanacaklar** (LangChain dokümanı ve küçük betikle; tahminle yazılmaz):
   `init_chat_model`'in paket eksikken verdiği hata ve mesajı; `max_tokens` / `timeout` /
   `max_retries` / `api_key` / `base_url` adlarının `openai`, `anthropic` ve `google` entegrasyonlarında
   kabul edildiği; bu üç SDK'nın hata sınıflarında durum kodunun hangi alanda durduğu; yeniden deneme
   sayısının anlamı (Groq'ta `max_retries=3` dört istek demek). Tutmayan varsayım tasarıma ve bu
   adıma yazılır.
+- **Ön doğrulama sonuçları (2026-11-13; model ve gerçek sağlayıcı çağrısı yok):** scratchpad'de ayrı
+  ortamda (langchain 1.4.10, langchain-openai 1.7.4, langchain-anthropic 1.7.10,
+  langchain-google-genai 4.5.0) altı grup betikle denendi; her grubu ayrı bir agent yeniden
+  üretmeye / çürütmeye çalıştı. Tasarımı değiştirenler:
+  1. **Hata sınıflandırma (tasarım 5 tutmadı).** Google 401 / 403 / 404 / 429'da üstteki istisnada
+     `status_code` da `response` da yok; kod yalnızca `__cause__` üzerinde. Yeni kural: önce
+     `langchain_core.exceptions` sınıfları (`ModelAuthenticationError`, `ModelPermissionDeniedError`,
+     `ModelNotFoundError` → `config`; `ModelRateLimitError` → `rate_limit`; kilitli 1.7.7'de var;
+     openai / anthropic / google sarmalayıcıları bunlardan türüyor, groq ve ollama türemiyor), sonra
+     durum kodu: istisnanın ve `__cause__`'un `status_code`'u, yoksa `response.status_code`'u, yoksa
+     tam sayı `code`'u (`bool` ve metin `code` sayılmaz; openai'de `code` metindir). `__context__`
+     yürünmez. Mevcut 12 satırlık test tablosu bu kuralla değişmeden geçiyor. Aynı okuma
+     `src/agent.py` `_error_payload`'da da kullanılır (yoksa audit satırında kod boş kalır); bu,
+     "yalnızca `config.py` ve `llm.py` değişir" maddesinin yazılı istisnasıdır.
+     Bilinen yanlış sınıflar: OpenAI'de kota / bakiye bitmesi 429 → `rate_limit`; Gemini'de
+     faturalama hatası 400 → `other`; `int` `status_code` taşıyan sağlayıcı dışı istisna da
+     sınıflanır.
+  2. **`LLM_TEMPERATURE=none` (tasarım 4 eksikti).** Parametreyi atlamak yetmez: Google'da atlanan
+     `temperature` 0,7 gider. `temperature=None` açıkça verilir (üç entegrasyonda da gövdede alan
+     yok).
+  3. **Başlangıç kontrolü (tasarım 6 eksikti).** Anahtarsız kurulum OpenAI ve Google'da hata verir
+     (ilgisiz üç istisna tipi, mesaj `LLM_API_KEY`'i değil sağlayıcının kendi değişkenini söyler),
+     Anthropic'te vermez (ilk çağrıda 401). Boş anahtar `None` olarak geçerse entegrasyon kendi
+     env değişkenine sessizce düşer. Karar: bilinen tablo `openai` ve `anthropic` ile genişler
+     (anahtar zorunlu; `LLM_API_KEY` yoksa `ConfigError`); tabloda olmayan sağlayıcıda anahtar
+     isteğe bağlıdır, kurulum hataları (`ImportError`, `ValueError`, diğerleri) `ConfigError`'a
+     çevrilir. Eksik pakette mesaj, paket grubunu ve build argümanını da söyler.
+  4. **Sağlayıcı adı.** LangChain adı `strip` etmez; `-`'yi `_` yapar ve küçültür. Config aynı
+     normalleştirmeyi yapar (`strip`, küçük harf, `-` → `_`) ve `[a-z][a-z0-9_]*` ister; yoksa
+     `Groq` ya da `google-genai` kendi tablomuzu ıskalar. Bilinmeyen ad LangChain'de `ValueError`
+     (30 adlık kapalı liste) verir.
+  5. **`http_client` (tasarım 8 doğrulandı).** `groq` ve `openai`'de eşzamanlı yolda geçerli;
+     Anthropic'te çağrı anında `TypeError`, Google'da sessizce yok sayılıp gerçek ağa çıkıyor →
+     ikisinde de baştan `ValueError`.
+  6. **`max_retries`'ın anlamı sağlayıcıya göre değişir.** groq / openai / anthropic: 3 → 4 istek;
+     `google_genai`: 3 → 3 istek. `timeout` deneme başınadır, toplam süre sınırı değildir;
+     Anthropic `retry-after` ne derse o kadar bekler. Dokümana yazılır, kodla eşitlenmez.
+  7. **OpenAI uyumlu servis.** `base_url` isteğin gittiği adrestir (`…/chat/completions`); sınır
+     alanı `max_completion_tokens` olarak gider; adında `codex` geçen ya da `gpt-5-pro` ile
+     başlayan modeller `/responses`'a gider. `LLM_BASE_URL` verilmişse `use_responses_api=False`
+     geçirilir.
+  8. **Paketler (tasarım 7 tutmadı).** `google` grubu kilide girince grup seçilmese de herkesin
+     kurduğu iki paket değişiyor: `langchain-core` 1.7.7 → 1.8.0, `tenacity` 9.2.1 → 9.1.4
+     (langchain-google-genai 4.x → google-genai → `tenacity<9.2`). Yalnızca `openai` + `anthropic`
+     grupları eklenince kilitteki 67 kaydın 67'si aynı kalıyor. uv'nin düz `conflicts` ayarı
+     çözmüyor (grupsuz kurulum yine 1.8.0 alıyor). Seçenekler ve karar: aşağıda "Açık karar".
+  9. **Docker.** `uv sync --frozen` bayat kilidi fark etmiyor → `--locked`. RUN satırı:
+     `set -f; set --; for e in $LLM_EXTRAS; do set -- "$@" --extra "$e"; done; uv sync --locked
+     --no-dev "$@"` (dash'te denendi, boş liste dahil). Compose'da `${LLM_EXTRAS-openai anthropic}`
+     (iki noktasız: boş değer "grup yok" demek) ve iki servis (`app`, `ollama-pull`) aynı build
+     argümanını YAML çapasıyla alır.
+  10. **Gemini (elle deneme için).** Sağlayıcı adı `google_genai`; ücretsiz katmanda Google
+      gönderilen içeriği ürün geliştirmede kullanabilir ve insan inceleyebilir (README'ye yazılır;
+      giden metin maskelidir). Ücretsiz katmanın model başına limitleri açık sayfalarda yok
+      (AI Studio'da görünür). Düşünen modellerde düşünme token'ları `max_tokens` içindedir: 2048
+      sınırı boş yanıtla (`MAX_TOKENS`) bitebilir ve bu bizde sağlayıcı hatası değil `no_submit`
+      olur. Karar: `LLM_MAX_TOKENS` env'i eklenir (boşsa 2048; Groq varsayılanı değişmez).
+  11. **Doküman denetiminde çıkanlar.** `--resume` önbelleğinin parmak izi yalnızca sağlayıcı,
+      model ve `LLM_NUM_CTX`'i kapsıyordu; `LLM_TEMPERATURE`, `LLM_MAX_TOKENS` ya da
+      `LLM_BASE_URL` değişince eski sonuç yeniden kullanılırdı. Üçü parmak izine girer;
+      `evals/cache.py` ve testi bu adımın dosyalarına eklenir. `LLM_API_KEY` Ollama'ya geçirilmez
+      ve hata değildir. Audit `review_started` sağlayıcı adını yazar, `LLM_BASE_URL`'in host'unu
+      yazmaz (OpenAI uyumlu adreste kayıtta `openai` görünür): bilinen sınır, kod değişmez.
+  **Doğrulanamayanlar:** gerçek bir OpenAI uyumlu sunucunun `max_completion_tokens`'ı kabul edip
+  etmediği; Gemini'nin geçersiz anahtarda 400 mü 401 mi döndüğü; eşzamansız ve akışlı yollar
+  (Anthropic, Google); Linux imaj boyutu.
+  **Kaza (kayıt):** ilk doğrulama koşusunda bir agent başarısız bir `cd`'den sonra `uv lock`'ı
+  depoda çalıştırdı ve `uv.lock`'ta `langchain-core`'u 1.8.0 yaptı; `git checkout -- uv.lock` ile
+  geri alındı (`.venv` 1.7.7'de kaldı). İkinci koşudan sonra `git status` yalnızca bu dosyayı
+  gösteriyor.
+- **Karar (2026-11-13, kullanıcı): (a).** Kilide yalnızca `openai` ve `anthropic` grupları girer;
+  `google` grubu yoktur, imajın varsayılanı `LLM_EXTRAS="openai anthropic"` olarak kalır. Gemini
+  denemesi OpenAI uyumlu adres üzerinden yapılır; anahtarı `.env`'e kullanıcı yazar. Tasarım 7'deki
+  "`google` grubu" bu kararla düşer. Tartılan seçenekler: (a) kilitte yalnızca `openai` + `anthropic`; Gemini
+  OpenAI uyumlu uç üzerinden denenir (`LLM_PROVIDER=openai` + `LLM_BASE_URL`), yerel
+  `google_genai` için paketi kullanıcı ekler ve README bunun `langchain-core`'u değiştirdiğini
+  yazar. (b) `google` grubu + sabitleme grubu (`pins`, `default-groups`, `conflicts`): varsayılan
+  kurulum aynı kalır, Google imajı `--no-group pins` ile ayrı bir `langchain-core` üzerinde
+  çalışır; sabitler elle güncel tutulur. (c) `google` grubu düz eklenir, `langchain-core` herkes
+  için 1.8.0 olur ve Groq eval'i yeniden koşulur.
 - **Önce dokümanlar:** `tech_stack.md` (model kurulumu satırı, env listesi, paketler, "sağlayıcıya
   özel parametreler"), `spec.md` (FR-12; "kapsam dışı"ndaki "Groq dışındaki bulut sağlayıcıları"
   maddesi kalkar, yerine "ölçülmedi" sınırı gelir), `architecture.md` (ADR-010; "veri nereye
@@ -1415,7 +1514,11 @@ gereksiz yönlendirme satırları bunu gösterir.
   sorulur. `src/` değiştiği için 7'lik setin `--resume` önbelleği geçersiz olur (beklenen).
 - **Elle deneme:** kullanıcının üçüncü bir sağlayıcı anahtarı varsa tek sözleşmeyle, veri
   kopyasında bir inceleme (kullanıcı onayıyla). Yoksa README'ye "Groq ve Ollama dışında gerçek
-  sağlayıcıyla denenmedi" yazılır.
+  sağlayıcıyla denenmedi" yazılır. **2026-11-13, kullanıcı:** ücretsiz katman Gemini anahtarı
+  verilecek. Deneme `feat:` commit'inden sonra, varsayılan imajda, OpenAI uyumlu adres üzerinden
+  yapılır (`LLM_PROVIDER=openai`, `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`); anahtarı
+  `.env`'e kullanıcı yazar (`.env` okunmaz); koşudan önce yine sorulur. Sonuç README'ye "tek
+  sözleşme, tek koşu, ölçüm değil" diye yazılır.
 - **README (Adım 19 ile birlikte kapanır):** sağlayıcı değiştirme bölümü (dört env, paket grubu,
   build argümanı), "ölçüldü / çalışır ama ölçülmedi" ayrımı, maskeli metnin seçilen sağlayıcıya
   gittiği ve o sağlayıcının saklama koşullarının kullanıcının sorumluluğunda olduğu.

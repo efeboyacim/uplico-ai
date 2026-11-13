@@ -17,7 +17,8 @@
   Hata tipine göre değil, nereden geldiğine göre ayrılır: yalnızca model çağrısını saran middleware'in
   fırlattığı `ModelCallFailed` bu yola girer (`agent_design.md` §6).
   Şunlar bulguya çevrilmez, graph'tan dışarı fırlar ve inceleme `failed` olur: sağlayıcı kimlik ya da
-  yapılandırma hatası (Groq 401 / 403 / 404, Ollama 404; API 502), audit yazımından gelen
+  yapılandırma hatası (`config` sınıfı: HTTP 401 / 403 / 404 ya da `langchain_core` kimlik / izin /
+  bulunamadı hatası; bilinen yanlış sınıflar `agent_design.md` §6; API 502), audit yazımından gelen
   `sqlite3.Error` (eksik kayıtla tamamlanmış inceleme olmaz) ve model çağrısının dışından gelen her
   beklenmeyen hata (tool gövdesi, middleware, kütüphane; API 500). Bir kod hatası `llm_error`
   diye avukata gitmez.
@@ -38,13 +39,27 @@
 - Son karardan önce rapor istenirse **409** döner.
 
 ## LLM / agent kodu
-- Model yalnızca `src/llm.py`'de kurulur; başka yerde `ChatGroq(...)` ya da
-  `ChatOllama(...)` yazılmaz. Sağlayıcıya özel parametreler yalnızca o sağlayıcı seçiliyken verilir.
-- Model adı ve sağlayıcı env'den okunur. Model adı yalnızca `src/config.py`'deki sağlayıcı
-  varsayılanlarında sabit yazılır; başka yerde yazılmaz.
-- Env yalnızca `src/config.py`'de okunur ve başlangıçta doğrulanır: `LLM_PROVIDER=groq` iken
-  `GROQ_API_KEY` boşsa, sağlayıcı bilinmiyorsa ya da `TENANT_API_KEYS` boşsa uygulama eksik değişkenin
-  adını söyleyen hatayla durur. Varsayılan değere ya da başka sağlayıcıya sessizce düşülmez.
+- Model yalnızca `src/llm.py`'de `init_chat_model` ile kurulur; başka yerde `ChatGroq(...)`,
+  `ChatOllama(...)` ya da başka bir sohbet modeli sınıfı yazılmaz. Sağlayıcıya özel parametreler
+  yalnızca o sağlayıcı seçiliyken verilir; `groq` ve `ollama` dışındaki her sağlayıcıya (`openai`
+  ve `anthropic` dahil) yalnızca ortak parametreler verilir (`tech_stack.md` "Sürüm sabitleri /
+  kısıtlar"). Kodda kapalı sağlayıcı
+  listesi yoktur; sağlayıcıya göre ayrılan kod yalnızca bilinen tablonun sağlayıcıları içindir.
+- Model adı, sağlayıcı, anahtar ve adres env'den okunur. Model adı yalnızca `src/config.py`'deki
+  sağlayıcı varsayılanlarında sabit yazılır; başka yerde yazılmaz.
+- Env yalnızca `src/config.py`'de okunur ve başlangıçta doğrulanır: `LLM_PROVIDER=groq` iken ne
+  `GROQ_API_KEY` ne `LLM_API_KEY` varsa, `openai` / `anthropic` için `LLM_API_KEY` boşsa, sağlayıcı
+  adı bozuksa, varsayılan modeli olmayan sağlayıcıda `LLM_MODEL` boşsa, `LLM_TEMPERATURE` ya da
+  `LLM_MAX_TOKENS` geçersizse, `ollama` ile `LLM_BASE_URL` verilmişse ya da `TENANT_API_KEYS`
+  boşsa uygulama değişkenin adını söyleyen hatayla durur. Varsayılan değere ya da başka
+  sağlayıcıya sessizce düşülmez; boş anahtar `api_key` olarak geçirilmez (entegrasyon kendi env
+  değişkenine düşerdi). **Yazılı istisna:** `LLM_API_KEY` verilmemişse bilinen tablonun dışındaki
+  sağlayıcının (ve birden çok kimlik bilgisi isteyen her sağlayıcının; ör. Bedrock, Azure, Vertex)
+  entegrasyon paketi kendi standart env değişkenlerini kendisi okur. Env'i `src/config.py`'den
+  başka bir şeyin okuduğu tek yer budur; uygulama kodu bu değişkenleri okumaz.
+- Giriş noktaları (`src/api.py` ve `evals/run.py`'nin `main()`'i) sohbet modelini başlangıçta bir
+  kez kurar; kurulum hatası (`ImportError`, `ValueError`, reddedilen kimlik bilgisi) `ConfigError`'a
+  çevrilir. `--prepare-only` modeli kurmaz. Kontrol `create_app`'e konmaz.
 - Ayarlar `load_settings(env=None)` saf fonksiyonuyla yüklenir; import anında env okunmaz ve süreç
   genelinde ayar önbelleği yoktur. Hata `ConfigError`'dır: tek satır, Türkçe, değişkenin adını
   içerir, hiçbir anahtar değerini içermez. Giriş noktaları `load_settings_or_exit()` çağırır (mesaj
@@ -55,9 +70,10 @@
   parametre olarak alır; kendileri env okumaz, ayar yüklemez. Testler `load_settings(env={...})`
   ile kurar, süreç env'ine dokunmaz.
 - API modül düzeyinde `app` tanımlamaz; `create_app(settings)` fabrikasıyla kurulur.
-- Yeniden deneme yalnızca Groq modelinin `max_retries=3` ayarıyla yapılır (SDK yapar); `while` /
-  `sleep` ile elle yeniden deneme, LangGraph `RetryPolicy` ya da yeniden deneme middleware'i eklenmez
-  (üst üste binmesin). Denemeler tükenince hata `review_rule`'da `no_finding`'e çevrilir.
+- Yeniden deneme yalnızca modelin `max_retries=3` ayarıyla yapılır (SDK yapar; Ollama'da yoktur);
+  `while` / `sleep` ile elle yeniden deneme, LangGraph `RetryPolicy` ya da yeniden deneme
+  middleware'i eklenmez (üst üste binmesin). `max_retries`'ın sağlayıcıya göre farklı anlamı kodla
+  eşitlenmez. Denemeler tükenince hata `review_rule`'da `no_finding`'e çevrilir.
 - Dokümanda ve kod yorumunda "veri makineden çıkmaz" yalnızca çevrimdışı mod için yazılır.
 - Prompt koda gömülmez; `src/prompts/` altında dosyadır.
 - Sözleşme metni asla system prompt'a konmaz; yalnızca tool sonucu olarak, sınırlayıcı etiketlerle verilir.
@@ -146,12 +162,18 @@
 - Test adı: `test_<ne>_<koşul>_<beklenen>` (ör. `test_verify_fabricated_quote_needs_review`).
 - Unit testlerde gerçek LLM çağrısı yok; agent çıktısı elle verilen bulgularla taklit edilir.
   Gerçek model yalnızca eval'de çalışır.
+- `src/llm.py`'nin kurduğu modeli istek düzeyinde sınayan testler sahte HTTP taşıyıcısını
+  `http_client` ile verir; bu yalnızca `groq` ve `openai`'de mümkündür (diğer sağlayıcılarda
+  `build_chat_model` `ValueError` fırlatır, çünkü taşıyıcı ya çağrıda hata verir ya da sessizce yok
+  sayılıp istek gerçek ağa çıkar). Paket kurulu olmama durumu, ortamda hangi grubun kurulu olduğuna
+  bağlı kalmasın diye import monkeypatch ile düşürülerek sınanır.
 
 ## Güvenlik
 - Secret'lar yalnızca env'den okunur; `.env` commit edilmez, `.env.example` edilir.
 - Ham PII ve PII eşlemesi loglanmaz, trace'e, audit log'a ve graph state'ine yazılmaz.
 - Model, indeks ve checkpoint yalnızca maskeli metin görür. Varsayılan modda model dış sağlayıcıdır
-  (Groq); maskelemeyi atlayan ya da sağlayıcıya göre değiştiren bir kod yolu yazılmaz.
+  (Groq); env ile seçilen başka bir sağlayıcı da (Ollama dışında) dış sağlayıcı olabilir.
+  Maskelemeyi atlayan ya da sağlayıcıya göre değiştiren bir kod yolu yazılmaz.
 - Maskeli metnin tipi `MaskedText`'tir ve onu yalnızca `mask` üretir. Uygulama kodunda başka hiçbir
   yerde `MaskedText(...)` yazılmaz (testler hariç); `Clause` yalnızca `mask` çıktısıyla kurulur.
 - İndeks kaydına yalnızca `(tenant_id, review_id)` ile erişilir; `tenant_id` `Store`'dan gelir.
@@ -171,7 +193,8 @@
   **Tek istisna:** karar gövdesinin liste öğesi `FindingDecisionRequest` `extra="forbid"`'dir;
   öğede yanlış yazılmış bir alan yok sayılsaydı avukatın kararı sessizce kaybolurdu. Üst düzey
   `DecisionRequest` yine `extra="ignore"`'dur. 422 yalnızca alanın adını (`loc`) taşır, değerini değil.
-- `GROQ_API_KEY` loglanmaz, hata mesajına ve audit log'a yazılmaz.
+- `GROQ_API_KEY` ve `LLM_API_KEY` loglanmaz, hata mesajına ve audit log'a yazılmaz; `Settings`'in
+  `repr`'inde görünmez (`field(repr=False)`).
 - Tüm DB erişimi `Store(data_dir, tenant_id)` üzerinden yapılır.
 - `tenant_id` ve rol yalnızca API anahtarından çözülür (`get_principal` bağımlılığı). Hiçbir endpoint
   gövdeden, sorgudan ya da yoldan `tenant`, `role` ya da karar veren adı okumaz; pydantic istek

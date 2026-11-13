@@ -11,7 +11,11 @@
 - OS / container: Docker, `python:3.12-slim`; `docker compose up` ile tek komut
 
 ## LLM & agent katmanı
-İki mod vardır. Fark yalnızca sohbet modelindedir; graph, tool'lar, maskeleme ve doğrulama aynıdır.
+İki mod vardır: varsayılan mod (Groq) ve çevrimdışı mod (Ollama). Sohbet modeli env ile seçilir;
+kodda kapalı bir sağlayıcı listesi yoktur, `init_chat_model`'in tanıdığı başka bir sağlayıcı da env
+ile seçilebilir (aşağıda "Sürüm sabitleri / kısıtlar", "Bilinen sağlayıcı tablosu"). Fark yalnızca
+sohbet modelindedir; graph, tool'lar, maskeleme ve doğrulama her sağlayıcıda aynıdır. **"Ölçüldü"
+denebilen tek yapılandırma Groq `openai/gpt-oss-120b`'dir;** diğerleri "çalışır, ölçülmedi"dir.
 
 | Konu | Seçim | Not |
 |---|---|---|
@@ -21,7 +25,8 @@
 | Ana model (Ollama) | `qwen3.5:9b` | ≤ 8 GB VRAM'e sığar, tool calling. Yedek: `qwen3.5:4b` |
 | Agent framework | LangChain v1 `create_agent` + LangGraph `StateGraph` | Kural agent'ı `create_agent`; akış LangGraph. |
 | Tool protokolü | Native tool calling (`@tool`) | MCP yok. Tool'lar sırayla çağrılır; paralel tool çağrısına güvenilmez. |
-| Model kurulumu | `init_chat_model(model, model_provider=...)` | Sağlayıcı değişimi tek yerde: `src/llm.py`. Sağlayıcı ve model ayrı env'lerdir. |
+| Diğer sağlayıcılar | `LLM_PROVIDER` = `init_chat_model` sağlayıcı adı (ör. `openai`, `anthropic`) + `LLM_MODEL` | Çalışır, ölçülmedi. **Maskeli sözleşme metni seçilen sağlayıcıya gider**; saklama koşulları kullanıcının sorumluluğundadır. Gemini ek paket olmadan Google'ın OpenAI uyumlu adresiyle kullanılabilir (`LLM_PROVIDER=openai` + `LLM_BASE_URL` + `LLM_API_KEY` + `LLM_MODEL`); henüz denenmedi. |
+| Model kurulumu | `init_chat_model(model, model_provider=...)` | Sağlayıcı değişimi tek yerde: `src/llm.py`. Sağlayıcı, model, anahtar ve adres ayrı env'lerdir. Model giriş noktalarında başlangıçta bir kez kurulur (aşağıda "Başlangıç ve hata davranışı"). |
 | Arama | Yalnızca BM25: `rank-bm25` (doğrudan, `BM25Plus`) | `langchain-community` arşivlendi; sarmalayıcı kullanılmaz. İndeks inceleme başına bellekte kurulur; paylaşılan indeks yok. |
 
 ### Groq: doğrulanan bilgiler (2026-11-10)
@@ -74,10 +79,11 @@ Doğrulanamayan `spec.md` §10'da açık sorudur: `gpt-oss-120b`'nin Türkçe ka
   girdi token'larının limite sayılmaması, doğrulanmadı); günlük sınırın geçerli değeri ve ne zaman
   dolduğu. Konsolun Limits / Usage sayfası bu oturumda kontrol edilmedi. **Sonuç:** ücretsiz
   katmanda tam eval limite takılabilir; aşağıdaki rehber geçerlidir.
-- **Maliyet hesabı:** eval'in birim fiyatları `src/config.py`'de `PROVIDER_DEFAULTS` içinde,
+- **Maliyet hesabı:** eval'in birim fiyatları `src/config.py`'deki bilinen sağlayıcı tablosunda,
   sağlayıcının varsayılan modelinin yanında durur (`groq`: 1M token başına $0.15 girdi / $0.60
   çıktı; `ollama`: 0). Model `LLM_MODEL` ile ezilirse maliyet "bilinmiyor" yazılır; başka modelin
-  fiyatı tahmin edilmez.
+  fiyatı tahmin edilmez. Varsayılan modeli ve birim fiyatı olmayan sağlayıcılarda (`openai`,
+  `anthropic` ve tabloda olmayan her sağlayıcı) maliyet her zaman "bilinmiyor"dur.
 - **Bu yüzden eval** (200K TPD uygulanıyorsa) `MAX_CONCURRENCY=1` ve `--limit N` ile kısmi
   koşulur (N=3 ≈ 105K), `--resume` ile iki güne bölünür ya da çevrimdışı modda koşulur. Yüksek
   limitli (250K TPM) bir hesapta tam eval birkaç dakikada biter.
@@ -94,24 +100,43 @@ Doğrulanamayan `spec.md` §10'da açık sorudur: `gpt-oss-120b`'nin Türkçe ka
 - Kural setleri: YAML (`pyyaml`)
 
 ## Başlangıç ve hata davranışı
-- **Anahtar yoksa:** `LLM_PROVIDER=groq` iken `GROQ_API_KEY` boşsa uygulama **başlamaz**; hangi
-  değişkenin eksik olduğunu ve çevrimdışı moda nasıl geçileceğini söyleyen tek satırlık hatayla,
-  sıfır olmayan çıkış koduyla durur. Kontrol `src/config.py`'dedir; kütüphanenin hatasına bırakılmaz.
-  Aynı kontrol bilinmeyen `LLM_PROVIDER` ve boş `TENANT_API_KEYS` için de yapılır.
+- **Anahtar yoksa:** `LLM_PROVIDER=groq` iken ne `GROQ_API_KEY` ne `LLM_API_KEY` verilmişse uygulama
+  **başlamaz**; hangi değişkenin eksik olduğunu ve çevrimdışı moda nasıl geçileceğini söyleyen tek
+  satırlık hatayla, sıfır olmayan çıkış koduyla durur. `openai` ve `anthropic` için `LLM_API_KEY`
+  zorunludur. Kontrol `src/config.py`'dedir; kütüphanenin hatasına bırakılmaz. Aynı kontrol biçimi
+  bozuk `LLM_PROVIDER`, varsayılan modeli olmayan sağlayıcıda boş `LLM_MODEL`, geçersiz
+  `LLM_TEMPERATURE` / `LLM_MAX_TOKENS`, `ollama` ile birlikte verilen `LLM_BASE_URL` ve boş
+  `TENANT_API_KEYS` için de yapılır.
+- **Model kurulum kontrolü:** iki giriş noktası (`src/api.py` ve `evals/run.py`'nin `main()`'i)
+  sohbet modelini hizmete ya da koşuya başlamadan önce bir kez kurar; `--prepare-only` kurmaz.
+  Entegrasyon paketi kurulu değilse (`ImportError`), sağlayıcı adını LangChain tanımıyorsa
+  (`ValueError`) ya da entegrasyon kimlik bilgisini kurulumda reddederse hata `ConfigError`'a
+  çevrilir ve süreç aynı tek satırlık mesajla durur; hata ilk incelemeye kalmaz. Eksik pakette
+  mesaj paketin adını, varsa paket grubunu (`openai` / `anthropic`) ve `LLM_EXTRAS` build
+  argümanını söyler. **Sınır:** tabloda olmayan ve anahtarsız da kurulabilen bir sağlayıcıda
+  eksik anahtar ancak ilk çağrıda görülür (`ChatAnthropic` anahtarsız kurulur; `anthropic` tabloda
+  olduğu için onda anahtarı config ister); 401 `config` sınıfıdır ve incelemeyi durdurur (aşağıda).
 - **Hız limiti (429):** Groq modeli `max_retries=3` ile kurulur (toplam en fazla 4 istek); yeniden
-  denemeyi SDK yapar, başka yerde yeniden deneme döngüsü yoktur. Denemeler tükenirse o kural
+  denemeyi SDK yapar, başka yerde yeniden deneme döngüsü yoktur. Diğer sağlayıcılar da
+  `max_retries=3` ile kurulur; kaç istek demek olduğu sağlayıcıya göre değişir (aşağıda "Sürüm
+  sabitleri / kısıtlar"). Denemeler tükenirse o kural
   `no_finding` (sebep `rate_limited`) olur ve avukat kuyruğuna düşer; inceleme çökmez. Eval'de tek
   bir `rate_limited` koşuyu geçersiz kılar (`evals.md` §6).
-  - Günlük limit dolduğunda `retry-after` saatler olabilir; SDK 60 sn'den uzun beklemeye uymadığı
-    için istek asılı kalmaz, birkaç saniye içinde `rate_limited` olur.
-  - Aynı `max_retries` zaman aşımı ve 5xx için de geçerlidir; bir model çağrısı en kötü durumda
-    yaklaşık 4 × 60 sn sürebilir.
+  - Groq'a özgü: günlük limit dolduğunda `retry-after` saatler olabilir; `groq` SDK'sı 60 sn'den
+    uzun beklemeye uymadığı için istek asılı kalmaz, birkaç saniye içinde `rate_limited` olur.
+    Anthropic SDK'sı ise `retry-after` ne derse o kadar bekler (aşağıda "Sürüm sabitleri /
+    kısıtlar").
+  - Groq'a özgü: aynı `max_retries` zaman aşımı ve 5xx için de geçerlidir; bir Groq model çağrısı
+    yaklaşık 4 × 60 sn sürebilir (`timeout` deneme başınadır; kesin üst sınır değildir).
 - **Kimlik ya da yapılandırma hatası (401 / 403 / 404):** Yeniden denenmez (`groq` SDK'sı 401, 403
-  ve 404'ü yeniden denemez) ve `no_finding`'e çevrilmez. `review_rule` bu hatayı yeniden fırlatır;
-  inceleme `failed` olur, API 502 döner. Bu sınıfın (`config`) dört üyesi vardır: Groq 401
+  ve 404'ü yeniden denemez; diğer SDK'larda doğrulanmadı) ve `no_finding`'e çevrilmez.
+  `review_rule` bu hatayı yeniden fırlatır; inceleme `failed` olur, API 502 döner. Bu sınıf
+  (`config`) sağlayıcıdan bağımsız kurulur (kural: `agent_design.md` §6): `langchain_core`'un
+  kimlik, izin ve bulunamadı hataları ya da HTTP 401 / 403 / 404. Örnekler: Groq 401
   (`groq.AuthenticationError`, geçersiz anahtar), Groq 403 (`groq.PermissionDeniedError`, örneğin
   model organizasyon ya da proje düzeyinde engelli), Groq 404 (`groq.NotFoundError`, örneğin yanlış
-  `LLM_MODEL`) ve Ollama 404 (`ollama.ResponseError`, `status_code == 404`, model çekilmemiş).
+  `LLM_MODEL`), Ollama 404 (`ollama.ResponseError`, `status_code == 404`, model çekilmemiş) ve
+  Ollama 401 / 403 (kimlik doğrulamalı uzak Ollama).
   "Bir kuralın model çağrısı hatası incelemeyi çökertmez" kuralının tek istisnasıdır (model
   çağrısının dışından gelen hatalar zaten bulguya çevrilmez; `agent_design.md` §6): bu durumlarda
   hiçbir kural çalışamaz. Bağlantı reddi (Ollama konteyneri henüz
@@ -129,7 +154,7 @@ Doğrulanamayan `spec.md` §10'da açık sorudur: `gpt-oss-120b`'nin Türkçe ka
 ## Deploy
 - Ortamlar: yalnızca yerel (dev)
 - Hedef: `docker compose up` — servisler:
-  - `app` — her iki modda çalışır.
+  - `app` — her modda çalışır.
   - `ollama` — yalnızca çevrimdışı modda çalışır (`offline` compose profili); sohbet modelini sunar.
   - `ollama-pull` — yalnızca çevrimdışı modda çalışır (`offline` compose profili); sohbet modelini
     indirir (~7 GB). `app` imajıyla çalışır (Ollama imajında Python yok); indirilecek model adını
@@ -141,23 +166,67 @@ Doğrulanamayan `spec.md` §10'da açık sorudur: `gpt-oss-120b`'nin Türkçe ka
   `COMPOSE_PROFILES=offline`; komut yine `docker compose up`.
 - Varsayılan modda GPU gerekmez. Çevrimdışı modda Windows'ta GPU için host'taki Ollama
   kullanılabilir (`OLLAMA_BASE_URL=http://host.docker.internal:11434`).
-- `app` servisinde `restart` tanımlanmaz. Anahtar eksikse `app` hatayı compose çıktısına yazıp
-  çıkar; döngüye girmez. `python -m evals.run` aynı `config.py` kontrolünden geçer.
+- `app` servisinde `restart` tanımlanmaz. Anahtar ya da sağlayıcı paketi eksikse `app` hatayı
+  compose çıktısına yazıp çıkar; döngüye girmez. `python -m evals.run` aynı `config.py` kontrolünden
+  ve (`--prepare-only` dışında) aynı model kurulum kontrolünden geçer.
+- **İmaj ve paket grupları:** Dockerfile `LLM_EXTRAS` build argümanını alır (varsayılan
+  `"openai anthropic"`); listedeki her ad `--extra` olarak `uv sync --locked --no-dev`'e verilir.
+  `--frozen` değil `--locked` kullanılır: `--frozen` bayat kilidi fark etmez. Compose
+  `${LLM_EXTRAS-openai anthropic}` değerini imajı kuran iki servise (`app`, `ollama-pull`) aynı
+  verir; ikisi tek imajdır. Boş değer "grup yok" demektir. Grubu olmayan bir sağlayıcı için
+  kullanıcı entegrasyon paketini `pyproject.toml`'a ekler, kilidi yeniler ve imajı yeniden kurar.
 
 ## Ortam değişkenleri (sadece isimler, değer YAZMA)
 Tanımsız, boş ve yalnızca boşluk içeren değer aynıdır ("boş").
-- `LLM_PROVIDER` — `groq` (varsayılan; boşsa `groq`) ya da `ollama`; başka değer başlangıç hatasıdır
+- `LLM_PROVIDER` — `init_chat_model`'e `model_provider` olarak verilir; boşsa `groq`. LangChain gibi
+  normalleştirilir (`strip`, küçük harf, `-` → `_`; `Groq` → `groq`, `google-genai` →
+  `google_genai`) ve ardından `[a-z][a-z0-9_]*` olmalıdır; değilse `LLM_PROVIDER`'ı söyleyen
+  başlangıç hatasıdır. Kodda kapalı sağlayıcı listesi yoktur: LangChain'in tanımadığı ad başlangıçta
+  `ConfigError` olur (model kurulum kontrolü). Bilinen sağlayıcılar `groq`, `ollama`, `openai`,
+  `anthropic`'tir (aşağıda "Sürüm sabitleri / kısıtlar", "Bilinen sağlayıcı tablosu"); bu tablo
+  kapı değildir.
 - `LLM_MODEL` — boşsa sağlayıcıya göre: `groq` → `openai/gpt-oss-120b`, `ollama` → `qwen3.5:9b`.
-  Sağlayıcı varsayılanları tek yerde, `src/config.py`'dedir; `.env.example`'da boş bırakılır ki
-  yalnızca `LLM_PROVIDER` değiştirilince yanlış model adı kalmasın.
-- `GROQ_API_KEY` — `LLM_PROVIDER=groq` iken zorunlu
+  Varsayılan modeli olmayan sağlayıcıda (`openai`, `anthropic` ve tabloda olmayan her sağlayıcı)
+  zorunludur; boşsa `LLM_MODEL`'i söyleyen başlangıç hatasıdır. Sağlayıcı varsayılanları tek yerde,
+  `src/config.py`'dedir; `.env.example`'da boş bırakılır ki yalnızca `LLM_PROVIDER` değiştirilince
+  yanlış model adı kalmasın.
+- `GROQ_API_KEY` — `LLM_PROVIDER=groq` iken anahtar budur; boşsa `LLM_API_KEY` kullanılır, ikisi de
+  boşsa başlangıç hatasıdır
+- `LLM_API_KEY` — sağlayıcı anahtarı; verilmişse `api_key` olarak geçirilir (boş değer ya da
+  kazara `None` geçirilmez: entegrasyon o zaman kendi env değişkenine sessizce düşerdi). `openai` ve
+  `anthropic` için zorunlu; tabloda olmayan sağlayıcıda isteğe bağlı; `ollama` anahtar istemez:
+  `LLM_API_KEY` verilmişse Ollama'ya geçirilmez ve hata değildir (çevrimdışı moda çevrilen bir
+  `.env` onu hâlâ taşıyabilir). `GROQ_API_KEY` gibi loglanmaz ve `repr`'de görünmez.
+- `LLM_BASE_URL` — verilmişse `base_url` olarak geçirilir (OpenAI uyumlu servisler `LLM_API_KEY`
+  ile birlikte bununla kullanılır). `LLM_PROVIDER=openai` iken verilmişse ayrıca
+  `use_responses_api=False` geçirilir: OpenAI uyumlu sunucular `/chat/completions`'ı uygular;
+  `langchain-openai` adında `codex` geçen ya da `gpt-5-pro` ile başlayan modelleri yoksa
+  `/responses`'a yönlendirir. `ollama` ile
+  birlikte verilemez (başlangıç hatası, mesaj `OLLAMA_BASE_URL`'i söyler): compose
+  `OLLAMA_BASE_URL`'i her zaman doldurduğu için değer sessizce yok sayılırdı.
+- `LLM_TEMPERATURE` — boşsa 0. `none` ise `temperature=None` **açıkça** geçirilir ve istekte
+  `temperature` alanı olmaz (bazı modeller alanı reddeder); argümanı atlamak yetmez,
+  `ChatGoogleGenerativeAI` atlanan değer yerine kendi varsayılanını (0,7) gönderir. Başka değer
+  negatif olmayan bir sayı olmalıdır; değilse başlangıç hatasıdır. Her sağlayıcıya uygulanır.
+- `LLM_MAX_TOKENS` — çağrı başına çıktı sınırı; pozitif tam sayı, boşsa 2048 (Groq'un bugünkü
+  değeri). `groq`'a ve Ollama dışındaki her sağlayıcıya verilir; `ollama`'ya verilmez (`ChatOllama`
+  yok sayar). Sebep: düşünen modellerde düşünme token'ları bu sınırın içindedir; sınır dolarsa yanıt
+  boş gelir ve bu sistemde sağlayıcı hatası değil `no_finding` (`no_submit`) bulgusu olur.
+- `LLM_API_KEY` verilmemişse bilinen tablonun dışındaki sağlayıcının (ve birden çok kimlik bilgisi
+  isteyen her sağlayıcının; ör. Bedrock, Azure, Vertex) entegrasyonu kendi standart env
+  değişkenlerini kendisi okur. Env'i `src/config.py`'den başka bir şeyin okuduğu tek yer budur;
+  "env'e yalnızca `src/config.py` dokunur" kuralının yazılı istisnasıdır (`code_standards.md`). Bu
+  değişkenler burada listelenmez.
+- `LLM_EXTRAS` — çalışma anı değişkeni değil, Docker **build argümanıdır**: imaja kurulacak paket
+  grupları, boşlukla ayrılmış (varsayılan `openai anthropic`; boş değer grup yok demektir). Compose
+  onu `.env`'den ya da kabuktan okur (yukarıda "Deploy").
 - `COMPOSE_PROFILES` — çevrimdışı modda `offline` (`ollama` ve `ollama-pull` servislerini açar);
   varsayılan modda boş
 - `OLLAMA_BASE_URL` — yalnızca Ollama; boşsa Compose dışında `http://localhost:11434`, Compose
   içinde `http://ollama:11434` (`docker-compose.yml` ayarlar). Host'taki Ollama için:
   `http://host.docker.internal:11434`
 - `LLM_NUM_CTX` — yalnızca Ollama: bağlam uzunluğu (varsayılan 4096 çok küçük; 16384 kullanılır)
-- `MAX_CONCURRENCY` — aynı anda çalışan kural agent'ı sayısı. Varsayılan iki sağlayıcıda da 1.
+- `MAX_CONCURRENCY` — aynı anda çalışan kural agent'ı sayısı. Varsayılan her sağlayıcıda 1.
   Groq'ta 1 olmasının sebebi düşük limitli anahtardır (8K TPM): 4 ile örnek sözleşmede 5 kuraldan
   3'ü `rate_limited` oldu (Adım 12). Yüksek limitli hesapta (250K TPM) 4 yapılabilir; inceleme
   yaklaşık iki kat hızlanır. Verilmişse 1 ya da daha büyük
@@ -186,15 +255,47 @@ Tanımsız, boş ve yalnızca boşluk içeren değer aynıdır ("boş").
 ## Sürüm sabitleri / kısıtlar
 - `langchain>=1.4,<2`, `langgraph>=1.2,<2`, `langgraph-checkpoint-sqlite>=3.1`
 - `langchain-groq>=1.1`, `langchain-ollama>=1.1`, `langsmith>=0.14`, `rank-bm25>=0.2.2`
+- İsteğe bağlı paket grupları (`[project.optional-dependencies]`): `openai` =
+  `langchain-openai>=1.7`, `anthropic` = `langchain-anthropic>=1.7`. `langchain-openai` ayrıca `dev`
+  grubundadır; `openai` sahte taşıyıcı testi yerelde atlanmadan koşar.
+- **`google` grubu yoktur.** `langchain-google-genai` 4.x kilide girince, grup seçilmese de herkesin
+  kurduğu iki paket değişir: `langchain-core` 1.7.7 → 1.8.0 ve `tenacity` 9.2.1 → 9.1.4 (ölçülen
+  Groq yolu dahil). Yalnızca `openai` ve `anthropic` grupları eklenince kilitteki 67 kaydın 67'si
+  aynı kalır. Yerel `google_genai` sağlayıcısını isteyen kullanıcı paketi kendisi ekler (bu
+  `langchain-core`'u her kurulum için değiştirir); Gemini ek paket olmadan OpenAI uyumlu adresle
+  kullanılabilir; henüz denenmedi (yukarıda "Diğer sağlayıcılar").
 - pydantic v2 zorunlu
-- Her iki modda: `temperature=0`; model tool calling desteklemeli. `ChatGroq` `temperature=0`'ı
-  API isteğine `1e-8` olarak yazar; yani "0", istekteki değerin en fazla `1e-8` olması demektir.
-- Sağlayıcıya özel parametreler `src/llm.py`'de yalnızca o sağlayıcı seçiliyken verilir:
-  - Groq: `max_retries=3`, `max_tokens=2048`, `reasoning_effort="low"`, zaman aşımı 60 sn.
-    `reasoning_format` verilmez.
-  - Ollama: `num_ctx`, `reasoning=False`, sabit `seed`, zaman aşımı 120 sn (`client_kwargs` ile).
-    `ChatOllama`'da `max_retries` alanı yoktur; yerelde hız limiti de yoktur.
-  - Model kurucusunun isteğe bağlı `http_client` parametresi yalnızca Groq içindir (testte sahte HTTP
-    taşıyıcısı vermek için). `ollama` ile `None` olmayan değer `ValueError` fırlatır: `ChatOllama`
-    onu sessizce yok sayar ve istek gerçek ağa çıkar. Yalnızca senkron çağrıları kapsar; graph
-    senkron olduğu için sorun değildir. Verilse de Groq'un istek başına 60 sn zaman aşımı geçerlidir.
+- Varsayılan `temperature=0` her sağlayıcıda (`LLM_TEMPERATURE` ile değişir); model tool calling
+  desteklemeli. `ChatGroq` `temperature=0`'ı API isteğine `1e-8` olarak yazar; yani "0", istekteki
+  değerin en fazla `1e-8` olması demektir.
+- **Bilinen sağlayıcı tablosu** (`src/config.py`; kapı değildir, yalnızca varsayılanları ve o
+  sağlayıcıya özel parametreleri tutar). Sağlayıcıya özel parametreler `src/llm.py`'de yalnızca o
+  sağlayıcı seçiliyken verilir:
+  - Groq: varsayılan model, birim fiyat; `max_retries=3`, `max_tokens` (`LLM_MAX_TOKENS`, varsayılan
+    2048), `reasoning_effort="low"` (yalnızca Groq'a), zaman aşımı 60 sn. `reasoning_format`
+    verilmez.
+  - Ollama: varsayılan model; `OLLAMA_BASE_URL`, `num_ctx`, `reasoning=False`, sabit `seed`, zaman
+    aşımı 120 sn (`client_kwargs` ile). Anahtar yok; `max_tokens` verilmez. `ChatOllama`'da
+    `max_retries` alanı yoktur; yerelde hız limiti de yoktur.
+  - `openai`, `anthropic`: varsayılan model yok (`LLM_MODEL` zorunlu), `LLM_API_KEY` zorunlu, birim
+    fiyat yok (maliyet "bilinmiyor"), eşzamanlılık varsayılanı 1. Parametreleri ortak
+    parametrelerdir (aşağıda).
+- **Tabloda olmayan sağlayıcılar ve `openai` / `anthropic`** tam olarak şu ortak parametreleri alır:
+  `max_tokens` (`LLM_MAX_TOKENS`), `timeout` (60 sn), `max_retries` (3), `temperature`
+  (`LLM_TEMPERATURE`); verilmişse `api_key` (`LLM_API_KEY`) ve `base_url` (`LLM_BASE_URL`; `openai`
+  ile birlikte `use_responses_api=False`). Sağlayıcıya özel başka parametre verilmez. Tabloda
+  olmayan sağlayıcıda `LLM_MODEL` zorunlu, `LLM_API_KEY` isteğe bağlıdır; eşzamanlılık varsayılanı
+  1, maliyet "bilinmiyor"dur.
+  - **OpenAI uyumlu servis:** `base_url` isteğin gittiği adrestir (`…/chat/completions`); çıktı
+    sınırı istekte `max_completion_tokens` alanıyla gider. Gerçek bir OpenAI uyumlu sunucunun bu
+    alanı kabul ettiği doğrulanmadı.
+- **`max_retries` her sağlayıcıda aynı anlama gelmez:** `groq`, `openai` ve `anthropic`'te 3 → en
+  fazla 4 istek; `google_genai`'de 3 → 3 istek. `timeout` deneme başınadır (httpx aşaması başına),
+  toplam süre sınırı değildir; Anthropic SDK'sı `retry-after` başlığı ne kadar derse o kadar bekler.
+  Bu farklar kodla eşitlenmez.
+- Model kurucusunun isteğe bağlı `http_client` parametresi (testte sahte HTTP taşıyıcısı vermek
+  için) yalnızca `groq` ve `openai`'de, senkron yolda kabul edilir. Diğer her sağlayıcıda `None`
+  olmayan değer `build_chat_model`'de baştan `ValueError` fırlatır: Anthropic'te çağrı anında
+  `TypeError` verirdi; Google ve Ollama onu sessizce yok sayar ve istek gerçek ağa çıkardı. Graph
+  senkron olduğu için senkron yolla sınırlı olması sorun değildir. Verilse de Groq'un istek başına
+  60 sn zaman aşımı geçerlidir.
