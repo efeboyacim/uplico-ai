@@ -425,8 +425,20 @@
   açıklaması denetimde düzeltildi (iki olası kaynak). **Denenmedi:** temiz klonda model
   çağıran adımlar (`POST /reviews`, karar, rapor; eval'in modelli koşusu); çevrimdışı modun
   kalkması; arayüzün tarayıcıda kullanımı.
-- **Sıradaki:** Adım 19'un kutusu (temiz klonda modelli doğrulama kararı kullanıcıda), ardından
-  Adım 18c (kullanıcı onayıyla).
+- **Adım 19 kapandı (2026-11-13):** temiz klonda (HEAD `01f3f70`, `-p readme-klon` ile ayrı
+  compose projesi) gerçek anahtarla tek uçtan uca akış, HTTP uçları üzerinden: `POST /reviews`
+  örnek sözleşmeyle 200 (91 sn; 7 enjeksiyon işareti, 5 bulgunun 5'i kuyrukta; 1 `non_compliant`
+  bulguda taslak, `code_check=passed`); karardan önce rapor 409; `viewer` yanıtında asıl metin
+  yok ve maddeler yer tutuculu, `lawyer` yanıtında asıl metin var; başka tenant 404; `viewer`
+  karar 403; eksik gövde 422; karar 200 (`changes_requested`); ikinci karar 409; rapor 200
+  (talep edilen değişiklik 1); audit 60 satır, son satır `review_closed`; 17 model çağrısı,
+  30.311 token. `.env` içi okunmadan klona kopyalandı ve denemeden sonra silindi; klonun
+  kapsayıcısı ve imajı kaldırıldı. Akışı konteyner içinde çalışan bir betik yürüttü (anahtarlar
+  ortam değişkeninden; çıktıya anahtar ya da sözleşme metni yazılmadı): README'deki `curl`
+  satırları harfiyen çalıştırılmadı, aynı uçlar ve gövdeler çağrıldı. **Denenmedi:** temiz
+  klonda modelli eval ve çevrimdışı mod; `edit` ve `correct` karar yolları gerçek modelle;
+  arayüzün tarayıcıda kullanımı.
+- **Sıradaki:** Adım 18c (kullanıcı onayıyla); o adım README'yi ve karar dokümanını yeniden açar.
 - **Adım 19'a başlarken (Adım 18'in devri):** README'ye taşınacaklar:
   1. Asıl önce/sonra tablosu 2. koşudan (`evals.md` §5), altında dürüst not: farkın tamamı
      sözleşme 4'teki iki `not_found` satırından; tablo bu koşuda alıntı / sayı kontrolünün değerini
@@ -1359,7 +1371,11 @@ gereksiz yönlendirme satırları bunu gösterir.
   gittiği ve o sağlayıcının saklama koşullarının kullanıcının sorumluluğunda olduğu.
 - **Commit:** `feat: accept any chat model provider through env`
 
-### [ ] Adım 19 — README ve karar dokümanı
+### [x] Adım 19 — README ve karar dokümanı
+- **Gerçekleşen:** `3e55346` (README, karar dokümanı), `1c961e2` (holdout sonucu),
+  `01f3f70` (denetim düzeltmeleri) ve bu commit. Doğrulama: temiz klonda modelsiz yürüyüş ve
+  gerçek modelle tek uçtan uca akış ("Durum"); README tabloları sonuç dosyalarıyla betikle
+  karşılaştırıldı; karar dokümanı 5 soruyu sırasıyla yanıtlıyor, 816 sözcük.
 - **Ne:** README (kurulum, eval sonuçları ve önce/sonra tablosu, düşük Groq limiti notu, bilinen
   sınırlar, "daha fazla vaktim olsaydı"). Karar dokümanı: CASE.md'deki 5 soru sırasıyla, en fazla 2 sayfa.
 - **README — ücretsiz Groq anahtarıyla:** tam eval'in günlük limite sığmadığı ve çalışacak komut

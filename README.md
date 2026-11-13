@@ -457,7 +457,10 @@ Tam liste: `docs/spec.md` §8 "Bilinen sınırlar".
 - Arayüzde karar verilmiş incelemenin görünümü ve çok işaretli metinde tarayıcı süresi; sayfanın
   JS mantığının otomatik testi yok.
 - Avukat kararında `edit` yolu gerçek veride (testlerle kapsanıyor).
-- README adımlarının temiz bir klonda baştan sona izlenmesi.
+- Temiz klonda yalnızca şunlar denendi (2026-11-13): model gerektirmeyen bütün adımlar ve
+  gerçek modelle tek bir uçtan uca akış (örnek sözleşme: inceleme 91 sn, karar, rapor, audit;
+  ≈ 30K token). Çevrimdışı mod ve modelli eval temiz klonda denenmedi; arayüz tarayıcıda
+  yalnızca geliştirme sırasında kullanıldı.
 - Docker'da LangSmith experiment'ine git bilgisinin (uzak depo adresi, yazar adı ve e-postası)
   gitmediği konteynerde gerçek yüklemeyle doğrulanmadı (`docs/evals.md` §7).
 

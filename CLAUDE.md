@@ -40,8 +40,10 @@ commit'iyle düzeltildi (`verify`'da cümle sınırını aşan birim; taslak yö
 11 / 11). İkinci koşuda bütün sert eşikler tuttu (değiştirilmedi); iki yanlış sözleşme 4'teki
 arama kaçışı (BM25 sınırı), sonuçlar `docs/evals.md` §4–§5'te.
 Adım 18b (görülmemiş iki sözleşmede tek koşu) bitti: 10 / 10 karar doğru, 4'ü avukata gitti;
-hiçbir şey düzeltilmedi (`docs/evals.md` §4). Adım 19: README ve karar dokümanı yazıldı;
-kapanışı için temiz klonda README doğrulaması kaldı. Ayrıntı `docs/plan.md` "Durum".
+hiçbir şey düzeltilmedi (`docs/evals.md` §4). Adım 19 bitti: README ve karar dokümanı; temiz
+klonda modelsiz yürüyüş ve gerçek modelle tek uçtan uca akış doğrulandı.
+Sıradaki: Adım 18c — sağlayıcıdan bağımsız model kurulumu (README'yi yeniden açar), sonra
+Adım 20 — teslim. Ayrıntı `docs/plan.md` "Durum".
 
 ## Komutlar
 ```bash
