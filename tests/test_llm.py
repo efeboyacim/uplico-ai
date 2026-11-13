@@ -1,5 +1,6 @@
 import json
 import sys
+import time
 from collections.abc import Callable, Iterator
 from typing import Any
 
@@ -8,12 +9,22 @@ import httpx
 import langchain.chat_models.base as chat_models_base
 import ollama
 import pytest
+from langchain.chat_models import init_chat_model
 from langchain_core.exceptions import (
     ModelAPIError,
     ModelAuthenticationError,
     ModelNotFoundError,
     ModelPermissionDeniedError,
     ModelRateLimitError,
+)
+from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
+from langchain_google_genai.chat_models import (
+    GoogleAPIError,
+    GoogleAuthenticationError,
+    GoogleInvalidRequestError,
+    GoogleModelNotFoundError,
+    GooglePermissionDeniedError,
+    GoogleRateLimitError,
 )
 
 import src.llm as llm_module
@@ -33,6 +44,7 @@ from src.llm import (
     classify_provider_error,
     provider_status_code,
 )
+from src.tools import TOOLS
 
 _TENANT_KEYS = {"test-key": {"tenant_id": "acme", "role": "lawyer", "name": "Ayse"}}
 _REQUEST = httpx.Request("POST", "https://api.groq.com")
@@ -424,7 +436,15 @@ def test_groq_new_variables_reach_the_request() -> None:
             {"LLM_BASE_URL": "http://proxy"},
             {"api_key": "k", "base_url": "http://proxy"},
         ),
-        ("google_genai", {"LLM_TEMPERATURE": "none"}, {"api_key": "k", "temperature": None}),
+        (
+            "google_genai",
+            {"LLM_TEMPERATURE": "none"},
+            {
+                "api_key": "k",
+                "temperature": None,
+                "base_url": "https://generativelanguage.googleapis.com/",
+            },
+        ),
     ],
 )
 def test_common_parameters_only_outside_groq_and_ollama(
@@ -604,6 +624,7 @@ def fresh_creator_cache() -> Iterator[None]:
     [
         ("openai", "langchain_openai", "langchain-openai", "openai"),
         ("anthropic", "langchain_anthropic", "langchain-anthropic", "anthropic"),
+        ("google_genai", "langchain_google_genai", "langchain-google-genai", "google"),
         ("mistralai", "langchain_mistralai", "langchain-mistralai", None),
     ],
 )
@@ -714,3 +735,271 @@ def test_check_chat_model_passes_for_the_default_providers() -> None:
     check_chat_model(_settings())
     check_chat_model(_settings("ollama"))
     check_chat_model(_openai_settings())
+
+
+# --- google_genai (step 18d) ----------------------------------------------------------------------
+
+_GEMINI_PUBLIC = "https://generativelanguage.googleapis.com/"
+_GEMINI_URL = _GEMINI_PUBLIC + "v1beta/models/gemini-test:generateContent"
+_GEMINI_OK = {
+    "candidates": [
+        {
+            "content": {"role": "model", "parts": [{"text": "ok"}]},
+            "finishReason": "STOP",
+            "index": 0,
+        }
+    ],
+    "usageMetadata": {"promptTokenCount": 1, "candidatesTokenCount": 1, "totalTokenCount": 2},
+}
+# Every variable the integration or the google-genai SDK reads for the backend, address or key.
+_GOOGLE_ENV_VARIABLES = (
+    "GOOGLE_API_KEY",
+    "GEMINI_API_KEY",
+    "GOOGLE_GENAI_USE_VERTEXAI",
+    "GOOGLE_GENAI_USE_ENTERPRISE",
+    "GOOGLE_CLOUD_PROJECT",
+    "GOOGLE_CLOUD_LOCATION",
+    "GOOGLE_GEMINI_BASE_URL",
+    "GOOGLE_VERTEX_BASE_URL",
+    "GOOGLE_GENAI_API_VERSION",
+    "GOOGLE_GENAI_HTTP_CLIENT",
+    "LANGSMITH_GATEWAY",
+    "LANGSMITH_GATEWAY_API_KEY",
+)
+
+
+def _google_settings(**extra: str) -> Settings:
+    return _env_settings(
+        "google_genai", **({"LLM_MODEL": "gemini-test", "LLM_API_KEY": "llm-key"} | extra)
+    )
+
+
+@pytest.fixture
+def clean_google_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in _GOOGLE_ENV_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
+
+
+def _google_wire(
+    monkeypatch: pytest.MonkeyPatch,
+    status: int = 200,
+    replies: tuple[dict[str, Any], ...] = (_GEMINI_OK,),
+) -> list[httpx.Request]:
+    """Build google_genai models with a fake transport: `init_chat_model` in src.llm is wrapped
+    and `client_args` added to the arguments `build_chat_model` passes. No retry sleeps.
+    With status 200 the n-th request gets the n-th reply (the last one repeats)."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if status == 200:
+            return httpx.Response(200, json=replies[min(len(seen), len(replies)) - 1])
+        error = {"error": {"code": status, "message": "x", "status": "X"}}
+        return httpx.Response(status, json=error)
+
+    def with_transport(model: str, **kwargs: Any) -> object:
+        assert "client_args" not in kwargs  # build_chat_model passes no transport of its own
+        transport = {"transport": httpx.MockTransport(handler)}
+        return init_chat_model(model, **kwargs, client_args=transport)
+
+    monkeypatch.setattr(llm_module, "init_chat_model", with_transport)
+    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
+    return seen
+
+
+def _generation_config(request: httpx.Request) -> dict[str, Any]:
+    config: dict[str, Any] = _body(request)["generationConfig"]
+    return config
+
+
+def test_google_genai_gets_the_common_parameters_and_the_public_address(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = _recording_init(monkeypatch)
+    build_chat_model(_google_settings())
+    assert calls == [
+        (
+            "gemini-test",
+            {
+                "model_provider": "google_genai",
+                "max_tokens": 2048,
+                "timeout": COMMON_TIMEOUT_S,
+                "max_retries": COMMON_MAX_RETRIES,
+                "temperature": 0,
+                "api_key": "llm-key",
+                "base_url": _GEMINI_PUBLIC,
+            },
+        )
+    ]
+
+
+def test_google_genai_llm_base_url_replaces_the_public_address(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = _recording_init(monkeypatch)
+    build_chat_model(_google_settings(LLM_BASE_URL="http://gemini-proxy.local:7000/"))
+    [(_, kwargs)] = calls
+    assert kwargs["base_url"] == "http://gemini-proxy.local:7000/"
+    assert "vertexai" not in kwargs
+    assert "use_responses_api" not in kwargs
+
+
+def test_google_genai_request_on_the_wire(
+    monkeypatch: pytest.MonkeyPatch, clean_google_env: None
+) -> None:
+    # Keys in the environment must not replace LLM_API_KEY on the request.
+    monkeypatch.setenv("GOOGLE_API_KEY", "google-env-key")
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-env-key")
+    seen = _google_wire(monkeypatch)
+    model = build_chat_model(_google_settings())
+    model.invoke("hi")
+    assert len(seen) == 1
+    request = seen[0]
+    assert str(request.url) == _GEMINI_URL
+    assert request.headers["x-goog-api-key"] == "llm-key"
+    config = _generation_config(request)
+    assert config["maxOutputTokens"] == 2048
+    assert config["temperature"] == 0
+    assert model.max_retries == COMMON_MAX_RETRIES  # type: ignore[attr-defined]
+
+
+def test_google_genai_temperature_none_leaves_the_field_out(
+    monkeypatch: pytest.MonkeyPatch, clean_google_env: None
+) -> None:
+    seen = _google_wire(monkeypatch)
+    build_chat_model(_google_settings(LLM_TEMPERATURE="none")).invoke("hi")
+    config = _generation_config(seen[0])
+    assert "temperature" not in config
+    assert config["maxOutputTokens"] == 2048
+
+
+def test_google_genai_max_tokens_and_temperature_reach_the_request(
+    monkeypatch: pytest.MonkeyPatch, clean_google_env: None
+) -> None:
+    seen = _google_wire(monkeypatch)
+    settings = _google_settings(LLM_MAX_TOKENS="321", LLM_TEMPERATURE="0.4")
+    build_chat_model(settings).invoke("hi")
+    config = _generation_config(seen[0])
+    assert config["maxOutputTokens"] == 321
+    assert config["temperature"] == pytest.approx(0.4)
+
+
+def test_google_genai_request_goes_to_llm_base_url(
+    monkeypatch: pytest.MonkeyPatch, clean_google_env: None
+) -> None:
+    seen = _google_wire(monkeypatch)
+    build_chat_model(_google_settings(LLM_BASE_URL="http://gemini-proxy.local:7000/")).invoke("hi")
+    assert (
+        str(seen[0].url)
+        == "http://gemini-proxy.local:7000/v1beta/models/gemini-test:generateContent"
+    )
+    assert seen[0].headers["x-goog-api-key"] == "llm-key"
+
+
+@pytest.mark.parametrize(
+    "variables",
+    [
+        {"GOOGLE_GEMINI_BASE_URL": "http://attacker.invalid/"},
+        {"LANGSMITH_GATEWAY": "true", "LANGSMITH_GATEWAY_API_KEY": "ls-key"},
+        {"LANGSMITH_GATEWAY": "http://gateway.invalid"},
+        {"GOOGLE_GEMINI_BASE_URL": "http://attacker.invalid/", "LANGSMITH_GATEWAY": "true"},
+        {"GOOGLE_CLOUD_PROJECT": "proj-x", "GOOGLE_CLOUD_LOCATION": "us-central1"},
+    ],
+)
+def test_google_genai_without_llm_base_url_ignores_address_variables_in_the_environment(
+    monkeypatch: pytest.MonkeyPatch, clean_google_env: None, variables: dict[str, str]
+) -> None:
+    for name, value in variables.items():
+        monkeypatch.setenv(name, value)
+    seen = _google_wire(monkeypatch)
+    build_chat_model(_google_settings()).invoke("hi")
+    assert len(seen) == 1
+    assert str(seen[0].url) == _GEMINI_URL
+    assert seen[0].headers["x-goog-api-key"] == "llm-key"
+
+
+@pytest.mark.parametrize(
+    ("status", "error_type", "expected", "requests"),
+    [
+        (401, GoogleAuthenticationError, "config", 1),
+        (403, GooglePermissionDeniedError, "config", 1),
+        (404, GoogleModelNotFoundError, "config", 1),
+        (429, GoogleRateLimitError, "rate_limit", COMMON_MAX_RETRIES),  # 3 means 3 requests here
+        (400, GoogleInvalidRequestError, "other", 1),
+        (500, GoogleAPIError, "other", COMMON_MAX_RETRIES),
+    ],
+)
+def test_google_genai_wire_errors_are_classified(
+    monkeypatch: pytest.MonkeyPatch,
+    clean_google_env: None,
+    status: int,
+    error_type: type[Exception],
+    expected: ProviderErrorKind,
+    requests: int,
+) -> None:
+    seen = _google_wire(monkeypatch, status)
+    model = build_chat_model(_google_settings())
+    with pytest.raises(error_type) as info:
+        model.invoke("hi")
+    assert len(seen) == requests
+    assert classify_provider_error(info.value) == expected
+    assert provider_status_code(info.value) == status
+
+
+@pytest.mark.parametrize(
+    ("error_type", "status"),
+    [
+        (GoogleAuthenticationError, 401),
+        (GooglePermissionDeniedError, 403),
+        (GoogleModelNotFoundError, 404),
+        (GoogleRateLimitError, 429),
+        (GoogleInvalidRequestError, 400),
+    ],
+)
+def test_google_genai_wrapper_carries_the_status_only_on_its_cause(
+    monkeypatch: pytest.MonkeyPatch,
+    clean_google_env: None,
+    error_type: type[Exception],
+    status: int,
+) -> None:
+    _google_wire(monkeypatch, status)
+    with pytest.raises(error_type) as info:
+        build_chat_model(_google_settings()).invoke("hi")
+    wrapper = info.value
+    assert getattr(wrapper, "status_code", None) is None
+    assert getattr(wrapper, "code", None) is None
+    assert wrapper.__cause__ is not None
+    assert getattr(wrapper.__cause__, "code", None) == status
+    assert provider_status_code(wrapper) == status
+
+
+def test_google_genai_sends_the_thought_signature_back_after_a_tool_call(
+    monkeypatch: pytest.MonkeyPatch, clean_google_env: None
+) -> None:
+    # Gemini 3.x rejects the follow-up without it; the OpenAI-compatible path failed on this.
+    signature = "c2lnbmF0dXJlLW9uZQ=="
+    call_part = {
+        "functionCall": {"name": "search_contract", "args": {"query": "fesih"}},
+        "thoughtSignature": signature,
+    }
+    function_call = {
+        "candidates": [
+            {"content": {"role": "model", "parts": [call_part]}, "finishReason": "STOP"}
+        ],
+        "usageMetadata": _GEMINI_OK["usageMetadata"],
+    }
+    seen = _google_wire(monkeypatch, replies=(function_call, _GEMINI_OK))
+    model = build_chat_model(_google_settings()).bind_tools(list(TOOLS))
+    messages: list[BaseMessage] = [HumanMessage("hi")]
+    reply = model.invoke(messages)
+    [tool_call] = reply.tool_calls
+    messages += [reply, ToolMessage("[]", tool_call_id=tool_call["id"])]
+    model.invoke(messages)
+    assert len(seen) == 2
+    model_turns = [turn for turn in _body(seen[1])["contents"] if turn["role"] == "model"]
+    assert model_turns == [{"role": "model", "parts": [call_part]}]
+
+
+def test_check_chat_model_passes_for_google_genai(clean_google_env: None) -> None:
+    # Construction contacts no network on the Developer API with a key.
+    check_chat_model(_google_settings())

@@ -62,8 +62,24 @@ PROVIDER_DEFAULTS: Mapping[Provider, ProviderDefaults] = MappingProxyType(
             output_usd_per_mtok=None,
             requires_api_key=True,
         ),
+        # An empty key would fall back to GOOGLE_API_KEY / GEMINI_API_KEY in the integration.
+        "google_genai": ProviderDefaults(
+            model=None,
+            max_concurrency=1,
+            input_usd_per_mtok=None,
+            output_usd_per_mtok=None,
+            requires_api_key=True,
+        ),
     }
 )
+# Variables that turn google_genai from the Gemini Developer API to Vertex; no constructor
+# argument overrides them (the SDK reads them even with vertexai=False). Docs: tech_stack.md.
+_VERTEX_SWITCHES = ("GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GENAI_USE_ENTERPRISE")
+_SWITCH_OFF_VALUES = frozenset({"", "false", "0", "no"})
+# The SDK's debug client mode: record / auto print the request with the key header to stdout,
+# replay answers from a file. No value is needed for a normal run, so any value is refused.
+# Without it GOOGLE_GENAI_REPLAYS_DIRECTORY / GOOGLE_GENAI_REPLAY_ID have no effect.
+_GOOGLE_CLIENT_MODE = "GOOGLE_GENAI_CLIENT_MODE"
 # A provider outside the table: LLM_MODEL required, LLM_API_KEY optional, cost unknown.
 UNLISTED_PROVIDER_DEFAULTS = ProviderDefaults(
     model=None, max_concurrency=1, input_usd_per_mtok=None, output_usd_per_mtok=None
@@ -217,6 +233,21 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         )
     if defaults.requires_api_key and llm_api_key is None:
         raise ConfigError(f"LLM_API_KEY {provider} sağlayıcısı için zorunlu.")
+    if provider == "google_genai":
+        for name in _VERTEX_SWITCHES:
+            # The value is not echoed; any value but an explicit "off" is refused.
+            if _read(env, name).lower() not in _SWITCH_OFF_VALUES:
+                raise ConfigError(
+                    f"{name} google_genai ile kullanılamaz: istek Gemini Developer API yerine "
+                    "Vertex'e giderdi; değişkeni kaldır ya da false yap."
+                )
+        if _read(env, _GOOGLE_CLIENT_MODE):
+            # The value is not echoed, as above.
+            raise ConfigError(
+                f"{_GOOGLE_CLIENT_MODE} google_genai ile kullanılamaz: SDK'nın kayıt istemcisi "
+                "isteği anahtarla birlikte stdout'a basar ya da yanıtları dosyadan okur; "
+                "değişkeni kaldır."
+            )
 
     llm_base_url = _read(env, "LLM_BASE_URL") or None
     if provider == "ollama" and llm_base_url is not None:

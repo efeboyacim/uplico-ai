@@ -2,7 +2,7 @@
 x-build: &build
   context: .
   args:
-    LLM_EXTRAS: ${LLM_EXTRAS-openai anthropic}
+    LLM_EXTRAS: ${LLM_EXTRAS-openai anthropic google}
 
 services:
   app:

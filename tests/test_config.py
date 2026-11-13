@@ -303,7 +303,7 @@ def _provider_env(provider: str, **extra: str) -> dict[str, str]:
     ],
 )
 def test_load_settings_provider_name_is_normalized(raw: str, expected: str) -> None:
-    env = _provider_env(raw, GROQ_API_KEY=GROQ_KEY, LLM_MODEL="some-model")
+    env = _provider_env(raw, GROQ_API_KEY=GROQ_KEY, LLM_MODEL="some-model", LLM_API_KEY="k")
     assert load_settings(env).llm_provider == expected
 
 
@@ -482,3 +482,156 @@ def test_load_settings_new_variables_unset_keep_known_provider_defaults(provider
     assert settings.llm_temperature == 0
     assert settings.llm_max_tokens == 2048
     assert settings.llm_model == PROVIDER_DEFAULTS[provider].model
+
+
+# --- google_genai (step 18d) ----------------------------------------------------------------------
+
+_VERTEX_SWITCHES = ("GOOGLE_GENAI_USE_VERTEXAI", "GOOGLE_GENAI_USE_ENTERPRISE")
+
+
+def _google_env(**extra: str) -> dict[str, str]:
+    return _provider_env(
+        "google_genai", **({"LLM_MODEL": "gemini-test", "LLM_API_KEY": "k"} | extra)
+    )
+
+
+def test_load_settings_google_genai_with_key_and_model() -> None:
+    settings = load_settings(_google_env(LLM_API_KEY=" gm-key "))
+    assert settings.llm_provider == "google_genai"
+    assert settings.llm_model == "gemini-test"
+    assert settings.llm_api_key == "gm-key"
+    assert settings.max_concurrency == 1
+    defaults = PROVIDER_DEFAULTS["google_genai"]
+    assert defaults.model is None
+    assert defaults.requires_api_key is True
+    assert defaults.input_usd_per_mtok is None
+    assert defaults.output_usd_per_mtok is None
+
+
+@pytest.mark.parametrize("model", [None, "", "   "])
+def test_load_settings_google_genai_without_model_raises_naming_llm_model(
+    model: str | None,
+) -> None:
+    env = _google_env()
+    del env["LLM_MODEL"]
+    if model is not None:
+        env["LLM_MODEL"] = model
+    with pytest.raises(ConfigError) as info:
+        load_settings(env)
+    assert "LLM_MODEL" in str(info.value)
+    assert "google_genai" in str(info.value)
+
+
+@pytest.mark.parametrize("key", [None, "", "   "])
+def test_load_settings_google_genai_without_llm_api_key_raises(key: str | None) -> None:
+    env = _google_env()
+    del env["LLM_API_KEY"]
+    if key is not None:
+        env["LLM_API_KEY"] = key
+    with pytest.raises(ConfigError) as info:
+        load_settings(env)
+    assert "LLM_API_KEY" in str(info.value)
+
+
+def test_load_settings_google_genai_ignores_google_and_gemini_api_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The integration would fall back to these; the config must not.
+    env = _google_env(GOOGLE_API_KEY="google-env-key", GEMINI_API_KEY="gemini-env-key")
+    del env["LLM_API_KEY"]
+    for name, value in env.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    for given in (env, None):  # the mapping, then the process environment
+        with pytest.raises(ConfigError) as info:
+            load_settings(given)
+        message = str(info.value)
+        assert "LLM_API_KEY" in message
+        assert "google-env-key" not in message
+        assert "gemini-env-key" not in message
+
+
+@pytest.mark.parametrize("value", ["true", "TRUE", "1", "yes", " true ", "maybe-vertex"])
+@pytest.mark.parametrize("name", _VERTEX_SWITCHES)
+def test_load_settings_google_genai_with_vertex_switch_raises_naming_it(
+    name: str, value: str
+) -> None:
+    with pytest.raises(ConfigError) as info:
+        load_settings(_google_env(**{name: value}))
+    message = str(info.value)
+    assert name in message
+    assert "google_genai" in message
+    assert "maybe-vertex" not in message  # the value is not echoed
+    assert "\n" not in message
+
+
+@pytest.mark.parametrize("value", ["", "   ", "false", "False", "0", "no", "NO"])
+@pytest.mark.parametrize("name", _VERTEX_SWITCHES)
+def test_load_settings_google_genai_with_vertex_switch_off_is_accepted(
+    name: str, value: str
+) -> None:
+    assert load_settings(_google_env(**{name: value})).llm_provider == "google_genai"
+
+
+def test_load_settings_google_genai_reads_the_vertex_switch_from_the_process_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name, value in _google_env().items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
+    with pytest.raises(ConfigError) as info:
+        load_settings()
+    assert "GOOGLE_GENAI_USE_VERTEXAI" in str(info.value)
+
+
+def test_load_settings_google_genai_cloud_project_and_location_alone_are_accepted() -> None:
+    # Without a Vertex switch these do not change the request (they are Vertex-only settings).
+    env = _google_env(GOOGLE_CLOUD_PROJECT="proj-x", GOOGLE_CLOUD_LOCATION="us-central1")
+    assert load_settings(env).llm_provider == "google_genai"
+
+
+@pytest.mark.parametrize("provider", ["groq", "ollama", "openai"])
+def test_load_settings_vertex_switch_is_only_checked_for_google_genai(provider: str) -> None:
+    extra = {"GROQ_API_KEY": GROQ_KEY} if provider == "groq" else {"LLM_MODEL": "m"}
+    if provider == "openai":
+        extra["LLM_API_KEY"] = "k"
+    env = _provider_env(provider, GOOGLE_GENAI_USE_VERTEXAI="true", **extra)
+    env["GOOGLE_GENAI_USE_ENTERPRISE"] = "1"
+    assert load_settings(env).llm_provider == provider
+
+
+@pytest.mark.parametrize("value", ["record", "replay", "auto", "api", " canary-client-mode "])
+def test_load_settings_google_genai_with_client_mode_raises_naming_it(value: str) -> None:
+    with pytest.raises(ConfigError) as info:
+        load_settings(_google_env(GOOGLE_GENAI_CLIENT_MODE=value))
+    message = str(info.value)
+    assert "GOOGLE_GENAI_CLIENT_MODE" in message
+    assert "google_genai" in message
+    assert "canary-client-mode" not in message  # the value is not echoed
+    assert "\n" not in message
+
+
+@pytest.mark.parametrize("value", ["", "   "])
+def test_load_settings_google_genai_with_empty_client_mode_is_accepted(value: str) -> None:
+    env = _google_env(GOOGLE_GENAI_CLIENT_MODE=value)
+    assert load_settings(env).llm_provider == "google_genai"
+
+
+def test_load_settings_google_genai_reads_the_client_mode_from_the_process_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    for name, value in _google_env().items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("GOOGLE_GENAI_CLIENT_MODE", "record")
+    with pytest.raises(ConfigError) as info:
+        load_settings()
+    assert "GOOGLE_GENAI_CLIENT_MODE" in str(info.value)
+
+
+@pytest.mark.parametrize("provider", ["groq", "openai"])
+def test_load_settings_client_mode_is_only_checked_for_google_genai(provider: str) -> None:
+    extra = {"GROQ_API_KEY": GROQ_KEY} if provider == "groq" else {"LLM_MODEL": "m"}
+    if provider == "openai":
+        extra["LLM_API_KEY"] = "k"
+    env = _provider_env(provider, GOOGLE_GENAI_CLIENT_MODE="record", **extra)
+    assert load_settings(env).llm_provider == provider

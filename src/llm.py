@@ -31,14 +31,16 @@ COMMON_MAX_RETRIES = 3
 # fail at call time; Google and Ollama would drop it silently and reach the real network.
 _HTTP_CLIENT_PROVIDERS = frozenset({"groq", "openai"})
 # Package groups in pyproject.toml's [project.optional-dependencies], by provider.
-_PACKAGE_GROUPS = {"openai": "openai", "anthropic": "anthropic"}
+_PACKAGE_GROUPS = {"openai": "openai", "anthropic": "anthropic", "google_genai": "google"}
 # Core dependencies: a missing one means the environment was not installed from the lock.
 _CORE_PACKAGE_PROVIDERS = frozenset({"groq", "ollama"})
 # Public endpoints passed when LLM_BASE_URL is empty: otherwise the integration and its SDK read
-# the address from their own env variables (OPENAI_BASE_URL, ANTHROPIC_BASE_URL, ...).
+# the address from their own env variables (OPENAI_BASE_URL, ANTHROPIC_BASE_URL,
+# GOOGLE_GEMINI_BASE_URL, LANGSMITH_GATEWAY, ...).
 _PUBLIC_BASE_URLS = {
     "openai": "https://api.openai.com/v1",
     "anthropic": "https://api.anthropic.com",
+    "google_genai": "https://generativelanguage.googleapis.com/",
 }
 _CONFIG_STATUSES = frozenset({401, 403, 404})
 _RATE_LIMIT_STATUS = 429
