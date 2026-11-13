@@ -5,7 +5,8 @@ Tedarikçi sözleşmelerini şirketin kendi kural setine göre inceleyen bir age
 Her kural için sonuç uygun / uygun değil / bulunamadı olur ve sözleşmeden birebir alıntıyla
 kanıtlanır; uygun olmayan maddeler için değişiklik taslağı yazılır, belirsiz bulgular avukata
 bırakılır. Python, LangChain `create_agent`, LangGraph ve LangSmith ile kurulur; varsayılan model
-sağlayıcısı Groq, çevrimdışı mod Ollama'dır. İki kurgusal şirketin (tenant) verisi ayrı tutulur.
+sağlayıcısı Groq, çevrimdışı mod Ollama'dır; başka bir sağlayıcı yalnızca env ile seçilir (kod
+değişmez, ölçülen tek yapılandırma Groq'tur). İki kurgusal şirketin (tenant) verisi ayrı tutulur.
 
 ## Ana ilke
 **LLM önerir, kod karar verir, yalnızca avukat onaylar.**
@@ -46,8 +47,12 @@ Ardından salt okunur kod incelemesinin bulduğu üç hata düzeltildi (2026-11-
 dışındaki değerleri maddeyi bütün ve parça parça okuyarak görür, alan kodu parantezli telefon
 maskelenir, BOM'dan sonraki ilk başlık tanınır. Modelli eval bu kodla yeniden koşulmadı (README'deki
 sayılar `4ccc03d` koduna aittir).
-Sıradaki: Adım 18c — sağlayıcıdan bağımsız model kurulumu (README'yi yeniden açar), sonra
-Adım 20 — teslim. Ayrıntı `docs/plan.md` "Durum".
+Adım 18c bitti (2026-11-13): sağlayıcı, model, anahtar ve adres yalnızca env ile seçilir
+(`LLM_PROVIDER` kapalı liste değildir; `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_TEMPERATURE`,
+`LLM_MAX_TOKENS`, build argümanı `LLM_EXTRAS`); Groq'a giden istek adımdan önceki koda göre
+değişmedi, eval yeniden koşulmadı. Ölçülen tek yapılandırma Groq `openai/gpt-oss-120b`'dir; Gemini ile elle deneme
+(OpenAI uyumlu adres) incelemeyi uçtan uca tamamlamadı (`docs/plan.md` Adım 18c "Elle deneme").
+Sıradaki: Adım 20 — teslim. Ayrıntı `docs/plan.md` "Durum".
 
 ## Komutlar
 ```bash

@@ -25,7 +25,7 @@ denebilen tek yapılandırma Groq `openai/gpt-oss-120b`'dir;** diğerleri "çal�
 | Ana model (Ollama) | `qwen3.5:9b` | ≤ 8 GB VRAM'e sığar, tool calling. Yedek: `qwen3.5:4b` |
 | Agent framework | LangChain v1 `create_agent` + LangGraph `StateGraph` | Kural agent'ı `create_agent`; akış LangGraph. |
 | Tool protokolü | Native tool calling (`@tool`) | MCP yok. Tool'lar sırayla çağrılır; paralel tool çağrısına güvenilmez. |
-| Diğer sağlayıcılar | `LLM_PROVIDER` = `init_chat_model` sağlayıcı adı (ör. `openai`, `anthropic`) + `LLM_MODEL` | Çalışır, ölçülmedi. **Maskeli sözleşme metni seçilen sağlayıcıya gider**; saklama koşulları kullanıcının sorumluluğundadır. Gemini ek paket olmadan Google'ın OpenAI uyumlu adresiyle kullanılabilir (`LLM_PROVIDER=openai` + `LLM_BASE_URL` + `LLM_API_KEY` + `LLM_MODEL`); henüz denenmedi. |
+| Diğer sağlayıcılar | `LLM_PROVIDER` = `init_chat_model` sağlayıcı adı (ör. `openai`, `anthropic`) + `LLM_MODEL` | Çalışır, ölçülmedi. **Maskeli sözleşme metni seçilen sağlayıcıya gider**; saklama koşulları kullanıcının sorumluluğundadır. Gemini ek paket olmadan Google'ın OpenAI uyumlu adresiyle seçilebilir (`LLM_PROVIDER=openai` + `LLM_BASE_URL` + `LLM_API_KEY` + `LLM_MODEL`); 2026-11-13 denemesinde inceleme tamamlanmadı (Gemini 3.x tool çağrısının düşünce imzasının geri gönderilmesini ister, `langchain-openai` 1.7.4 göndermez: her kuralın ikinci isteği HTTP 400, bütün kurallar avukata gitti; 2.5 modelleri 404 döndü). Groq ve Ollama dışında hiçbir sağlayıcı bir incelemeyi uçtan uca tamamlamadı (README "Denenmeyenler"). |
 | Model kurulumu | `init_chat_model(model, model_provider=...)` | Sağlayıcı değişimi tek yerde: `src/llm.py`. Sağlayıcı, model, anahtar ve adres ayrı env'lerdir. Model giriş noktalarında başlangıçta bir kez kurulur (aşağıda "Başlangıç ve hata davranışı"). |
 | Arama | Yalnızca BM25: `rank-bm25` (doğrudan, `BM25Plus`) | `langchain-community` arşivlendi; sarmalayıcı kullanılmaz. İndeks inceleme başına bellekte kurulur; paylaşılan indeks yok. |
 
@@ -286,7 +286,10 @@ Tanımsız, boş ve yalnızca boşluk içeren değer aynıdır ("boş").
   Groq yolu dahil). Yalnızca `openai` ve `anthropic` grupları eklenince kilitteki 67 kaydın 67'si
   aynı kalır. Yerel `google_genai` sağlayıcısını isteyen kullanıcı paketi kendisi ekler (bu
   `langchain-core`'u her kurulum için değiştirir); Gemini ek paket olmadan OpenAI uyumlu adresle
-  kullanılabilir; henüz denenmedi (yukarıda "Diğer sağlayıcılar").
+  seçilebilir, ama 2026-11-13 denemesinde inceleme tamamlanmadı (Gemini 3.x: düşünce imzası
+  `langchain-openai` 1.7.4 ile geri gönderilmiyor, her kuralın ikinci isteği HTTP 400, bütün
+  kurallar avukata gitti; 2.5 modelleri 404); Groq ve Ollama dışında hiçbir sağlayıcı bir
+  incelemeyi uçtan uca tamamlamadı (yukarıda "Diğer sağlayıcılar", README "Denenmeyenler").
 - pydantic v2 zorunlu
 - Varsayılan `temperature=0` her sağlayıcıda (`LLM_TEMPERATURE` ile değişir); model tool calling
   desteklemeli. `ChatGroq` `temperature=0`'ı API isteğine `1e-8` olarak yazar; yani "0", istekteki

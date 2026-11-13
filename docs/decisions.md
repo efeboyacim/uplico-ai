@@ -42,8 +42,8 @@ sözleşme, tek model: genel bir dayanıklılık ölçümü değildir.
 checkpoint, audit ve trace yalnızca maskeli metni görür. Maskelenen: TCKN (checksum), IBAN
 (mod-97), telefon, e-posta, taraf ve imza bloklarındaki adlar. Eşleme tenant'ın veritabanında
 kalır; maskesiz metni yalnızca `lawyer` görür.
-**Gidenler (Groq):** maskeli madde ve kural metni; tutar, süre, tarih, şirket adı ve ticari
-şartlar; maskelemenin kaçırdıkları.
+**Gidenler (varsayılan Groq ya da env ile seçilen başka sağlayıcı):** maskeli madde ve kural
+metni; tutar, süre, tarih, şirket adı ve ticari şartlar; maskelemenin kaçırdıkları.
 **Neden:** kurallar tutar ve süre üzerinedir; maskelenirlerse doğrulama çalışmaz. Ticari şartlar
 dışarı çıkmamalıysa çözüm çevrimdışı moddur.
 **Ölçüm:** garanti edilen 52 değerden 0'ı gitti (yapı gereği 0; yalnızca maskelemeyi atlayan kod
@@ -51,18 +51,25 @@ yolunu yakalar). Garanti edilmeyen 5 değerden 2'si gitti: gövdede ve etiketsiz
 geçen ad. Maskeleyici bu örneklere bakılarak düzeltildi (5 / 5 → 2 / 5); sayı genel kapsamı
 göstermez.
 **Sınır:** ad tanıma yalnızca etiketli bloklarda çalışır. Groq'un 30 güne kadar log tutabileceği
-ve veriyi eğitimde kullanmadığı Groq'un beyanıdır; Zero Data Retention önerilir.
+ve veriyi eğitimde kullanmadığı Groq'un beyanıdır; Zero Data Retention önerilir. Bu not yalnızca
+Groq içindir: başka sağlayıcının koşulları kullanıcının sorumluluğundadır (Gemini ücretsiz
+katmanında içerik ürün geliştirmede kullanılabilir, insanlar okuyabilir). OpenAI uyumlu adreste
+audit sağlayıcıyı `openai` diye yazar, adresi yazmaz.
 
 ## 4. İnternetsiz banka sunucusu
 **Değişen:** `LLM_PROVIDER=ollama`, `COMPOSE_PROFILES=offline`. İmajlar ve sohbet modeli
 (`qwen3.5:9b`) internetli makinede hazırlanıp taşınır; ~8 GB VRAM'li GPU gerekir. Maskeleme,
-arama, doğrulama, graph ve tool'lar aynıdır; kod değişmez. Kayıt kendi audit log'umuzdadır.
+arama, doğrulama, graph ve tool'lar aynıdır; kod değişmez, sağlayıcı yalnızca env ile seçilir.
+`LLM_EXTRAS` boş kurulan imaj OpenAI / Anthropic paketlerini taşımaz (611 MB). Kayıt kendi audit
+log'umuzdadır.
 **LangSmith:** çevrimdışı kurulumda LangSmith değişkenleri verilmez; uygulamada açılırsa gerçek
 sözleşmelerin maskeli trace'i dışarı gider. Üretimde izleme açıkken uygulamanın başlamayı
 reddetmesi eklenirdi; bu projede eklenmedi, koruma işletim kuralıdır.
 **Ölçülmeyen:** `qwen3.5:9b` denenmedi, Ollama ile eval koşulmadı. Tek sözleşmede `qwen3.5:4b`
 443 sn (GPU) ve 903 sn (CPU) sürdü; sayısal hatalarını `numeric_mismatch` kuyruğa aldı,
-`check`'siz bir kuralda iki koşuda farklı sonuç verdi.
+`check`'siz bir kuralda iki koşuda farklı sonuç verdi. Ölçülen tek yapılandırma Groq
+`openai/gpt-oss-120b`'dir; Groq ve Ollama dışında hiçbir sağlayıcı bir incelemeyi tamamlamadı
+(Gemini denemesi: README "Denenmeyenler").
 **Eksik kalan:** anahtar döndürme ve kişi bazlı kimlik yok; audit log dosya düzeyinde korunmuyor
 (imza ya da hash zinciri yok).
 

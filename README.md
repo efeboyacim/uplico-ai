@@ -11,8 +11,11 @@ eder ve avukat kuyruğuna neyin gideceğine kod karar verir. Agent'ın onay vere
 sözleşmeyi yalnızca `lawyer` rolündeki anahtarla, API üzerinden bir insan onaylar.
 
 Python, LangChain `create_agent`, LangGraph ve LangSmith (`evaluate()`) ile kuruldu. Varsayılan
-model sağlayıcısı Groq (`openai/gpt-oss-120b`), çevrimdışı mod Ollama'dır (`qwen3.5:9b`).
-Kararların gerekçesi: `docs/decisions.md` (karar dokümanı) ve `docs/architecture.md` §7 (ADR'ler).
+model sağlayıcısı Groq (`openai/gpt-oss-120b`), çevrimdışı mod Ollama'dır (`qwen3.5:9b`);
+LangChain'in tanıdığı başka bir sağlayıcı da env ile seçilebilir (entegrasyon paketi imajda
+kuruluysa). Ölçülen tek yapılandırma Groq `openai/gpt-oss-120b`'dir; Groq ve Ollama dışında hiçbir
+sağlayıcıyla bir inceleme baştan sona tamamlanmadı. Kararların gerekçesi: `docs/decisions.md`
+(karar dokümanı) ve `docs/architecture.md` §7 (ADR'ler).
 
 ## İçindekiler
 1. [Kurulum ve çalıştırma](#kurulum-ve-çalıştırma)
@@ -39,7 +42,8 @@ docker compose up
 ```
 
 Uygulama `http://127.0.0.1:8000` adresinde açılır (port yalnızca `127.0.0.1`'e yayınlanır).
-`GROQ_API_KEY` boşsa `app` tek satırlık bir hatayla çıkar ve yeniden başlamaz.
+Varsayılan modda `GROQ_API_KEY` ve `LLM_API_KEY` ikisi de boşsa `app` tek satırlık bir hatayla
+çıkar ve yeniden başlamaz.
 
 ### Varsayılan mod (Groq)
 Yalnızca `app` servisi başlar; Ollama kapsayıcısı çalışmaz, model inmez. Sözleşmenin **maskeli**
@@ -58,14 +62,62 @@ Bu profille `ollama` ve `ollama-pull` servisleri de başlar; `ollama-pull` sohbe
 model `qwen3.5:9b`'dir (yedek: `qwen3.5:4b`). GPU'lu bir Windows makinede host'taki Ollama da
 kullanılabilir: `OLLAMA_BASE_URL=http://host.docker.internal:11434` (`docs/tech_stack.md` "Deploy").
 
+### Başka bir sağlayıcı
+Sağlayıcı, model, anahtar ve adres yalnızca `.env` ile seçilir; kod değişmez. **Ölçülen tek
+yapılandırma Groq `openai/gpt-oss-120b`'dir;** başka her sağlayıcı ve model yapısı gereği
+çalışması beklenen ama ölçülmemiş bir yapılandırmadır; çalışacağı garanti değildir (Gemini 3.x
+OpenAI uyumlu adresle çalışmadı). Groq ve Ollama dışında hiçbir sağlayıcıyla bir inceleme baştan
+sona tamamlanmadı; üçüncü bir sağlayıcıyla yapılan deneme aşağıda ([Üçüncü bir sağlayıcıyla
+deneme](#üçüncü-bir-sağlayıcıyla-deneme-gemini)).
+
+| Değişken | Anlamı |
+|---|---|
+| `LLM_PROVIDER` | LangChain `init_chat_model`'in tanıdığı sağlayıcı adı (ör. `openai`, `anthropic`); boşsa `groq` |
+| `LLM_MODEL` | Model adı; boşsa `groq` ve `ollama`'nın varsayılanı, varsayılanı olmayan sağlayıcıda zorunlu |
+| `LLM_API_KEY` | Sağlayıcı anahtarı (`openai` ve `anthropic` için zorunlu); `GROQ_API_KEY` eskisi gibi çalışır |
+| `LLM_BASE_URL` | Verilirse modelin adresi (OpenAI uyumlu serviste `openai`'de `/v1` gibi yol dahil); `ollama` ile verilirse başlangıç hatasıdır, Ollama adresi `OLLAMA_BASE_URL`'dir |
+| `LLM_TEMPERATURE` | Boşsa 0; `none` yazılırsa istekte alan gönderilmez (`groq` ile kullanılamaz) |
+| `LLM_MAX_TOKENS` | Çağrı başına çıktı sınırı; boşsa 2048 |
+
+Yeni dört değişken (`LLM_API_KEY`, `LLM_BASE_URL`, `LLM_TEMPERATURE`, `LLM_MAX_TOKENS`)
+verilmediğinde varsayılan ve çevrimdışı mod önceki gibi çalışır; Groq'a giden istek bu adımdan
+hemen önceki kodunkiyle (`2dd77b6`) bayt bayt aynıdır (yan yana karşılaştırıldı: 64 ortamda model
+alanları, 36 senaryoda giden istek). Ölçülen kodun (`4ccc03d`) isteğiyle aynı olduğu söylenemez:
+ondan sonraki düzeltmeler bazı sözleşmelerde maskeli metni değiştirir ([Eval
+sonuçları](#eval-sonuçları)). Ayrıntı: `docs/tech_stack.md` "Ortam değişkenleri",
+`docs/architecture.md` ADR-012.
+
+OpenAI uyumlu bir servis varsayılan imajda ek paket gerektirmez (`langchain-openai` imajdadır):
+
+```bash
+LLM_PROVIDER=openai
+LLM_BASE_URL=<servisin OpenAI uyumlu adresi>
+LLM_API_KEY=<servisin anahtarı>
+LLM_MODEL=<model adı>
+```
+
+- **Paketler.** İmaj varsayılan olarak `langchain-openai` ve `langchain-anthropic` ile kurulur
+  (`LLM_EXTRAS` build argümanı, varsayılan `"openai anthropic"`; boş değer ikisini de kurmaz).
+  Değer `.env`'de ya da kabukta verilir; değiştirince imajı yeniden kurmak gerekir:
+  `docker compose build`.
+- **Grubu olmayan sağlayıcı** (ör. yerel `google_genai`): LangChain entegrasyon paketini
+  `pyproject.toml`'a ekle, kilidi yenile (`uv lock`) ve imajı yeniden kur. `langchain-google-genai`
+  4.x her kurulumda `langchain-core`'u (1.7.7 → 1.8.0) ve `tenacity`'yi değiştirir (ölçülen Groq
+  yolu dahil); bu yüzden imajda yoktur.
+- **Başlangıç hatası.** Anahtar, model ya da entegrasyon paketi eksikse `app` başlarken eksik
+  değişkeni ya da paketi söyleyen tek satırlık bir hatayla durur. İstisna: bilinen sağlayıcı
+  tablosunda (`groq`, `ollama`, `openai`, `anthropic`) olmayan ve anahtarsız kurulabilen bir
+  sağlayıcıda eksik anahtar başlangıçta değil, ancak ilk çağrıda görülür (401: inceleme `failed`,
+  API 502).
+
 ### İlk çalıştırmada inen toplam
-Değerler Adım 12'de (2026-11-12) ölçüldü; ölçülmeyen ayrıca belirtildi (`docs/spec.md` §10
-"Adım 12 gözlemleri").
+Değerler Adım 12'de (2026-11-12) ölçüldü; varsayılan imajın disk boyutu Adım 18c'de yeniden
+ölçüldü. Ölçülmeyen ayrıca belirtildi (`docs/spec.md` §10 "Adım 12 gözlemleri").
 
 | Mod | Ne iner / kurulur | Boyut |
 |---|---|---|
-| Varsayılan (Groq) | Uygulama imajı (temel imaj + derleme sırasında inen paketler) | Diskte 611 MB, sıkıştırılmış 140 MB (ölçüldü) |
-| Çevrimdışı (Ollama) | Yukarıdaki imaj + `ollama/ollama:0.40.16` | 3,40 GB indirme, diskte 8,52 GB (ölçüldü) |
+| Varsayılan (Groq) | Uygulama imajı (temel imaj + derleme sırasında inen paketler, `langchain-openai` ve `langchain-anthropic` dahil) | Diskte 743 MB (ölçüldü; `LLM_EXTRAS` boşken 611 MB). Sıkıştırılmış indirme yeniden ölçülmedi (Adım 12'deki 611 MB'lık imajda 140 MB'tı) |
+| Çevrimdışı (Ollama) | Yukarıdaki imaj + `ollama/ollama:0.40.16` | 3,40 GB indirme, diskte 8,52 GB (ölçüldü; 611 MB'lık imajla) |
 | | + sohbet modeli `qwen3.5:4b` (yedek) | 3,3 GB (ölçüldü) |
 | | + sohbet modeli `qwen3.5:9b` (varsayılan) | ~7 GB (**tahmin, ölçülmedi**) |
 
@@ -404,7 +456,13 @@ açılır. Tutarlar, süreler, tarihler ve şirket adları maskelenmez (kurallar
 
 - **Varsayılan mod:** maskeli madde metni, kural metni ve agent mesajları Groq'a gider; tutarlar ve
   ticari şartlar da. Maskeleyicinin kaçırdığı kimlik bilgisi (ör. gövdede geçen ad) Groq'a
-  gidebilir.
+  gidebilir. Groq'un saklama beyanı (30 güne kadar log, Zero Data Retention ile kapanır, eğitimde
+  kullanmaz) **yalnızca Groq içindir**.
+- **Başka bir sağlayıcı:** aynı veri (maskeli metin ve maskelemenin kaçırdıkları) seçilen
+  sağlayıcıya gider; onun saklama ve kullanım koşulları kullanıcının sorumluluğundadır. Örnek:
+  Gemini'nin ücretsiz katmanında Google gönderilen içeriği ürünlerini geliştirmede kullanabilir ve
+  insan değerlendiriciler okuyabilir. OpenAI uyumlu bir adreste audit'in `review_started` satırı
+  `openai`'yi ve modeli yazar, adresi yazmaz: isteğin gerçekte gittiği yer kayıtta görünmez.
 - **Çevrimdışı mod:** model yereldir; veri makineden çıkmaz.
 - **LangSmith:** çevrimdışı kurulumda LangSmith değişkenleri verilmez; uygulamada açılırsa gerçek
   sözleşmelerin maskeli trace'i dışarı gider.
@@ -452,6 +510,19 @@ Tam tablo: `docs/architecture.md` §6 "Veri nereye gidiyor".
 - **Audit log dosya düzeyinde korunmaz.** Uygulama üzerinden değiştirilemez (`UPDATE` / `DELETE`'i
   reddeden tetikleyiciler), ama veritabanı dosyasına doğrudan erişen biri değiştirebilir; imza ya
   da hash zinciri yok.
+- **Başka bir sağlayıcıda** (ayrıntı: `docs/agent_design.md` §6, `docs/spec.md` §8):
+  - Hata sınıflandırmasında bilinen yanlışlar var: OpenAI'de kota bitmesi 429'dur ve hız limiti
+    sayılır; Gemini'de faturalama hatası 400'dür ve diğer LLM hatası sayılır.
+  - `max_retries=3` `groq`, `openai` ve `anthropic`'te en fazla 4, `google_genai`'de 3 istek
+    demektir; zaman aşımı deneme başınadır.
+  - Düşünen modellerde düşünme token'ları `LLM_MAX_TOKENS`'ın içindedir; sınır dolarsa yanıt boş
+    gelir ve kural `no_finding` (`no_submit`, incelenemedi) olarak avukata gider.
+  - OpenAI uyumlu bir adresten akışlı yanıtta token kullanımı eksik gelebilir.
+  - Bilinen sağlayıcı tablosunda olmayan, anahtarsız kurulabilen bir sağlayıcıda eksik anahtar
+    başlangıçta değil ilk çağrıda görülür (401): inceleme `failed` olur, API 502 döner.
+  - Gemini 3.x, OpenAI uyumlu adresle: `langchain-openai` 1.7.4 tool çağrısının düşünce imzasını
+    geri göndermez; her kural `no_finding` olur ve avukata gider ([Üçüncü bir sağlayıcıyla
+    deneme](#üçüncü-bir-sağlayıcıyla-deneme-gemini)).
 
 Tam liste: `docs/spec.md` §8 "Bilinen sınırlar".
 
@@ -472,6 +543,36 @@ Tam liste: `docs/spec.md` §8 "Bilinen sınırlar".
   yalnızca geliştirme sırasında kullanıldı.
 - Docker'da LangSmith experiment'ine git bilgisinin (uzak depo adresi, yazar adı ve e-postası)
   gitmediği konteynerde gerçek yüklemeyle doğrulanmadı (`docs/evals.md` §7).
+- OpenAI ve Anthropic'in kendisi (anahtar yok), yerel `google_genai` entegrasyonu ve Groq / Ollama
+  dışında herhangi bir sağlayıcıyla baştan sona tamamlanan bir inceleme; aşağıdaki tek deneme
+  dışında başka sağlayıcıyla eval ya da inceleme yapılmadı. Çevrimdışı mod bu adımın koduyla
+  çalıştırılmadı (mevcut Ollama testleri değiştirilmeden geçiyor).
+
+### Üçüncü bir sağlayıcıyla deneme (Gemini)
+2026-11-13, kod `c7fec04`, varsayılan imaj. Google Gemini ücretsiz katman anahtarı, Google'ın
+OpenAI uyumlu adresi üzerinden (`LLM_PROVIDER=openai`,
+`LLM_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/`). Tek eval sözleşmesi
+(`02_ihlalli`), `data/`'nın bir kopyası üzerinde `POST /reviews` ile; her modelde tek koşu. Bu bir
+ölçüm değildir.
+
+1. **`gemini-3.5-flash-lite`:** başlangıç kontrolü geçti; tek tek istekler kabul edildi (çıktı
+   sınırı alanı `max_completion_tokens`, beş tool şeması) ve model ilk tool çağrısını
+   (`search_contract`) yaptı. Her kuralın ikinci isteği, tool sonucunu geri gönderen istek, HTTP 400
+   `INVALID_ARGUMENT` ile reddedildi: "Function call is missing a thought_signature". Gemini 3.x
+   tool çağrısının düşünce imzasının geri gönderilmesini ister; `langchain-openai` 1.7.4 bunu
+   göndermez (hata metni, aynı ayarla yapılan iki adımlı kısa bir tool denemesinde okundu; audit
+   hata metnini tutmaz). Sonuç: `POST /reviews` 7 sn'de 200 döndü, audit'te 5 adet 400 var, 5
+   kuralın 5'i `no_finding` oldu ve avukat kuyruğuna gitti; hiçbir kural avukatsız geçmedi, hiçbir
+   şey "uygun" bildirilmedi. İnceleme bu modelle **çalışmadı**; sistem güvenli tarafta hata verdi.
+2. **`gemini-2.5-flash-lite` ve `gemini-2.5-flash`:** adresin model listesinde görünüyorlar ama
+   her çağrı 404 döndü. Hata sağlayıcı yapılandırma hatası sayıldı: inceleme `failed` oldu, API 502
+   döndü, audit satırlarında kod 404; yaklaşık 1 sn. (Google 2.5 modellerini 2026-12-01'de
+   kaldırıyor.)
+
+**Sonuç:** Groq ve Ollama dışında hiçbir sağlayıcı bir incelemeyi baştan sona tamamlamadı. Deneme
+gerçek bir üçüncü sağlayıcıda yalnızca şunları gösterdi: başlangıç kontrolü, ilk isteklerin kabulü,
+ilk tool çağrısı ve iki hata yolu (400 → kural avukata gider; 404 → inceleme 502 ile `failed`
+olur).
 
 ## Daha fazla vaktim olsaydı
 

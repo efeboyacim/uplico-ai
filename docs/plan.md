@@ -458,8 +458,12 @@
   `evals.md` §1'in istediği modelli eval koşusu (kota kullanıcının; sorulacak). README'deki eval
   sayıları `4ccc03d` kodunun koşusudur; bu üç düzeltmeden sonra yeniden koşulmadı. Holdout sonucu
   sabit kayıttır, yeniden koşulmaz. `src/` değiştiği için Docker imajı yeniden kurulur.
-- **Sıradaki:** modelli eval koşusu için kullanıcı onayı, sonra Adım 18c; 18c README'yi ve karar
-  dokümanını yeniden açar.
+- **Adım 18c bitti (2026-11-13):** sağlayıcı, model, anahtar ve adres yalnızca env ile seçilir
+  (`LLM_PROVIDER` kapalı liste değil; `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_TEMPERATURE`,
+  `LLM_MAX_TOKENS`, build argümanı `LLM_EXTRAS`). Groq isteği değişmedi; eval yeniden koşulmadı.
+  Gemini ile elle deneme uçtan uca çalışmadı (ayrıntı Adım 18c "Elle deneme"). Bekleyen üç
+  düzeltmeden sonraki modelli eval koşusu hâlâ yapılmadı (README sayıları `4ccc03d` kodunundur).
+- **Sıradaki:** Adım 20 — teslim (kullanıcı onayıyla push).
 - **Adım 18c'ye başlarken (2026-11-13 oturumunun devri):**
   1. Depo temiz; son commit bu notun commit'i. `origin`'e push yapılmadı (push Adım 20'dir).
   2. Holdout koşusu bitti; eval önbelleği yok. `src/`, `evals/*.py` ve `uv.lock` artık
@@ -1343,7 +1347,32 @@ gereksiz yönlendirme satırları bunu gösterir.
   klasörüne dosya yazılmamış.
 - **Commit:** `docs: record the single held-out eval run`
 
-### [ ] Adım 18c — Sağlayıcıdan bağımsız model kurulumu
+### [x] Adım 18c — Sağlayıcıdan bağımsız model kurulumu
+- **Gerçekleşen (2026-11-13):** `43fb3ac` (tasarım dokümanları), `c7fec04` (test, kod, paketler)
+  ve bu commit (README, karar dokümanı, `CLAUDE.md`). Doğrulama: `uv run pytest` 1784 geçti
+  (önce 1591), ruff ve mypy temiz; mevcut testlerden yalnızca
+  `test_load_settings_unknown_provider_raises_config_error` değişti; Groq yolu `HEAD` ile yan
+  yana karşılaştırıldı (model alanları 64 ortam, tel üzerindeki istek 36 senaryo: aynı); kilitteki
+  mevcut 67 paket aynı, 8 paket eklendi; varsayılan imaj 743 MB (önce 611 MB; `LLM_EXTRAS` boşken
+  611 MB). Modelli eval koşulmadı (Groq isteği değişmedi).
+- **Elle deneme (2026-11-13, kod `c7fec04`, varsayılan imaj; Gemini ücretsiz katman anahtarı,
+  OpenAI uyumlu adres, `LLM_PROVIDER=openai`; `02_ihlalli` sözleşmesi, `POST /reviews`, `data/`
+  kopyasında; model başına tek koşu, ölçüm değil):**
+  1. `gemini-3.5-flash-lite`: başlangıç kontrolü geçti; tekil istekler kabul edildi
+     (`max_completion_tokens`, beş tool şeması) ve model ilk tool çağrısını yaptı. Tool sonucunu
+     geri gönderen ikinci istek her kuralda 400 aldı (`INVALID_ARGUMENT`, "Function call is
+     missing a thought_signature"): Gemini 3.x tool çağrısının düşünce imzasının geri
+     gönderilmesini istiyor, langchain-openai 1.7.4 göndermiyor. Sonuç: 200, 7 sn, 5 kuralın 5'i
+     `no_finding` ile avukat kuyruğunda; hiçbir kural avukatsız geçmedi. İnceleme bu modelle
+     çalışmadı, sistem güvenli tarafta kaldı.
+  2. `gemini-2.5-flash-lite` ve `gemini-2.5-flash`: model listesinde var, her çağrı 404 →
+     `config` → inceleme `failed`, API 502, audit'te kod 404, ≈ 1 sn.
+  **Sonuç:** Groq ve Ollama dışında hiçbir sağlayıcı bir incelemeyi uçtan uca tamamlamadı.
+  Gerçek üçüncü sağlayıcıda görülenler: başlangıç, isteğin kabulü, ilk tool çağrısı ve iki hata
+  yolu (400 → kural avukata; 404 → inceleme `failed`, 502). **Denenmedi:** OpenAI ve Anthropic
+  (anahtar yok); yerel `google_genai` entegrasyonu; çevrimdışı mod bu kodla; modelli eval.
+  İlk koşunun token toplamı kaydedilmedi (özet betiği veri kopyasındaki eski incelemelerle
+  birlikte saydı; ikinci koşudan önce düzeltildi).
 - **Karar (2026-11-13, kullanıcı):** `LLM_PROVIDER` bugün yalnızca `groq` ve `ollama` kabul ediyor;
   başka bir sağlayıcıyı kullanmak isteyen kodu değiştirmek zorunda. Kod sağlayıcıdan ve modelden
   bağımsız hale getirilir: sağlayıcı, model ve anahtar yalnızca env ile verilir. "Ölçüldü" denebilen

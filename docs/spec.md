@@ -239,9 +239,12 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   ayarlanmadı.
 - **Groq `openai/gpt-oss-120b` dışındaki her yapılandırma "çalışır, ölçülmedi"dir:** "ölçüldü"
   denebilen tek yapılandırma budur (`evals.md` §4); Ollama da "ölçülmedi" tarafındadır. Gerçek
-  sağlayıcıyla denenenler Groq ve Ollama'dır. Başka bir sağlayıcı ya da modelle tool çağrısının,
-  birebir alıntının ve taslak yönlendirmesinin aynı çalışacağı varsayılmaz; prompt ve dataset
-  başka modele göre ayarlanmadı.
+  sağlayıcıyla bir incelemeyi uçtan uca tamamlayanlar yalnızca Groq ve Ollama'dır; Gemini
+  2026-11-13'te OpenAI uyumlu adresle denendi ve tamamlamadı (Gemini 3.x tool çağrısının düşünce
+  imzasını ister, `langchain-openai` 1.7.4 göndermez: her kuralın ikinci isteği HTTP 400, bütün
+  kurallar avukata gitti; 2.5 modelleri 404; README "Denenmeyenler"). Başka bir sağlayıcı ya da
+  modelle tool çağrısının, birebir alıntının ve taslak yönlendirmesinin aynı çalışacağı
+  varsayılmaz; prompt ve dataset başka modele göre ayarlanmadı.
   Sağlayıcı hatalarının sınıflandırılmasında bilinen yanlışlar vardır (OpenAI'de kota / bakiye
   bitmesi `rate_limit`, Gemini'de faturalama hatası `other` sayılır; `agent_design.md` §6) ve
   tabloda olmayan, anahtarsız kurulabilen bir sağlayıcıda eksik anahtar ancak ilk çağrıda görülür.

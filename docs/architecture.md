@@ -625,8 +625,11 @@ insanlar okuyabilir. Maskeleme her sağlayıcıda graph'tan önce aynı şekilde
     zorunda kalır. Sebep: `langchain-google-genai` 4.x kilide girince, grup seçilmese de herkesin
     kurduğu `langchain-core` 1.7.7 → 1.8.0 ve `tenacity` 9.2.1 → 9.1.4 olur; uv'nin düz
     `conflicts` ayarı bunu çözmez. Seçilen (a): kilitte yalnızca `openai` + `anthropic` (67 kaydın
-    67'si aynı kalır); Gemini OpenAI uyumlu adresle kullanılabilir (henüz denenmedi), yerel
-    `google_genai` için paketi kullanıcı ekler.
+    67'si aynı kalır); Gemini OpenAI uyumlu adresle seçilebilir, ama 2026-11-13 denemesinde
+    inceleme tamamlanmadı (Gemini 3.x tool çağrısının düşünce imzasını ister, `langchain-openai`
+    1.7.4 göndermez: her kuralın ikinci isteği HTTP 400, bütün kurallar avukata gitti; 2.5
+    modelleri 404; Groq ve Ollama dışında hiçbir sağlayıcı bir incelemeyi uçtan uca tamamlamadı;
+    README "Denenmeyenler"). Yerel `google_genai` için paketi kullanıcı ekler.
 - **Sonuçlar / ödünleşimler:**
   - "Ölçüldü" denebilen tek yapılandırma yine Groq `openai/gpt-oss-120b`'dir; diğerleri "çalışır,
     ölçülmedi"dir (`spec.md` §8 "Bilinen sınırlar").
