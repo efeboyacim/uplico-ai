@@ -16,7 +16,8 @@ kodda kapalı bir sağlayıcı listesi yoktur, `init_chat_model`'in tanıdığı
 ile seçilebilir (aşağıda "Sürüm sabitleri / kısıtlar", "Bilinen sağlayıcı tablosu"). Fark yalnızca
 sohbet modelindedir; graph, tool'lar, maskeleme ve doğrulama her sağlayıcıda aynıdır. **"Ölçüldü"
 denebilen tek yapılandırma Groq `openai/gpt-oss-120b`'dir;** diğerleri "çalışır, ölçülmedi"dir;
-`google_genai` eklendi, henüz denenmedi.
+`google_genai` tek sözleşmede denendi (2026-11-13), ölçülmedi (`plan.md` Adım 18d
+"Elle deneme").
 
 | Konu | Seçim | Not |
 |---|---|---|
@@ -26,7 +27,7 @@ denebilen tek yapılandırma Groq `openai/gpt-oss-120b`'dir;** diğerleri "çal�
 | Ana model (Ollama) | `qwen3.5:9b` | ≤ 8 GB VRAM'e sığar, tool calling. Yedek: `qwen3.5:4b` |
 | Agent framework | LangChain v1 `create_agent` + LangGraph `StateGraph` | Kural agent'ı `create_agent`; akış LangGraph. |
 | Tool protokolü | Native tool calling (`@tool`) | MCP yok. Tool'lar sırayla çağrılır; paralel tool çağrısına güvenilmez. |
-| Diğer sağlayıcılar | `LLM_PROVIDER` = `init_chat_model` sağlayıcı adı (ör. `openai`, `anthropic`, `google_genai`) + `LLM_MODEL` | `openai`, `anthropic` gibi sağlayıcılar: çalışır, ölçülmedi. `google_genai`: eklendi, denenmedi (Adım 18d elle deneme planlı). **Maskeli sözleşme metni seçilen sağlayıcıya gider**; saklama koşulları kullanıcının sorumluluğundadır. Gemini kendi entegrasyonuyla seçilir (`LLM_PROVIDER=google_genai` + `LLM_MODEL` + `LLM_API_KEY`; `google` paket grubu, Gemini Developer API). Google'ın OpenAI uyumlu adresiyle (`LLM_PROVIDER=openai` + `LLM_BASE_URL`) 2026-11-13 denemesinde inceleme tamamlanmadı (Gemini 3.x tool çağrısının düşünce imzasının geri gönderilmesini ister, `langchain-openai` 1.7.4 göndermez: her kuralın ikinci isteği HTTP 400, bütün kurallar avukata gitti; 2.5 modelleri 404 döndü); `google_genai` bu yüzden eklendi. Groq ve Ollama dışında hiçbir sağlayıcı bir incelemeyi uçtan uca tamamlamadı (README "Denenmeyenler"). |
+| Diğer sağlayıcılar | `LLM_PROVIDER` = `init_chat_model` sağlayıcı adı (ör. `openai`, `anthropic`, `google_genai`) + `LLM_MODEL` | `openai`, `anthropic` gibi sağlayıcılar: çalışır, ölçülmedi. `google_genai`: tek sözleşmede denendi (2026-11-13), ölçülmedi (`plan.md` Adım 18d "Elle deneme"); `gemini-3.5-flash-lite` ile entegrasyon `temperature`'ı yok sayar (aşağıda `LLM_TEMPERATURE`). **Maskeli sözleşme metni seçilen sağlayıcıya gider**; saklama koşulları kullanıcının sorumluluğundadır. Gemini kendi entegrasyonuyla seçilir (`LLM_PROVIDER=google_genai` + `LLM_MODEL` + `LLM_API_KEY`; `google` paket grubu, Gemini Developer API). Google'ın OpenAI uyumlu adresiyle (`LLM_PROVIDER=openai` + `LLM_BASE_URL`) 2026-11-13 denemesinde inceleme tamamlanmadı (Gemini 3.x tool çağrısının düşünce imzasının geri gönderilmesini ister, `langchain-openai` 1.7.4 göndermez: her kuralın ikinci isteği HTTP 400, bütün kurallar avukata gitti; 2.5 modelleri 404 döndü); `google_genai` bu yüzden eklendi. Kendi entegrasyonuyla tek denemede inceleme avukat kuyruğuna ulaştı (`awaiting_lawyer`; bir kuralın koşusu ücretsiz katman hız limitiyle kesildi). |
 | Model kurulumu | `init_chat_model(model, model_provider=...)` | Sağlayıcı değişimi tek yerde: `src/llm.py`. Sağlayıcı, model, anahtar ve adres ayrı env'lerdir. Model giriş noktalarında başlangıçta bir kez kurulur (aşağıda "Başlangıç ve hata davranışı"). |
 | Arama | Yalnızca BM25: `rank-bm25` (doğrudan, `BM25Plus`) | `langchain-community` arşivlendi; sarmalayıcı kullanılmaz. İndeks inceleme başına bellekte kurulur; paylaşılan indeks yok. |
 
@@ -258,7 +259,11 @@ Tanımsız, boş ve yalnızca boşluk içeren değer aynıdır ("boş").
   negatif olmayan bir sayı olmalıdır (`-0` 0 sayılır); değilse başlangıç hatasıdır. Her sağlayıcıya
   uygulanır; tek istisna `groq` ile `none`'dır: başlangıç hatasıdır (mesaj `LLM_TEMPERATURE`'ı
   söyler), çünkü `ChatGroq`'un "sıcaklık yok" değeri yoktur: `None` kurulumda doğrulamadan geçmez,
-  argümanı atlamak ise `ChatGroq`'un kendi varsayılanını (0,7) gönderir.
+  argümanı atlamak ise `ChatGroq`'un kendi varsayılanını (0,7) gönderir. `google_genai` ile
+  `gemini-3.5-flash-lite`'ta entegrasyon her çağrıda uyarır ("Model 'gemini-3.5-flash-lite' uses
+  fixed sampling defaults; the sampling parameter(s) temperature will be ignored."): bu modelde
+  `LLM_TEMPERATURE` etkisizdir, `temperature` 0 uygulanmaz ve koşuların tekrarlanabilir olması
+  beklenmez (2026-11-13 elle denemesinde görüldü).
 - `LLM_MAX_TOKENS` — çağrı başına çıktı sınırı; pozitif tam sayı, boşsa 2048 (Groq'un bugünkü
   değeri). `groq`'a ve Ollama dışındaki her sağlayıcıya verilir; `ollama`'ya verilmez (`ChatOllama`
   yok sayar). Sebep: düşünen modellerde düşünme token'ları bu sınırın içindedir; sınır dolarsa yanıt
@@ -320,11 +325,11 @@ Tanımsız, boş ve yalnızca boşluk içeren değer aynıdır ("boş").
   `tenacity` 9.1.4). Sabitleme grubuyla iki çekirdek tutmak reddedildi. Sebep: Gemini Google'ın
   OpenAI uyumlu adresiyle 2026-11-13 denemesinde incelemeyi tamamlamadı (Gemini 3.x: düşünce imzası
   `langchain-openai` 1.7.4 ile geri gönderilmiyor, her kuralın ikinci isteği HTTP 400, bütün
-  kurallar avukata gitti; 2.5 modelleri 404); yerel entegrasyon imzayı taşır (yalnızca sahte
-  taşıyıcıyla görüldü, `evals.md` §2). Onunla deneme
-  planlıdır, henüz koşulmadı; Groq ve Ollama dışında hiçbir sağlayıcı bir incelemeyi uçtan uca
-  tamamlamadı (yukarıda "Diğer sağlayıcılar", README "Denenmeyenler"). Ölçülen Groq sayıları
-  `langchain-core` 1.7.7'ye aittir.
+  kurallar avukata gitti; 2.5 modelleri 404); yerel entegrasyon imzayı taşır (sahte taşıyıcıyla
+  test edilir, `evals.md` §2; gerçek Gemini API'siyle tek denemede tool döngüsü tamamlandı). Gemini tek
+  sözleşmede denendi (2026-11-13), ölçülmedi (yukarıda "Diğer sağlayıcılar", `plan.md` Adım 18d
+  "Elle deneme"). Ölçülen Groq sayıları `langchain-core` 1.7.7'ye aittir; modelli eval 1.8.0 ile
+  koşulmadı.
 - pydantic v2 zorunlu
 - Varsayılan `temperature=0` her sağlayıcıda (`LLM_TEMPERATURE` ile değişir); model tool calling
   desteklemeli. `ChatGroq` `temperature=0`'ı API isteğine `1e-8` olarak yazar; yani "0", istekteki

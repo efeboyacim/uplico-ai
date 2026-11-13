@@ -53,23 +53,23 @@ göstermez.
 **Sınır:** ad tanıma yalnızca etiketli bloklarda çalışır. Groq'un 30 güne kadar log tutabileceği
 ve veriyi eğitimde kullanmadığı Groq'un beyanıdır; Zero Data Retention önerilir. Bu not yalnızca
 Groq içindir: başka sağlayıcının koşulları kullanıcının sorumluluğundadır (Gemini ücretsiz
-katmanında içerik ürün geliştirmede kullanılabilir, insanlar okuyabilir). OpenAI uyumlu adreste
-audit sağlayıcıyı `openai` diye yazar, adresi yazmaz.
+katmanında içerik ürün geliştirmede kullanılabilir, insanlar okuyabilir).
 
 ## 4. İnternetsiz banka sunucusu
 **Değişen:** `LLM_PROVIDER=ollama`, `COMPOSE_PROFILES=offline`. İmajlar ve sohbet modeli
 (`qwen3.5:9b`) internetli makinede hazırlanıp taşınır; ~8 GB VRAM'li GPU gerekir. Maskeleme,
 arama, doğrulama, graph ve tool'lar aynıdır; kod değişmez, sağlayıcı yalnızca env ile seçilir.
-`LLM_EXTRAS` boş kurulan imaj OpenAI / Anthropic paketlerini taşımaz (611 MB). Kayıt kendi audit
-log'umuzdadır.
+`LLM_EXTRAS` boş imaj OpenAI / Anthropic / Google paketlerini taşımaz (eski kilitte 611 MB). Kayıt
+kendi audit log'umuzdadır.
 **LangSmith:** çevrimdışı kurulumda LangSmith değişkenleri verilmez; uygulamada açılırsa gerçek
 sözleşmelerin maskeli trace'i dışarı gider. Üretimde izleme açıkken uygulamanın başlamayı
 reddetmesi eklenirdi; bu projede eklenmedi, koruma işletim kuralıdır.
 **Ölçülmeyen:** `qwen3.5:9b` denenmedi, Ollama ile eval koşulmadı. Tek sözleşmede `qwen3.5:4b`
 443 sn (GPU) ve 903 sn (CPU) sürdü; sayısal hatalarını `numeric_mismatch` kuyruğa aldı,
 `check`'siz bir kuralda iki koşuda farklı sonuç verdi. Ölçülen tek yapılandırma Groq
-`openai/gpt-oss-120b`'dir; Groq ve Ollama dışında hiçbir sağlayıcı bir incelemeyi tamamlamadı
-(Gemini denemesi: README "Denenmeyenler").
+`openai/gpt-oss-120b`'dir. Gemini'nin OpenAI uyumlu adreste tool döngüsü kırıldığı için "Google
+paketi yok" kararı geri alındı; bedeli herkese `langchain-core` 1.8.0 (ölçümler 1.7.7'de). Tek
+Gemini koşusunda status 5'te 4 doğru, bir kural 429'la kesildi; ölçüm değil.
 **Eksik kalan:** anahtar döndürme ve kişi bazlı kimlik yok; audit log dosya düzeyinde korunmuyor
 (imza ya da hash zinciri yok).
 

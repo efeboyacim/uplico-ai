@@ -465,7 +465,16 @@
   düzeltmeden sonraki modelli eval koşusu hâlâ yapılmadı (README sayıları `4ccc03d` kodunundur).
 - **Eklenen adım (2026-11-13, kullanıcı):** Adım 18d — Gemini kendi paketiyle. 18c'nin "(a)"
   kararını geri alır; `langchain-core` herkes için 1.8.0 olur.
-- **Sıradaki:** Adım 18d, sonra Adım 20 — teslim (kullanıcı onayıyla push).
+- **Adım 18d bitti (2026-11-13):** `google` paket grubu (`langchain-google-genai` 4.5.0) kilide ve
+  varsayılan imaja girdi; `google_genai` bilinen sağlayıcı tablosunda. Herkesin kurduğu
+  `langchain-core` 1.7.7 → 1.8.0, `tenacity` 9.2.1 → 9.1.4; Groq ve Ollama yolu sahte
+  taşıyıcılarla karşılaştırıldı, fark yok (model koşusu değil). Gemini tek sözleşmede denendi,
+  ölçülmedi: inceleme `awaiting_lawyer`'a ulaştı, status 5'te 4 doğru, bir kuralın koşusu
+  ücretsiz katman hız limitiyle kesildi (ayrıntı Adım 18d "Elle deneme").
+- **Açık (kullanıcıya sorulacak):** `langchain-core` değiştiği için `evals.md` §1 kuralı gereği
+  modelli eval yeniden koşulsun mu? Koşulmadı; README'deki ölçülen sayılar `4ccc03d` koduna ve
+  `langchain-core` 1.7.7'ye aittir.
+- **Sıradaki:** Adım 20 — teslim (kullanıcı onayıyla push).
 - **Adım 18c'ye başlarken (2026-11-13 oturumunun devri):**
   1. Depo temiz; son commit bu notun commit'i. `origin`'e push yapılmadı (push Adım 20'dir).
   2. Holdout koşusu bitti; eval önbelleği yok. `src/`, `evals/*.py` ve `uv.lock` artık
@@ -1568,7 +1577,49 @@ gereksiz yönlendirme satırları bunu gösterir.
   gittiği ve o sağlayıcının saklama koşullarının kullanıcının sorumluluğunda olduğu.
 - **Commit:** `feat: accept any chat model provider through env`
 
-### [ ] Adım 18d — Gemini kendi paketiyle (`google_genai`)
+### [x] Adım 18d — Gemini kendi paketiyle (`google_genai`)
+- **Gerçekleşen (2026-11-13):** `514a718` (tasarım dokümanları), `4dec2d8` (test, kod, paketler)
+  ve bu commit (sonuç: plan, tasarım dokümanları, README, karar dokümanı, `CLAUDE.md`).
+  Doğrulama: `uv run pytest` 1858 geçti (önce 1784), ruff ve mypy temiz. Mevcut testlerden
+  tasarımın zorunlu kıldığı iki satır değişti (aşağıda "Doğrulama"); Groq / Ollama beklentisi
+  değişmedi. Kilit: herkesin kurduğu iki paket `langchain-core` 1.7.7 → 1.8.0, `tenacity`
+  9.2.1 → 9.1.4; eklenen `langchain-google-genai` 4.5.0, `google-genai` 3.3.0 ve 7 geçişli paket.
+  İki ayrı inceleme Groq ve Ollama yolunu 1.7.7 ve 1.8.0'da sahte taşıyıcılarla karşılaştırdı
+  (giden istekler, ayrıştırılan yanıtlar, hata sınıfları, gerçek graph üzerinde bütün bir
+  inceleme): fark yok. Bu sahte taşıyıcıyla karşılaştırmadır, model koşusu değildir. İncelemenin
+  bulup düzeltilenleri: boş olmayan `GOOGLE_GENAI_CLIENT_MODE` başlangıçta reddedilir (SDK'nın
+  kayıt istemcisi isteği anahtar başlığıyla stdout'a basıyordu); Gemini'ye "çalışır" diyen iki
+  doküman satırı (`architecture.md` §6, `tech_stack.md` "Diğer sağlayıcılar") düzeltildi; düşünce
+  imzasının tool sonucundan sonra geri gönderildiğini tel üzerinde sınayan test eklendi. Varsayılan
+  imaj (`LLM_EXTRAS` verilmemiş: `"openai anthropic google"`) 829 MB (önce 743 MB); `LLM_EXTRAS`
+  boşken 611 MB eski kilitte ölçüldü, yeniden ölçülmedi. **Eval:** modelli eval yeniden koşulmadı;
+  README'deki ölçülen sayılar `4ccc03d` koduna ve `langchain-core` 1.7.7'ye aittir. `evals.md` §1
+  kuralı gereği koşunun yapılıp yapılmayacağı kullanıcıya sorulacak (açık).
+- **Elle deneme (2026-11-13, konteyner içinde, `data/` kopyasında, `POST /reviews`;
+  `LLM_PROVIDER=google_genai`, `LLM_MODEL=gemini-3.5-flash-lite`, `LLM_BASE_URL` boş,
+  `MAX_CONCURRENCY=1`, Gemini ücretsiz katman anahtarı; eval sözleşmesi `02_ihlalli`
+  (`contract-02`), 5 kural; tek koşu, ölçüm değil):**
+  1. Sonuç: HTTP 200, 39 sn; inceleme `awaiting_lawyer`, 5 bulgu; eval etiketlerine göre status
+     5'te 4 doğru. Bulguların 3'ü avukat kuyruğuna gitti.
+  2. `termination_notice`: `non_compliant` (beklenen `non_compliant`), alıntı var, taslağın kod
+     kontrolü geçti, `verify` kuyruğa göndermedi. `late_penalty_cap`: `non_compliant` (beklenen),
+     taslağın kod kontrolü geçmedi → kuyruk (`proposal_noncompliant`). `insurance_minimum`:
+     `non_compliant` (beklenen), taslak geçti, kuyruk yok. `liability_cap`: beklenen `compliant`
+     iken `non_compliant` → kuyruk (`missing_proposal`, `run_interrupted`); bu koşunun audit'inde
+     `GoogleRateLimitError` 429 ile iki `model_call` satırı var (ücretsiz katman limiti), yani bu
+     kuralın koşusu hız limitiyle kesildi. Yanlış status'un kesintiden mi modelden mi geldiği
+     **bilinmiyor**. `governing_law`: `not_found` (beklenen), kuyruk (`no_finding`).
+  3. OpenAI uyumlu yolu bozan düşünce imzasıyla tool döngüsü gerçek Gemini API'siyle tamamlandı.
+  4. Entegrasyon her çağrıda uyardı: "Model 'gemini-3.5-flash-lite' uses fixed sampling
+     defaults; the sampling parameter(s) temperature will be ignored." Bu modelde
+     `LLM_TEMPERATURE` etkisizdir (`temperature` 0 uygulanmaz); koşuların tekrarlanabilir olması
+     beklenmez.
+  5. Koşunun token toplamı kaydedilmedi (deneme betiğinin satır süzgeci veri kopyasındaki önceki
+     koşuların satırlarını da kattı).
+  **Sonuç:** Gemini (`google_genai`) tek sözleşmede denendi, ölçülmedi. Ölçülen tek yapılandırma
+  yine Groq `openai/gpt-oss-120b`'dir. **Denenmedi:** OpenAI ve Anthropic (anahtar yok); modelli
+  eval `langchain-core` 1.8.0 ile.
+  Adım 18c'deki OpenAI uyumlu adres denemesi olduğu gibi kayıtta kalır.
 - **Karar (2026-11-13, kullanıcı):** "Gemini'yi ekle, denemek istiyorum." Adım 18c'deki (a) kararı
   (kilitte `google` grubu yok) geri alınır: Gemini OpenAI uyumlu adreste tool döngüsünü
   tamamlayamadı (düşünce imzası); yerel `langchain-google-genai` entegrasyonu imzayı taşır (sahte

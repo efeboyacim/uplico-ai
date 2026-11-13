@@ -52,6 +52,13 @@ Adım 18c bitti (2026-11-13): sağlayıcı, model, anahtar ve adres yalnızca en
 `LLM_MAX_TOKENS`, build argümanı `LLM_EXTRAS`); Groq'a giden istek adımdan önceki koda göre
 değişmedi, eval yeniden koşulmadı. Ölçülen tek yapılandırma Groq `openai/gpt-oss-120b`'dir; Gemini ile elle deneme
 (OpenAI uyumlu adres) incelemeyi uçtan uca tamamlamadı (`docs/plan.md` Adım 18c "Elle deneme").
+Adım 18d bitti (2026-11-13): `google` paket grubu (`langchain-google-genai`) kilide ve varsayılan
+imaja girdi, `google_genai` bilinen sağlayıcı tablosunda; herkesin kurduğu `langchain-core`
+1.7.7 → 1.8.0 oldu (Groq / Ollama yolu sahte taşıyıcılarla karşılaştırıldı, fark yok). Gemini
+`google_genai` ile tek sözleşmede denendi, ölçülmedi: inceleme avukat kuyruğuna ulaştı, status
+5'te 4 doğru, bir kural ücretsiz katman hız limitiyle kesildi (`docs/plan.md` Adım 18d "Elle
+deneme"). Modelli eval 1.8.0 ile yeniden koşulmadı (README sayıları `4ccc03d` ve 1.7.7'ye
+aittir); koşulup koşulmayacağı kullanıcıya sorulacak.
 Sıradaki: Adım 20 — teslim. Ayrıntı `docs/plan.md` "Durum".
 
 ## Komutlar

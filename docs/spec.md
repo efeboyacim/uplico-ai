@@ -238,14 +238,14 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   döndü. Her `not_found` avukata gittiği için sessizce geçmez. Dataset ve tokenizer buna göre
   ayarlanmadı.
 - **Groq `openai/gpt-oss-120b` dışındaki her yapılandırma "çalışır, ölçülmedi"dir (`google_genai`
-  eklendi, henüz denenmedi):** "ölçüldü"
-  denebilen tek yapılandırma budur (`evals.md` §4); Ollama da "ölçülmedi" tarafındadır. Gerçek
-  sağlayıcıyla bir incelemeyi uçtan uca tamamlayanlar yalnızca Groq ve Ollama'dır; Gemini
-  2026-11-13'te OpenAI uyumlu adresle denendi ve tamamlamadı (Gemini 3.x tool çağrısının düşünce
+  tek sözleşmede denendi, ölçülmedi):** "ölçüldü"
+  denebilen tek yapılandırma budur (`evals.md` §4); Ollama da "ölçülmedi" tarafındadır. Gemini
+  2026-11-13'te OpenAI uyumlu adresle denendi ve incelemeyi tamamlamadı (Gemini 3.x tool çağrısının düşünce
   imzasını ister, `langchain-openai` 1.7.4 göndermez: her kuralın ikinci isteği HTTP 400, bütün
   kurallar avukata gitti; 2.5 modelleri 404; README "Denenmeyenler"). Bu yüzden Gemini kendi
-  entegrasyonuyla (`LLM_PROVIDER=google_genai`, `google` paket grubu) eklendi; onunla deneme
-  planlıdır, henüz koşulmadı. Bu sistem Gemini'yi yalnızca Developer API üzerinden kullanır:
+  entegrasyonuyla (`LLM_PROVIDER=google_genai`, `google` paket grubu) eklendi; onunla tek
+  sözleşmede denendi (2026-11-13), ölçülmedi: inceleme `awaiting_lawyer`'a ulaştı, bir kuralın
+  koşusu ücretsiz katman hız limitiyle kesildi (`plan.md` Adım 18d "Elle deneme"). Bu sistem Gemini'yi yalnızca Developer API üzerinden kullanır:
   ortamda Vertex'e çeviren değişken açıksa uygulama başlamaz (`tech_stack.md`). Başka bir
   sağlayıcı ya da modelle tool çağrısının, birebir alıntının ve taslak yönlendirmesinin aynı
   çalışacağı varsayılmaz; prompt ve dataset başka modele göre ayarlanmadı.
@@ -256,7 +256,7 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   bir adreste kayıtta `openai` görünür, isteğin gerçekte gittiği yer görünmez.
 - **`google` paket grubu her kurulumun çekirdeğini değiştirir:** grup seçilmese de `langchain-core`
   1.7.7 → 1.8.0 ve `tenacity` 9.2.1 → 9.1.4 olur (ADR-012, bilerek kabul edildi). Ölçülen Groq
-  sayıları 1.7.7'ye aittir; modelli eval 1.8.0 ile yeniden koşulana dek öyle yazılır.
+  sayıları 1.7.7'ye aittir; modelli eval 1.8.0 ile yeniden koşulmadı, koşulana dek öyle yazılır.
 - **Taslak yazımı kodla zorlanmaz:** `non_compliant` bulgudan sonra `propose_change`'i
   `submit_finding`'in yanıtı, prompt ve tool açıklaması ister; model çağırmazsa bulgu
   `missing_proposal` ile avukata gider. Eval'de 1 / 11 → 11 / 11 (tek model, tek koşu).

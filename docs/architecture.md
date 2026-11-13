@@ -444,7 +444,7 @@ model adını basan `python -m src.config` eklenir.
 |---|---|---|---|
 | Groq | Sohbet modeli (varsayılan mod) | `GROQ_API_KEY` (ya da `LLM_API_KEY`) | Maskeli metin gider. 429'da `max_retries=3`; limitler organizasyon başına. Eşzamanlılık `MAX_CONCURRENCY` ile sınırlı |
 | Ollama | Sohbet modeli (yalnızca çevrimdışı mod) | Yok (yerel ağ) | Varsayılan modda çalışmaz. Çevrimdışı modda `OLLAMA_NUM_PARALLEL=1`, `MAX_CONCURRENCY=1` |
-| Başka bir sağlayıcı (isteğe bağlı; ör. OpenAI, Anthropic, Gemini Developer API, OpenAI uyumlu bir servis) | Sohbet modeli (`LLM_PROVIDER` ile seçilirse) | `LLM_API_KEY` (çok kimlik bilgili sağlayıcılarda kendi env değişkenleri) | Maskeli metin gider. OpenAI, Anthropic gibi sağlayıcılar: çalışır, ölçülmedi. Gemini Developer API (`google_genai`): eklendi, denenmedi (Adım 18d elle deneme planlı). `max_retries=3`, 60 sn zaman aşımı; ADR-012 |
+| Başka bir sağlayıcı (isteğe bağlı; ör. OpenAI, Anthropic, Gemini Developer API, OpenAI uyumlu bir servis) | Sohbet modeli (`LLM_PROVIDER` ile seçilirse) | `LLM_API_KEY` (çok kimlik bilgili sağlayıcılarda kendi env değişkenleri) | Maskeli metin gider. OpenAI, Anthropic gibi sağlayıcılar: çalışır, ölçülmedi. Gemini Developer API (`google_genai`): tek sözleşmede denendi (2026-11-13), ölçülmedi (`plan.md` Adım 18d "Elle deneme"). `max_retries=3`, 60 sn zaman aşımı; ADR-012 |
 | LangSmith | Eval + tracing (isteğe bağlı) | `LANGSMITH_API_KEY` | Trace'lere yalnızca maskeli veri gider. Eval yüklemesinde sözleşme metni, alıntı ve PII listesi gitmez; giden yalnızca kimlikler, beklenen bulgular, etiketler, kural satırları ve sayımlardır (`evals.md` §7). Anahtar yoksa hiçbir şey gitmez |
 
 ### Veri nereye gidiyor
@@ -636,12 +636,13 @@ insanlar okuyabilir. Maskeleme her sağlayıcıda graph'tan önce aynı şekilde
     çalışır, sabitler elle güncel tutulur; reddedildi (iki kilitli çekirdek, elle güncel tutulan
     sabitler). (c) `google` grubu düz eklenir: **seçilen** (Adım 18d). Yerel entegrasyon
     (`langchain-google-genai`) düşünce imzasını tool döngüsünde geri taşır (sahte
-    taşıyıcıyla test edilir, `evals.md` §2; gerçek Gemini ile denenmedi); tek kilit, tek
+    taşıyıcıyla test edilir, `evals.md` §2; gerçek Gemini API'siyle tek denemede tool döngüsü tamamlandı,
+    `plan.md` Adım 18d "Elle deneme"); tek kilit, tek
     `langchain-core`.
 - **Sonuçlar / ödünleşimler:**
   - "Ölçüldü" denebilen tek yapılandırma yine Groq `openai/gpt-oss-120b`'dir; diğerleri "çalışır,
-    ölçülmedi"dir; `google_genai` henüz denenmedi (`spec.md` §8 "Bilinen sınırlar"). Yerel
-    `google_genai` ile Gemini denemesi planlıdır, henüz koşulmadı.
+    ölçülmedi"dir; `google_genai` tek sözleşmede denendi (2026-11-13), ölçülmedi (`spec.md` §8
+    "Bilinen sınırlar", `plan.md` Adım 18d "Elle deneme").
   - Bilerek kabul edilen bedel (c): `google` grubu seçilmese de her kurulum `langchain-core`
     1.8.0 ve `tenacity` 9.1.4 alır. Groq'a giden istek değişmese de yanıtın ayrıştırılması
     `langchain-core`'dadır; ölçülen sayılar 1.7.7'ye aittir ve modelli eval yeniden koşulana dek
