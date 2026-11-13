@@ -439,6 +439,34 @@
   klonda modelli eval ve çevrimdışı mod; `edit` ve `correct` karar yolları gerçek modelle;
   arayüzün tarayıcıda kullanımı.
 - **Sıradaki:** Adım 18c (kullanıcı onayıyla); o adım README'yi ve karar dokümanını yeniden açar.
+- **Adım 18c'ye başlarken (2026-11-13 oturumunun devri):**
+  1. Depo temiz; son commit bu notun commit'i. `origin`'e push yapılmadı (push Adım 20'dir).
+  2. Holdout koşusu bitti; eval önbelleği yok. `src/`, `evals/*.py` ve `uv.lock` artık
+     değiştirilebilir. 18c `src/`'yi değiştirdiği için Docker imajı yeniden kurulur
+     (`docker compose build app`).
+  3. **Bekleyen üç hata (karar kullanıcıda).** 2026-11-13'te ayrı bir oturumda, salt okunur kod
+     incelemesinde gerçek kodla doğrulandı; holdout koşusu bitsin diye bekletildi, düzeltilmedi:
+     (a) `src/verify.py` `_outside_reasons`: madde alıntıdan bölünüp parçalar ayrı okunduğu için
+     birimini bağlaçtan (`ila` / `ile` / `veya` / `-`) alan sayı kayboluyor; madde "… 15-30 gün
+     önceden …", alıntı "30 gün önceden …", kural en az 30 gün → `needs_review=False` (güvensiz
+     yönde; yüzde ve tutarda da). (b) `src/prepare/pii.py`: parantezli alan kodlu telefon
+     (`0 (532) 123 45 67`, `+90 (533) 555 05 30`, `(0212) 555 12 34`) maskelenmiyor ve
+     "maskelenmeyenler" listelerinde yok. (c) `src/prepare/clauses.py`: metin BOM ile başlar ve
+     ilk satır `Madde 1 - …` ise başlık tanınmıyor (küçük). 18c'den önce mi sonra mı yapılacağı
+     ve sırası kullanıcıya sorulur; her biri ayrı `fix:` commit'i, önce doküman ve test.
+     (a) ve (b) `verify` / maskeleme davranışını değiştirir: `evals.md` §1'e göre eval yeniden
+     koşulur ve README'deki sayılar (kod `4ccc03d`) güncellenir ya da hangi koda ait oldukları
+     yazılır. Holdout sonucu sabit bir kayıttır; yeniden koşulmaz.
+  4. Model çağıran her koşudan önce kullanıcıya sorulur. Groq limiti: başlıklar yalnızca 1K
+     istek/gün ve 8K token/dakika verir, günlük token sınırı görünmez; 2026-11-12'de ≈ 510K ham
+     token'dan sonra limit geldi, ≈ 11 saat sonra `--resume` geçti. Kota, 7.500 token ayıran tek
+     bir istekle yoklanabilir (yalnızca "en az bu kadar var" der).
+  5. README ve karar dokümanı 18c'de yeniden açılır: karar dokümanı 816 sözcük (sınır ≈ 900);
+     README'nin kurulum, env ve "Veri nereye gidiyor" bölümleri sağlayıcı adlarını taşıyor.
+  6. Makinede kalan artıklar (depo dışı): `C:\c\` altında bir inceleme agent'ının yanlış yol
+     yüzünden bıraktığı tek sonuç dosyası (kullanıcı silecek); oturumun scratchpad'indeki temiz
+     klon (silinebilir; `.env` kopyası silindi).
+  7. Denenmeyenler: README "Denenmeyenler" ve yukarıdaki Adım 18 / 18b / 19 kayıtları.
 - **Adım 19'a başlarken (Adım 18'in devri):** README'ye taşınacaklar:
   1. Asıl önce/sonra tablosu 2. koşudan (`evals.md` §5), altında dürüst not: farkın tamamı
      sözleşme 4'teki iki `not_found` satırından; tablo bu koşuda alıntı / sayı kontrolünün değerini
