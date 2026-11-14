@@ -197,6 +197,58 @@ _LETTERS = re.compile(r"[^\W\d_](?:[^\W\d_]|[" + _MARKS + r"])*")
 _NO_LETTER_AFTER = r"(?![^\W\d_])"
 
 
+# --- Labelled identity numbers (step 19f) -------------------------------------------------------
+
+
+def _dotted(letters: str) -> str:
+    """Regex for an initialism in any case, each letter optionally followed by "." and one space
+    ("TC", "T.C.", "T. C.")."""
+    return (r"\.?" + _GAP).join(_loose(ch) for ch in letters) + r"\.?"
+
+
+_NO = "(?:" + _loose("Numarası") + "|" + _loose("No") + _NO_LETTER_AFTER + r"\.?)"
+# A label that names the number after it as a person's identity number: "TCKN", "T.C.K.N.",
+# "TCKNo", "TCKN No", "T.C. Kimlik No", "TC Kimlik Numarası", "Kimlik No", "TC No" (any case,
+# with or without Turkish characters and dots).
+_TCKN_LABEL = (
+    r"(?<![^\W_])(?:"
+    + _dotted("TCKN")
+    + "(?:[oO]"
+    + _NO_LETTER_AFTER
+    + r"\.?|"
+    + _HSPACE
+    + "*"
+    + _NO
+    + ")?|(?:"
+    + _dotted("TC")
+    + _HSPACE
+    + "*)?"
+    + _loose("Kimlik")
+    + _HSPACE
+    + "+"
+    + _NO
+    + "|"
+    + _dotted("TC")
+    + _HSPACE
+    + "*"
+    + _NO
+    + ")"
+    + _NO_LETTER_AFTER
+)
+# A compact 11-digit number right after such a label (an optional suffix such as "No'su", spaces,
+# then an optional ":", ";", "=", "-", en or em dash) is a TCKN whatever its checksum: a mistyped
+# identity number is still someone's. A spaced number after a label keeps the checksum rule, and
+# an unlabelled number is unchanged.
+_TCKN_LABELLED = re.compile(
+    _TCKN_LABEL
+    + "(?:['\u2019][^\\W\\d_]+)?"
+    + _HSPACE
+    + "*(?:[:;=\\-\u2013\u2014]"
+    + _HSPACE
+    + "*)?([0-9]{11})(?![0-9])"
+)
+
+
 def _word_alternation(words: tuple[str, ...]) -> str:
     ordered = sorted(words, key=len, reverse=True)
     return "(?:" + "|".join(_loose(w) for w in ordered) + ")"
@@ -669,6 +721,168 @@ def _names_from_labels(text: str) -> Iterator[str]:
             yield text[tokens[0].start : tokens[-1].end]
 
 
+# --- Names in running text (step 19f) -----------------------------------------------------------
+
+# Words that end the name after a title: a title word, a party role, a unit, a signature form
+# word or a connective ("Genel Müdür Ahmet Yılmaz ve ..." -> "Ahmet Yılmaz").
+_CONNECTIVES = frozenset(_fold(w) for w in ("ve", "veya", "ile", "ya", "da", "de"))
+_NOT_NAME_WORDS = (
+    _TITLE_HEADS
+    | _TITLE_MODIFIERS
+    | _ROLE_WORDS
+    | _UNIT_WORDS
+    | _SIGNATURE_FORM_WORDS
+    | _CONNECTIVES
+)
+# A name directly followed by a labelled identity number in parentheses:
+# "Ahmet Yılmaz (TCKN: 12345678902)". The number itself is not needed ("(TCKN: [TCKN_1])").
+_ID_IN_PARENS = re.compile(_HSPACE + r"*\(" + _HSPACE + "*" + _TCKN_LABEL)
+# Words read before such an anchor, and after a title (one more than a name there may have).
+_RUNNING_WORDS = 6
+_AFTER_TITLE_WORDS = 4
+# A lower-case suffix after an apostrophe, right before such an anchor ("Yılmaz'ın (TCKN").
+_MAX_SUFFIX = 8
+_SUFFIX_BEFORE = re.compile("['\u2019][^\\W\\d_]{1,6}$")
+# One line break between two letters, not a paragraph break.
+_LONE_BREAK = re.compile("(?<=[^\\W\\d_])\n(?=[^\\W\\d_])")
+
+
+def _run_ending_at(text: str, end: int) -> list[_Token]:
+    """The longest name run (`_scan_run`) of at most `_RUNNING_WORDS` words that ends exactly at
+    `end`, on the line of `end`; [] when there is none."""
+    line_start = text.rfind("\n", 0, end) + 1
+    window = max(line_start, end - 64 * _RUNNING_WORDS)
+    starts = [m.start() for m in _LETTERS.finditer(text, window, end)]
+    for start in starts[-_RUNNING_WORDS:]:
+        if start > line_start and (text[start - 1].isalnum() or text[start - 1] in _JOINERS + "."):
+            continue  # not the start of a word
+        run = _scan_run(text, start, limit=_RUNNING_WORDS)
+        if run and run[-1].end == end:
+            return run
+    return []
+
+
+def _sentence_start(text: str, pos: int) -> bool:
+    """`pos` starts a sentence: nothing but spaces before it on its line, or a character that is
+    not a letter, a digit or "," before the spaces ("1.2. Ahmet", ". Ahmet", "- Ahmet")."""
+    line_start = text.rfind("\n", 0, pos) + 1
+    before = text[line_start:pos].rstrip(_HSPACE_CHARS)
+    return not before or not (before[-1].isalnum() or before[-1] in ",(" + _FILLER)
+
+
+def _names_before_ids(text: str) -> Iterator[str]:
+    """A name directly before a labelled identity number in parentheses (see `_ID_IN_PARENS`).
+
+    The run of capitalised words before the parenthesis is cut after its last title head
+    ("Proje Yöneticisi Ahmet Yılmaz" -> "Ahmet Yılmaz", "Av. Mehmet Demir" -> "Mehmet Demir");
+    leading title modifiers, party roles and unit words are dropped ("Alıcı Ahmet Yılmaz"). One
+    word is not a name. A run of three or more words that starts a sentence may start with a
+    capitalised word that is not part of the name ("Taraflardan Ahmet Yılmaz"): both the run and
+    the run without its first word are names, so neither spelling is left raw. A run of three or
+    more words may start with a title that is not in the lists ("Kalite Uzmanı Ahmet Yılmaz"):
+    its last two words are a name as well, so the bare name elsewhere is masked too.
+
+    A suffix after the name ("Ahmet Yılmaz'ın (TCKN: ...)") and a single line break inside the
+    run ("Proje Yöneticisi Ahmet\\nYılmaz (TCKN: ...)") still anchor.
+    """
+    # A copy in which a single line break between two words reads as a space (same length, so
+    # positions hold). It is read only when the line holds one word of the run ("...Ahmet\nYılmaz
+    # (TCKN"), so a name on its own line never takes the line above it.
+    joined = _LONE_BREAK.sub(" ", text)
+    for anchor in _ID_IN_PARENS.finditer(text):
+        before = anchor.start()
+        suffix = _SUFFIX_BEFORE.search(text, max(0, before - _MAX_SUFFIX), before)
+        if suffix and not suffix.group()[1:].islower():
+            suffix = None  # a joined name part ("O'Brien"), not a suffix
+        end = suffix.start() if suffix else before
+        run = _run_ending_at(text, end)
+        if len(run) == 1 and run[0].start == text.rfind("\n", 0, end) + 1:
+            run = _run_ending_at(joined, end)
+            source = joined
+        else:
+            source = text
+        heads = [i for i, token in enumerate(run) if _is_head(token)]
+        tokens = run[heads[-1] + 1 :] if heads else run
+        while tokens and _fold(tokens[0].word) in _NOT_NAME_WORDS:
+            tokens = tokens[1:]
+        if len(tokens) < 2:
+            continue
+        start, end = tokens[0].start, tokens[-1].end
+        if _company_after(source, start, end):
+            continue
+        yield source[start:end]
+        if len(tokens) >= 3 and not heads and _sentence_start(source, start):
+            yield source[tokens[1].start : end]
+        if len(tokens) >= 3:
+            yield source[tokens[-2].start : end]
+
+
+def _names_after_titles(text: str) -> Iterator[str]:
+    """Two or three capitalised words after a title head in running text ("Teknik Direktör Zeynep
+    Kaya", "Av. Mehmet Demir").
+
+    The head is any word of `_TITLE_HEADS` (any case) followed by a space. The words after it are
+    one name run (`_scan_run`) cut at the first word of `_NOT_NAME_WORDS` or a two-word role; the
+    name is the part before the cut. Not a name: a first word that is itself such a word ("Genel
+    Müdür Yardımcısı"), one word, four or more words (a heading such as "GENEL MÜDÜR ONAY YETKİ
+    DEVRİ"), a company (`_company_after`), a part whose first word is written at least
+    `_DEFINED_TERM_USES` more times in `text` than the part itself (a defined term such as
+    "Sözleşme" or "Hizmet").
+    """
+    n = len(text)
+    candidates: list[tuple[str, str]] = []  # (name, folded first word)
+    for word in _LETTERS.finditer(text):
+        end = word.end()
+        folded = _fold(word.group())
+        if end < n and text[end] == "." and folded + "." in _ABBREVIATIONS:
+            end += 1
+            folded += "."
+        if folded not in _TITLE_HEADS or end >= n or text[end] not in _HSPACE_CHARS:
+            continue
+        run = _scan_run(text, end, limit=_AFTER_TITLE_WORDS)
+        cut = 0
+        while cut < len(run) and _fold(run[cut].word) not in _NOT_NAME_WORDS:
+            if cut and (_fold(run[cut - 1].word), _fold(run[cut].word)) in _ROLE_PAIRS:
+                cut -= 1
+                break
+            cut += 1
+        if not 2 <= cut < _AFTER_TITLE_WORDS:
+            continue
+        start, stop = run[0].start, run[cut - 1].end
+        if _company_after(text, start, stop):
+            continue
+        candidates.append((text[start:stop], _fold_case(run[0].word)))
+    if not candidates:
+        return
+    # Counted once for all candidates, in one pass each (`_name_spans` reads every key at once).
+    # Words are folded like `_name_spans` folds names.
+    words = Counter(_fold_case(w.group()) for w in _LETTERS.finditer(text))
+    # The uses of every candidate with the same first word are subtracted, so several people who
+    # share a first name ("Av. Mehmet Kaya", "Genel Müdür Mehmet Demir") are not a defined term.
+    by_first: dict[str, set[str]] = {}
+    for name, first in candidates:
+        by_first.setdefault(first, set()).add(_name_key(name))
+    keys = set().union(*by_first.values())
+    uses = Counter(_name_key(value) for value, _, _ in _name_spans(text, keys))
+    for name, first in candidates:
+        if words[first] - sum(uses[key] for key in by_first[first]) < _DEFINED_TERM_USES:
+            yield name
+
+
+def _names_in_running_text(text: str, values: Iterable[tuple[str, str]]) -> Iterator[str]:
+    """The names of the two step 19f paths. They read a copy of `text` in which the (kind, value)
+    pairs found without them are blanked, i.e. what re-masking sees: "Ahmet Yılmaz TR 18 0001 ..."
+    gives "Ahmet Yılmaz", not "Ahmet Yılmaz TR" (which the IBAN would cut)."""
+    values = [(kind, value) for kind, value in values if not _in_parentheses(kind, value)]
+    if values:
+        text = _blank_values(text, values)
+    found: set[str] = set()
+    for name in (*_names_before_ids(text), *_names_after_titles(text)):
+        if name not in found:
+            found.add(name)
+            yield name
+
+
 # --- Checksums ----------------------------------------------------------------------------------
 
 
@@ -747,6 +961,13 @@ def _discover(text: str) -> Iterator[tuple[str, str]]:
                 found.append(("TCKN", value))
                 spaced_ends.add(start + len(value))
     if spaced_ends:  # a bare mobile number right after a spaced TCKN
+        for m in _PHONE_BARE.finditer(_blank_values(text, found)):
+            found.append(("TELEFON", m.group()))
+    # Step 19f, after every search above, so what they find and blank is unchanged: a compact
+    # number labelled as an identity number, whatever its checksum (see `_TCKN_LABELLED`).
+    labelled = [("TCKN", m.group(1)) for m in _TCKN_LABELLED.finditer(text)]
+    if labelled:  # a bare mobile number right after one, as after any found value
+        found.extend(labelled)
         for m in _PHONE_BARE.finditer(_blank_values(text, found)):
             found.append(("TELEFON", m.group()))
     yield from found
@@ -926,19 +1147,24 @@ def _name_spans(scan: str, keys: Iterable[str]) -> Iterator[tuple[str, int, int]
 
 
 def unlabelled_names(text: str) -> frozenset[str]:
-    """Names that only the e-mail and signature paths find in `text`, the label path not.
+    """Names that only the e-mail, signature and running-text paths find in `text`, the label
+    path not.
 
     `prepare_contract` takes them from the whole contract and passes them to `mask` for every
     clause, where the clause alone may not show how a name was found.
     """
     scan = _blank_placeholders(text)
     labelled = {_name_key(name) for name in _names_from_labels(scan)}
-    found = list(_names_from_emails(scan)) + list(_names_from_signature_lines(scan))
+    found = [
+        *_names_from_emails(scan),
+        *_names_from_signature_lines(scan),
+        *_names_in_running_text(scan, (v for v in _discover(scan) if v[0] != "KISI")),
+    ]
     return frozenset(name for name in found if _name_key(name) not in labelled)
 
 
 def mask(
-    text: str, mapping: Mapping[str, str], unlabelled: Iterable[str] = ()
+    text: str, mapping: Mapping[str, str], unlabelled: Iterable[str] | None = None
 ) -> tuple[MaskedText, dict[str, str]]:
     """Replace PII in `text` with placeholders.
 
@@ -955,9 +1181,17 @@ def mask(
     masked. This holds for every name: labelled, found by the e-mail or signature path, or given
     in `mapping`. The step 17b spellings and the phone with its area code in parentheses still
     give way to a name, as before. Between two names, a name only the e-mail or
-    signature path finds (step 19c) gives way to the other one: such a name is one these paths
-    find in `text` and the label path does not, unless `mapping` already holds it, or one listed
-    in `unlabelled` (see `unlabelled_names`).
+    signature path (step 19c) or a running-text path (step 19f) finds gives way to the other one:
+    such a name is one these paths find in `text` and the label path does not, unless `mapping`
+    already holds it, or one listed in `unlabelled` (see `unlabelled_names`). Such names are placed
+    last, so they only take text that no other value covers.
+
+    The running-text paths decide with evidence from the whole text (a defined term is one used
+    often), so a call given `unlabelled` (even empty: one clause of a text whose names
+    `unlabelled_names` already took) does not run them; their names reach it through `mapping`.
+
+    A compact 11-digit number after an identity label ("TCKN:", "T.C. Kimlik No") is a TCKN
+    whatever its checksum (step 19f); an unlabelled one keeps the checksum rule.
     """
     counters = {kind: n + 1 for kind, n in _validate(mapping).items()}
     result: dict[str, str] = dict(mapping)
@@ -979,9 +1213,15 @@ def mask(
     # what it was before this spelling existed.
     for m in _PHONE_PARENS.finditer(scan):
         kind_of.setdefault(m.group(1), "TELEFON")
-    # The two step 19c paths: between two names, theirs gives way (see `_resolve`).
-    yielding_keys = {_name_key(name) for name in unlabelled}
-    for name in (*_names_from_emails(scan), *_names_from_signature_lines(scan)):
+    # The two step 19c paths and the running-text paths of step 19f: their names are placed
+    # last (see `_resolve`), so they only take text that nothing found without them covers.
+    yielding_keys = {_name_key(name) for name in unlabelled or ()}
+    running = (
+        _names_in_running_text(scan, ((k, v) for v, k in kind_of.items() if k != "KISI"))
+        if unlabelled is None
+        else ()
+    )
+    for name in (*_names_from_emails(scan), *_names_from_signature_lines(scan), *running):
         kind_of.setdefault(name, "KISI")
         if _name_key(name) not in known_keys:
             yielding_keys.add(_name_key(name))

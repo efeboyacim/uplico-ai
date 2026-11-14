@@ -58,6 +58,77 @@ def test_mask_tckn_inside_longer_number_not_masked() -> None:
     assert _mask(text) == (text, {})
 
 
+@pytest.mark.parametrize(
+    "label",
+    [
+        "TCKN: ",
+        "TCKN:",
+        "TCKN ",
+        "TCKN",
+        "tckn - ",
+        "T.C.K.N. ",
+        "TCKNo: ",
+        "TCKN No: ",
+        "T.C. Kimlik No: ",
+        "TC Kimlik No ",
+        "T.C. KİMLİK NUMARASI: ",
+        "TC Kimlik Numarasi ",
+        "Kimlik No.: ",
+        "Kimlik Numarası: ",
+        "TC No: ",
+        "T.C. No ",
+    ],
+)
+def test_mask_labelled_tckn_masked_whatever_its_checksum(label: str) -> None:
+    # Step 19f: a number the text labels as an identity number is someone's even when mistyped.
+    _assert_masked_alone(f"({label}{TCKN_BAD})", f"({label}[TCKN_1])", TCKN_BAD)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        f"Referans {TCKN_BAD} kayıtlıdır.",  # unlabelled: checksum rule as before
+        f"Kimlik {TCKN_BAD}",  # "Kimlik" alone is not a label
+        f"Vergi No: {TCKN_BAD}",
+        f"Sicil No: {TCKN_BAD}",
+        f"TCKN: {TCKN_BAD}0",  # twelve digits
+        f"TCKN: 1{TCKN_BAD}",
+        "TCKN: 1234 5678 951",  # spaced and bad checksum: not masked, documented limit
+        f"TCKNsi {TCKN_BAD}",
+    ],
+)
+def test_mask_unlabelled_or_spaced_bad_checksum_number_not_masked(text: str) -> None:
+    assert _mask(text) == (text, {})
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "TCKN \u2013 ",
+        "TCKN\u2014",
+        "TCKN; ",
+        "TCKN = ",
+        "TCKN=",
+        "TC Kimlik No'su ",
+        "Kimlik No\u2019su: ",
+    ],
+)
+def test_mask_labelled_tckn_other_separators(label: str) -> None:
+    _assert_masked_alone(f"({label}{TCKN_BAD})", f"({label}[TCKN_1])", TCKN_BAD)
+
+
+def test_mask_labelled_bad_tckn_masked_everywhere_and_valid_unlabelled_as_before() -> None:
+    masked, mapping = _mask(f"TCKN: {TCKN_BAD}. Kayıt {TCKN_BAD}, kimlik {TCKN_A}.")
+    assert masked == "TCKN: [TCKN_1]. Kayıt [TCKN_1], kimlik [TCKN_2]."
+    assert mapping == {"[TCKN_1]": TCKN_BAD, "[TCKN_2]": TCKN_A}
+
+
+def test_mask_labelled_number_shaped_like_phone_stays_phone() -> None:
+    # The phone pattern finds it first; the label does not change its kind.
+    masked, mapping = _mask("TCKN: 05321234567")
+    assert (masked, mapping) == ("TCKN: [TELEFON_1]", {"[TELEFON_1]": "05321234567"})
+
+
 # --- Amounts, durations, dates ------------------------------------------------------------------
 
 _NON_PII = [
@@ -1258,6 +1329,190 @@ def test_mask_long_hyphen_chain_fast() -> None:
     assert unmask(masked, mapping) == text
 
 
+# --- Names in running text (step 19f) ------------------------------------------------------------
+
+
+def test_mask_running_text_names_and_labelled_ids_all_masked() -> None:
+    text = (
+        "1.2. Operasyonel süreçlerden Alıcı adına Satış Yöneticisi Selin Aydın (TCKN: "
+        f"{TCKN_BAD}), Tedarikçi adına ise Teknik Direktör Burak Öztürk (TCKN: 98765432151) "
+        "sorumludur.\n11.1. Tebligat yetkilisi olarak Alıcı tarafında Av. Deniz Arslan "
+        "(TCKN: 45678912307) atanmıştır."
+    )
+    masked, mapping = _mask(text)
+    assert masked == (
+        "1.2. Operasyonel süreçlerden Alıcı adına Satış Yöneticisi [KISI_1] (TCKN: [TCKN_1]), "
+        "Tedarikçi adına ise Teknik Direktör [KISI_2] (TCKN: [TCKN_2]) sorumludur.\n11.1. "
+        "Tebligat yetkilisi olarak Alıcı tarafında Av. [KISI_3] (TCKN: [TCKN_3]) atanmıştır."
+    )
+    assert mapping == {
+        "[KISI_1]": "Selin Aydın",
+        "[TCKN_1]": TCKN_BAD,
+        "[KISI_2]": "Burak Öztürk",
+        "[TCKN_2]": "98765432151",
+        "[KISI_3]": "Deniz Arslan",
+        "[TCKN_3]": "45678912307",
+    }
+    assert unmask(masked, mapping) == text
+    assert mask(masked, mapping) == (masked, mapping)
+    assert pii.unlabelled_names(text) == frozenset({"Selin Aydın", "Burak Öztürk", "Deniz Arslan"})
+
+
+@pytest.mark.parametrize(
+    ("text", "names"),
+    [
+        (f"Sorumlu kişi Selin Aydın (TCKN: {TCKN_BAD}) olarak belirlenmiştir.", {"Selin Aydın"}),
+        (f"ile Alıcı Selin Aydın (T.C. Kimlik No: {TCKN_BAD}) arasında", {"Selin Aydın"}),
+        (f"ile Selin Nur Aydın-Kaya (Kimlik No {TCKN_BAD}) arasında", {"Selin Nur Aydın-Kaya"}),
+        (f"1.1. Selin Aydın (TCKN: {TCKN_BAD}) imzalar.", {"Selin Aydın"}),
+        # A sentence-initial capital may not be part of the name: both spellings are names.
+        (
+            f"Taraflardan Selin Aydın (TCKN: {TCKN_BAD}) imzalar; Selin Aydın onaylar.",
+            {"Taraflardan Selin Aydın", "Selin Aydın"},
+        ),
+        (f"ile Aydın (TCKN: {TCKN_BAD}) arasında", set()),  # one word
+        (f"ile Mavi Teknoloji A.Ş. (TCKN: {TCKN_BAD}) arasında", set()),
+        (f"ile Mavi Teknoloji Holding (TCKN: {TCKN_BAD}) arasında", set()),
+        (f"ile Selin Aydın (Vergi No: {TCKN_BAD}) arasında", set()),  # not an identity label
+        (f"ile Selin Aydın, TCKN: {TCKN_BAD} arasında", set()),  # no parentheses
+    ],
+)
+def test_mask_name_before_labelled_id_in_parentheses(text: str, names: set[str]) -> None:
+    _, mapping = _mask(text)
+    assert {v for k, v in mapping.items() if k.startswith("[KISI")} == names
+
+
+@pytest.mark.parametrize(
+    ("text", "names"),
+    [
+        (
+            "Genel Müdür Selin Aydın ve Satış Müdürü Burak Öztürk imzalar.",
+            {"Selin Aydın", "Burak Öztürk"},
+        ),
+        ("işbu yazı Yönetim Kurulu Üyesi Selin Aydın tarafından", {"Selin Aydın"}),
+        ("Sayın Selin Nur Aydın, bilginize.", {"Selin Nur Aydın"}),
+        ("Dr. Selin Aydın Alıcı adına", {"Selin Aydın"}),
+        ("proje yöneticisi Selin Aydın ile", {"Selin Aydın"}),
+        ("GENEL MÜDÜR SELİN AYDIN", {"SELİN AYDIN"}),
+        # A shared first name is not a defined term.
+        (
+            "Av. Selin Kaya, Genel Müdür Selin Demir, Satış Müdürü Selin Ak ve Dr. Selin Can.",
+            {"Selin Kaya", "Selin Demir", "Selin Ak", "Selin Can"},
+        ),
+        # Not a name: a title or a role alone, a single word, a heading, a company, a defined term.
+        ("Genel Müdür Yardımcısı ile Proje Yöneticisi görüşür.", set()),
+        ("Proje Yöneticisi Alıcı adına onaylar.", set()),
+        ("Sayın Tedarikçi Firma, bilginize.", set()),
+        ("Av. Aydın hazır bulunur.", set()),
+        ("PROJE YÖNETİCİSİ VE SORUMLULUKLARI", set()),
+        ("GENEL MÜDÜR ONAY YETKİ DEVRİ KURALLARI", set()),  # four words: not a name here
+        # Over-masking, documented limit: two or three capitalised words after a title.
+        ("GENEL MÜDÜR ONAY YETKİSİ", {"ONAY YETKİSİ"}),
+        ("Genel Müdür Mavi Teknoloji A.Ş. adına", set()),
+        ("Genel Müdür. Sözleşme Ekleri", set()),
+        (
+            "Proje Müdürü Sözleşme Ekleri hakkında bilgi verir. Sözleşme ve Sözleşme ile Sözleşme.",
+            set(),
+        ),
+    ],
+)
+def test_mask_name_after_title_in_running_text(text: str, names: set[str]) -> None:
+    masked, mapping = _mask(text)
+    assert {v for k, v in mapping.items() if k.startswith("[KISI")} == names
+    assert unmask(masked, mapping) == text
+
+
+def test_mask_running_text_name_masked_everywhere() -> None:
+    text = "Genel Müdür Selin Aydın atanmıştır.\nSelin Aydın ve SELİN AYDIN imzalar."
+    masked, _ = _mask(text)
+    assert masked == "Genel Müdür [KISI_1] atanmıştır.\n[KISI_1] ve [KISI_2] imzalar."
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # The name ends where a found value starts, also when the value starts with capitals.
+        (
+            "Genel Müdür Selin Aydın TR 18 0001 0004 0602 8338 8480 99 hesabı",
+            "Genel Müdür [KISI_1] [IBAN_1] hesabı",
+        ),
+        ("Genel Müdür Selin Aydın 533 555 05 30", "Genel Müdür [KISI_1] [TELEFON_1]"),
+    ],
+)
+def test_mask_running_text_name_stops_at_found_value(text: str, expected: str) -> None:
+    masked, mapping = _mask(text)
+    assert masked == expected
+    assert mask(masked, mapping) == (masked, mapping)
+
+
+def test_mask_running_text_name_gives_way_to_labelled_name() -> None:
+    # Placed last like the step 19c paths: a labelled name keeps its place.
+    whole = "Yetkili: Ahmet Yılmaz\nGenel Müdür Can Ahmet Yılmaz atanır."
+    masked, mapping = _mask(whole)
+    assert masked == "Yetkili: [KISI_1]\nGenel Müdür Can [KISI_1] atanır."
+    assert pii.unlabelled_names(whole) == frozenset({"Can Ahmet Yılmaz"})
+    clause = "Genel Müdür Can Ahmet Yılmaz atanır."
+    listed = mask(clause, mapping, pii.unlabelled_names(whole))[0]
+    assert listed == "Genel Müdür Can [KISI_1] atanır."
+
+
+def test_mask_clause_call_does_not_rediscover_running_text_names() -> None:
+    # The defined-term guard needs the whole text: in the whole contract "Sözleşme" is a term, in
+    # the clause alone it is used once. The clause call, given the list, takes running-text names
+    # only from the whole-text call (through the mapping), so the term stays as it is.
+    clause = "Şirket Müdürü Sözleşme Bedeli ödemelerini takip eder."
+    whole = (
+        "Sözleşme Bedeli 100 TL'dir. Sözleşme süresi bir yıldır. Sözleşme ekleri vardır.\n"
+        "Sözleşme feshedilebilir. " + clause + "\nGenel Müdür Selin Aydın atanır."
+    )
+    _, mapping = mask(whole, {})
+    assert "Sözleşme Bedeli" not in mapping.values()
+    unlabelled = pii.unlabelled_names(whole)
+    assert mask(clause, mapping, unlabelled) == (clause, mapping)
+    # A name the whole-text call found still reaches the clause.
+    named = mask("Genel Müdür Selin Aydın atanır.", mapping, unlabelled)[0]
+    assert named == "Genel Müdür [KISI_1] atanır."
+    # Given a list, even an empty one, the call does not run the running-text paths.
+    alone = "Genel Müdür Selin Aydın atanır."
+    assert mask(alone, {}, frozenset()) == (alone, {})
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # A title not in the lists before the name: the last two words are a name as well.
+        "Alıcı adına Kalite Uzmanı Ahmet Yılmaz (TCKN: 12345678902) sorumludur.",
+        "Av Ahmet Yılmaz (TCKN: 12345678902) atanmıştır.",
+        "Bay Ahmet Yılmaz (TCKN 12345678902) imzalar.",
+        "Yazılım Mühendisi Ahmet Yılmaz (TCKN: 12345678902) sorumludur.",
+        # A suffix between the name and the parenthesis.
+        "Ahmet Yılmaz'ın (TCKN: 12345678902) sorumluluğundadır.",
+        "Ahmet Yılmaz\u2019ın (TCKN: 12345678902) sorumluluğundadır.",
+        # A single line break inside the name.
+        "Proje Yöneticisi Ahmet\nYılmaz (TCKN: 12345678902) sorumludur.",
+    ],
+)
+def test_mask_name_before_labelled_id_near_variants(text: str) -> None:
+    text += " Bildirimler Ahmet Yılmaz'a yapılır."
+    masked, mapping = _mask(text)
+    for word in ("Ahmet", "Yılmaz", "12345678902"):
+        assert word not in masked
+    assert unmask(masked, mapping) == text
+    assert mask(masked, mapping) == (masked, mapping)
+
+
+def test_mask_upper_case_part_after_apostrophe_is_not_a_suffix() -> None:
+    masked, mapping = _mask("Ahmet O'Brien (TCKN: 12345678902) imzalar.")
+    assert masked == "[KISI_1] (TCKN: [TCKN_1]) imzalar."
+    assert mapping["[KISI_1]"] == "Ahmet O'Brien"
+
+
+def test_mask_name_on_its_own_line_does_not_take_the_line_above() -> None:
+    masked, mapping = _mask("Sözleşme\nAhmet Yılmaz (TCKN: 12345678902) imzalar.")
+    assert masked == "Sözleşme\n[KISI_1] (TCKN: [TCKN_1]) imzalar."
+    assert mapping["[KISI_1]"] == "Ahmet Yılmaz"
+
+
 # --- Spaced TCKN, freely grouped IBAN, bare mobile number (step 17b) ----------------------------
 
 NBSP = "\N{NO-BREAK SPACE}"
@@ -2015,6 +2270,7 @@ def test_mask_names_never_take_place_of_strict_value(monkeypatch: pytest.MonkeyP
         with monkeypatch.context() as patched:
             for path in ("_names_from_labels", "_names_from_emails", "_names_from_signature_lines"):
                 patched.setattr(pii, path, lambda _text: iter(()))
+            patched.setattr(pii, "_names_in_running_text", lambda *_args: iter(()))
             plain_masked, plain_mapping = mask(text, {})
         masked, result = mask(text, mapping)
         plain = _masked_spans(text, plain_masked, plain_mapping)
