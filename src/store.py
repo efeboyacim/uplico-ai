@@ -352,6 +352,34 @@ class Store:
             )
             return cursor.rowcount == 1
 
+    def fail_running(self, reason: str) -> list[str]:
+        """Move every `running` review of the tenant to `failed` and append one `review_failed`
+        audit row (`{"reason": reason}`) for each, all in one transaction: all of it or none.
+
+        Returns the ids it closed, in the order the reviews were created. Only for the start of
+        the process, before it serves: a review that is `running` then was left behind by an
+        earlier process.
+        """
+        payload_json = _dumps({"reason": reason})
+        with self._write() as conn:
+            # rowid, not created_at: two reviews can share a timestamp (coarse clocks).
+            rows = conn.execute(
+                "SELECT review_id FROM reviews WHERE status = ? ORDER BY rowid",
+                ("running",),
+            ).fetchall()
+            review_ids = [str(row["review_id"]) for row in rows]
+            for review_id in review_ids:
+                conn.execute(
+                    "UPDATE reviews SET status = ? WHERE review_id = ? AND status = ?",
+                    ("failed", review_id, "running"),
+                )
+                conn.execute(
+                    "INSERT INTO audit_log (ts, review_id, actor, event, payload) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (_now(), review_id, _SYSTEM_ACTOR, "review_failed", payload_json),
+                )
+            return review_ids
+
     # Audit log (INSERT only; triggers reject UPDATE and DELETE)
 
     def append_audit(

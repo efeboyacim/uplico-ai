@@ -146,6 +146,10 @@
   altında kayıt yeniden okunur ve durum yeniden denetlenir; kayda bakan kontroller ve ancak onlardan
   sonra maskeleme bu kilidin içindedir. Kilit tek süreç içindir; uygulama tek süreç (tek uvicorn
   worker) çalışır.
+- **Başlangıç taraması:** önceki sürecin `running` bıraktığı incelemeleri yalnızca `main()` kapatır
+  (`close_interrupted_reviews`, sunmadan önce). `create_app` veritabanına yazmaz: süreç içinde
+  birden çok kez kurulabilir ve koşan bir incelemeyi `failed` yapmamalıdır. Durum ve
+  `review_failed` satırı `Store.fail_running` içinde tek transaction'dadır (`agent_design.md` §6).
 - Testler paylaşılan bağlantıları `close_all()` ile, derlenmiş graph'ları ve checkpoint
   bağlantılarını `close_graphs()` ile kapatır (`tests/conftest.py`, her testten sonra, autouse
   fixture); Windows'ta açık bağlantı `tmp_path` dosyalarını kilitler. Uygulama kodu ikisini de

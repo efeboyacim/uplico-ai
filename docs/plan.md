@@ -513,8 +513,12 @@
   edilmedi):** dışarıdan gelen bir incelemenin beş iddiası kodla denendi. Başka maddeye yazılmış
   taslak artık avukata gider (yeni sebep `proposal_clause_mismatch`); "kanıtlı ama yanlış uygun"
   sınırının dokümanlardaki eksik yazımı düzeltildi (`check`'li kuralda da geçerli; modelsiz sayım
-  24 çiftin 14'ünde 22 madde). Modelle ölçülmedi. Sıradaki, onay bekleyen adım: 19h (yarıda kalan
-  incelemeyi başlangıçta kapatma). Ayrıntı Adım 19g.
+  24 çiftin 14'ünde 22 madde). Modelle ölçülmedi. Ayrıntı Adım 19g.
+- **Adım 19h bitti (2026-11-15; `step-19g` dalında, `main`'e alınmadı ve push edilmedi):** süreç
+  inceleme sırasında ölünce `running` kalan satır artık bir sonraki başlangıçta `failed` olur ve
+  `review_failed` (`process_interrupted`) alır. Gerçek süreç öldürülerek denendi. Dış incelemeden
+  kalan açık karar: "yanlış uygun" sınırı için çapa sözcükleri (Adım 19g "seçilmeyen çözümler").
+  Ayrıntı Adım 19h.
 - **Adım 18c'ye başlarken (2026-11-13 oturumunun devri):**
   1. Depo temiz; son commit bu notun commit'i. `origin`'e push yapılmadı (push Adım 20'dir).
   2. Holdout koşusu bitti; eval önbelleği yok. `src/`, `evals/*.py` ve `uv.lock` artık
@@ -2492,6 +2496,40 @@ Teslimden (Adım 20) sonra eklendi; numarası konusu gereği 19'dur.
   bilinmiyor (sonuç dosyaları taslağın ve bulgunun maddesini yan yana tutmaz). Docker imajı
   yeniden kurulmadı.
 - **Commit:** `fix: queue a draft written for another clause than the finding's`
+
+### [x] Adım 19h — Yarıda kalan incelemeyi başlangıçta kapat
+Dış incelemenin 4. iddiası (Adım 19g tablosu).
+- **Ne:** `POST /reviews` sürerken süreç ölürse (konteynerin durdurulması, `SIGKILL`, kapanma)
+  hiçbir `except` çalışmaz; satır `running` kalır, audit izi kapanış satırı olmadan biter, indeks
+  süreçle birlikte gider. Uygulama başlarken bu satırlar `failed` yapılır ve her biri için
+  `review_failed` (`reason: process_interrupted`) yazılır. İnceleme sürdürülmez; sözleşme yeniden
+  yüklenir.
+- **Dosyalar:** `src/store.py` (`fail_running`), `src/api.py` (`close_interrupted_reviews`,
+  `main`), `tests/test_store.py`, `tests/test_api.py`; `docs/architecture.md` §3,
+  `docs/agent_design.md` §6–§7, `docs/spec.md` §8, `docs/code_standards.md`, `docs/evals.md` §2.
+- **Gerçekleşen (2026-11-15):** `Store.fail_running(reason)` tenant'ın bütün `running`
+  satırlarını tek transaction'da `failed` yapar ve audit satırlarını ekler (yalnızca `INSERT`;
+  tetikleyicilere dokunulmadı), kapattığı kimlikleri oluşturulma sırasıyla döner.
+  `close_interrupted_reviews(settings)` anahtarı olan her tenant için bunu çağırır ve her kimliği
+  loglar; `main()` onu `create_app`'ten sonra, sunmadan önce bir kez çağırır.
+- **Plandan sapma:** onaylanan plan taramayı `create_app`'e koyuyordu; `main()`'e kondu.
+  `create_app` süreç içinde birden çok kez kurulabilir (testler) ve o sırada koşan bir incelemeyi
+  `failed` yapmamalıdır; süreç başlangıcı `main()`'dir (`check_chat_model` de aynı sebeple orada).
+- **Doğrulama:** 10 yeni test (store 4, API 6): yalnızca `running` satırlar kapanır, öteki
+  durumlar ve öteki tenant değişmez, ikinci çağrı bir şey yazmaz, audit yazımı hata verirse (TEMP
+  TRIGGER) hiçbir durum değişmez, `create_app` dokunmaz, `main()` sunmadan önce kapatır,
+  yapılandırma hatasında tarama çalışmaz, kapatılan inceleme `failed` okunur ve karar 409 alır.
+  2446 test, ruff (izlenen kod), mypy temiz. **Elle deneme (gerçek süreç):** veri kopyasında,
+  sahte sağlayıcı anahtarı ve hiç yanıt vermeyen yerel bir sağlayıcı adresiyle uygulama `main()`
+  üzerinden başlatıldı (yalnızca port değiştirildi), sentetik sözleşme 1 yüklendi, kural agent'ları
+  sağlayıcıyı beklerken süreç öldürüldü: satır `running`, son audit satırı `index_built` (iddia
+  böylece çalıştırılarak da doğrulandı). Süreç yeniden başlatıldı: log'da kapatma satırı, `GET`
+  `failed`, son audit satırı `system` / `review_failed` / `process_interrupted`, öteki tenant 404.
+- **Ölçülmeyen / sınır:** Docker'da (`docker compose` durdur / başlat) denenmedi; imaj yeniden
+  kurulmadı. Uygulama yeniden başlayana kadar satır `running` görünür. Anahtarı olmayan tenant'ın
+  satırı taranmaz. Aynı veri dizininde ikinci bir süreç başlatmak ilkinin süren incelemesini
+  `failed` yapar (tek süreç varsayımı). Yarım thread `checkpoints.db`'de kalır.
+- **Commit:** `fix: fail reviews left running by an interrupted process at startup`
 
 ## CASE.md teslimatları → adımlar
 | CASE.md | Adım |

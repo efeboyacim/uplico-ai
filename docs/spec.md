@@ -264,6 +264,12 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
 - **Karar kilidi tek süreç içindir:** aynı incelemeye aynı anda gelen iki karardan yalnızca birinin
   işlenmesini süreç içi bir kilit sağlar; uygulama tek süreç çalışır (`python -m src.api`, tek
   uvicorn worker). Çok süreçli dağıtımda yalnızca veritabanındaki durum şartı kalır.
+- **Yarıda kesilen inceleme sürdürülmez (Adım 19h):** inceleme sırasında süreç ölürse (konteynerin
+  durdurulması, kapanma) satır `running` kalır; uygulama bir sonraki başlangıçta onu `failed`
+  yapar ve `review_failed` (`process_interrupted`) yazar. Sözleşme yeniden yüklenir; yeniden
+  deneme ucu ve kaldığı yerden devam yoktur (indeks süreç belleğindedir). Uygulama yeniden
+  başlayana kadar satır `running` görünür. Tarama tek süreç varsayar: aynı veri dizininde ikinci
+  bir süreç başlatmak ilkinin süren incelemesini `failed` yapar.
 - **Düzenlenmiş taslak metninin uzunluğu:** `edited_text` 20.000 karakterle sınırlıdır; aşan karar
   422 alır.
 - **Yanlışlıkla maskelenen sayı:** maskeleyici kişisel veri olmayan bir sayıyı TCKN ya da telefon

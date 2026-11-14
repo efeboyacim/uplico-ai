@@ -2311,3 +2311,106 @@ def test_create_app_does_not_build_the_model(
         "DATA_DIR": str(data_dir),
     }
     create_app(load_settings(env=env))
+
+
+# --- Reviews an earlier process left running (step 19h) -------------------------------------------
+
+INTERRUPTED_PAYLOAD = {"reason": "process_interrupted"}
+
+
+def _left_running(data_dir: Path, tenant: str) -> str:
+    """A review as a process that died during `POST /reviews` leaves it: `running`, one row."""
+    store = Store(data_dir, tenant)
+    review_id = store.create_review("Madde 1 - Fesih\nTaraflar feshedebilir.", "groq", "m")
+    store.append_audit(review_id, "system", "review_started", {"provider": "groq", "model": "m"})
+    return review_id
+
+
+def test_close_interrupted_reviews_fails_running_reviews_of_every_keyed_tenant(
+    settings: Settings, caplog: pytest.LogCaptureFixture
+) -> None:
+    left = {tenant: _left_running(settings.data_dir, tenant) for tenant in ("acme", "globex")}
+    with caplog.at_level(logging.WARNING, logger="src.api"):
+        assert api_module.close_interrupted_reviews(settings) == 2
+    for tenant, review_id in left.items():
+        store = Store(settings.data_dir, tenant)
+        record = store.get_review(review_id)
+        assert record is not None and record.status == "failed"
+        rows = store.list_audit(review_id)
+        assert [r.event for r in rows] == ["review_started", "review_failed"]
+        assert rows[-1].actor == "system" and rows[-1].payload == INTERRUPTED_PAYLOAD
+        assert any(review_id in r.getMessage() for r in caplog.records)
+    # Nothing left to close.
+    assert api_module.close_interrupted_reviews(settings) == 0
+
+
+def test_close_interrupted_reviews_skips_a_tenant_without_a_key(data_dir: Path) -> None:
+    acme_only = {key: who for key, who in KEYS.items() if who["tenant_id"] == "acme"}
+    review_id = _left_running(data_dir, "globex")
+    assert api_module.close_interrupted_reviews(_settings(data_dir, acme_only)) == 0
+    record = Store(data_dir, "globex").get_review(review_id)
+    assert record is not None and record.status == "running"
+
+
+def test_create_app_leaves_a_running_review_alone(settings: Settings) -> None:
+    # An app can be built while a review of this process runs; only `main` sweeps.
+    review_id = _left_running(settings.data_dir, "acme")
+    create_app(settings)
+    store = Store(settings.data_dir, "acme")
+    record = store.get_review(review_id)
+    assert record is not None and record.status == "running"
+    assert [r.event for r in store.list_audit(review_id)] == ["review_started"]
+
+
+def test_main_closes_interrupted_reviews_before_serving(
+    data_dir: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _main_env(monkeypatch, data_dir, LLM_PROVIDER="groq", GROQ_API_KEY="test-key")
+    review_id = _left_running(data_dir, "acme")
+    seen: list[str] = []
+
+    def serve(app: object, **kwargs: object) -> None:
+        record = Store(data_dir, "acme").get_review(review_id)
+        assert record is not None
+        seen.append(record.status)
+
+    monkeypatch.setattr(api_module.uvicorn, "run", serve)
+    api_module.main()
+    assert seen == ["failed"]
+
+
+def test_main_config_error_closes_nothing(
+    data_dir: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # The start stops at the model check: no sweep, the row waits for a start that succeeds.
+    _main_env(monkeypatch, data_dir, LLM_PROVIDER="mistralai", LLM_MODEL="m", LLM_API_KEY="k")
+    served = _refuse_serving(monkeypatch)
+    review_id = _left_running(data_dir, "acme")
+
+    def reject(*args: object, **kwargs: object) -> object:
+        raise ValueError("reddedildi")
+
+    monkeypatch.setattr("src.llm.init_chat_model", reject)
+    with pytest.raises(SystemExit):
+        api_module.main()
+    capsys.readouterr()
+    assert served == []
+    record = Store(data_dir, "acme").get_review(review_id)
+    assert record is not None and record.status == "running"
+
+
+def test_closed_interrupted_review_reads_failed_and_rejects_a_decision(
+    client: TestClient, settings: Settings
+) -> None:
+    review_id = _left_running(settings.data_dir, "acme")
+    assert api_module.close_interrupted_reviews(settings) == 1
+    response = client.get(f"/reviews/{review_id}", headers=ACME_VIEWER)
+    assert response.status_code == 200
+    assert response.json()["status"] == "failed"
+    decision = {"findings": [], "contract_decision": "approve"}
+    assert _decide(client, review_id, decision).status_code == 409
+    audit = client.get(f"/reviews/{review_id}/audit", headers=ACME_VIEWER).json()
+    assert audit[-1]["event"] == "review_failed"
+    assert audit[-1]["payload"] == INTERRUPTED_PAYLOAD
+    # The other tenant cannot see it.
+    assert client.get(f"/reviews/{review_id}", headers=GLOBEX_LAWYER).status_code == 404

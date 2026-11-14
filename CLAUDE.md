@@ -98,9 +98,12 @@ Adım 19g bitti (2026-11-14; teslimden sonra, `step-19g` dalında, `main`'e alı
 edilmedi): dış bir incelemenin iddiaları kodla denendi. Bulgunun maddesinden başka bir maddeye
 yazılmış taslak `proposal_clause_mismatch` ile avukata gider; "kanıtlı ama yanlış uygun" sınırı
 `check`'li kuralda da geçerlidir (maddede eşiği sağlayan bir değer varsa; modelsiz sayım 24
-çiftin 14'ünde 22 madde) ve kapatılmadı. Modelle ölçülmedi. Onay bekleyen sıradaki adım 19h:
-süreç ölünce `running` kalan incelemeyi başlangıçta `failed` yapmak. Ayrıntı `docs/plan.md`
-Adım 19g.
+çiftin 14'ünde 22 madde) ve kapatılmadı. Modelle ölçülmedi. Ayrıntı `docs/plan.md` Adım 19g.
+Adım 19h bitti (2026-11-15; aynı dalda): süreç inceleme sırasında ölünce `running` kalan satırı
+`main()` bir sonraki başlangıçta, sunmadan önce `failed` yapar ve `review_failed`
+(`process_interrupted`) yazar (`create_app` veritabanına yazmaz); gerçek süreç öldürülerek
+denendi, Docker'da denenmedi. Açık karar: "yanlış uygun" sınırı için çapa sözcükleri. Ayrıntı
+`docs/plan.md` Adım 19h.
 
 ## Komutlar
 ```bash

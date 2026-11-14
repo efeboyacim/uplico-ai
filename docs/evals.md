@@ -583,6 +583,13 @@
   `review_failed` (`internal_error` / `prepare_error`). `review_failed` son audit satırıdır; indeks
   başarıda da hatada da silinmiştir. Karar ucundaki (`finalize`) hata bu teste girmez; inceleme
   `failed` olmaz (yukarıda *`finalize` hatası incelemeyi `failed` yapmaz*).
+- **Yarıda kalan inceleme başlangıçta kapanır (Adım 19h; `tests/test_store.py`,
+  `tests/test_api.py`):** `Store.fail_running` her `running` satırı `failed` yapar ve son audit
+  satırı olarak `review_failed` (`process_interrupted`) ekler; `awaiting_lawyer`, karar verilmiş
+  ve `failed` incelemelere dokunmaz; ikinci çağrı hiçbir şey yazmaz; audit yazımı hata verirse
+  (TEMP TRIGGER) hiçbir satırın durumu değişmez; öteki tenant'ın satırı değişmez. `main()` taramayı
+  sunmadan önce bir kez çağırır ve anahtarı olan her tenant'ı tarar; `create_app` `running` satıra
+  dokunmaz; kapatılan inceleme `GET` ile `failed` okunur, karar ucu 409 döner.
 - **Bozuk JSON istisnası:** anahtarsız, sözdizimi bozuk JSON gövdeli `POST /reviews` 422 döner ve
   hiçbir inceleme oluşmaz; gövdesiz ya da şeması yanlış anahtarsız istek 401 döner.
 - **Otomatik doküman uçları kapalı:** `/docs`, `/redoc`, `/openapi.json` 404 döner.

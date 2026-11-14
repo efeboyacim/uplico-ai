@@ -1327,6 +1327,7 @@ kural için avukattan taslak kararı istenmez); ikisi de audit'teki `tool_call` 
 | Kimlik / yapılandırma hatası (`langchain_core` kimlik / izin / bulunamadı hatası ya da HTTP 401 / 403 / 404; Groq, Ollama ve diğer sağlayıcılar) | **İstisna:** `review_rule`'da yakalanmaz, yeniden fırlatılır; graph durur, API incelemeyi `failed` yapar ve 502 döner. Tabloda olmayan, anahtarsız kurulabilen bir sağlayıcıda eksik anahtar buraya düşer (ilk çağrıda 401) |
 | Diğer LLM hatası (zaman aşımı, 5xx, 400, bağlantı reddi) | `review_rule` içinde yakalanır → `no_finding` (sebep `llm_error`) → avukat kuyruğu |
 | Model çağrısı dışından gelen hata (tool gövdesinde beklenmeyen hata, middleware, kütüphane, audit yazımı, eksik indeks) | Bulguya çevrilmez; graph'tan dışarı fırlar, API incelemeyi `failed` yapar ve 500 döner |
+| Süreç inceleme sırasında öldü (durdurma, `SIGKILL`, kapanma) | Yakalanamaz; satır `running` kalır. Sonraki başlangıçta `failed` olur ve `review_failed` (`process_interrupted`) yazılır; inceleme sürdürülmez, sözleşme yeniden yüklenir (aşağıda) |
 | Avukat kararından sonra `finalize` ya da resume hatası | İnceleme `failed` olmaz, `awaiting_lawyer`'da kalır; audit'e satır yazılmaz; API 500; karar yeniden gönderilebilir (aşağıda) |
 | Tool hatası (beklenen: olmayan madde, eksik kanıt) | Açıklayıcı hata mesajı modele döner; model düzeltir |
 | Geçersiz tool argümanı | Şema hatası modele döner |
@@ -1374,6 +1375,21 @@ iki eşzamanlı resume'da `finalize` iki kez koşar ve hata çıkmaz (kurulu sü
 altında yeniden okunan durum ikinciyi 409 ile reddeder. Kilit süreç içindir: uygulama tek süreç
 çalışır (`python -m src.api`, tek uvicorn worker); çok süreçli dağıtım desteklenmez (bilinen sınır).
 
+**Süreç inceleme sırasında ölürse (Adım 19h):** `POST /reviews` sürerken süreç ölürse (konteynerin
+durdurulması, `SIGKILL`, makinenin kapanması) hiçbir `except` çalışmaz: satır `running` kalır,
+audit izi kapanış satırı olmadan biter, indeks süreçle birlikte gider. Böyle bir inceleme
+sürdürülemez. `main()` sunmaya başlamadan önce `close_interrupted_reviews(settings)` çağırır:
+anahtarı olan her tenant için `Store.fail_running("process_interrupted")`, tek transaction'da
+o tenant'ın bütün `running` satırlarını `failed` yapar ve her biri için `review_failed`
+(`{reason: "process_interrupted"}`, `actor` = `system`) ekler; audit yazımı hata verirse durum da
+değişmez ve hata başlangıcı durdurur (yutulmaz). Kapatılan her inceleme uygulama loguna kimliğiyle
+düşer. Tarama `create_app`'te değildir: `create_app` süreç içinde birden çok kez kurulabilir
+(testler) ve o sırada koşan bir incelemeyi `failed` yapmamalıdır. Tek süreç varsayımına dayanır:
+aynı veri dizininde ikinci bir süreç başlarsa ilkinin süren incelemesi `failed` olur; ilk süreç
+bulguları kaydedemez (`save_findings` `False`), 500 döner ve ikinci bir `review_failed`
+(`internal_error`) satırı yazar. Checkpoint'e dokunulmaz: yarım thread `checkpoints.db`'de kalır ve
+bir daha çağrılmaz (`failed` inceleme sondur, §1).
+
 ## 7. Gözlemlenebilirlik
 - **Audit log (asıl kayıt):** tenant'ın `app.db` dosyasında `audit_log` tablosu.
   - **Uygulama üzerinden değiştirilemez:** tabloda `UPDATE` ve `DELETE`'i reddeden SQLite
@@ -1389,7 +1405,7 @@ altında yeniden okunan durum ikinciyi 409 ile reddeder. Kilit süreç içindir:
     | Doğrulama | `verification` (bulgu başına bir satır: sinyaller, taslağın `code_check` sonucu) |
     | Avukat | `awaiting_lawyer`, `finding_decision`, `proposal_decision` (düzenlenmiş metin maskeli), `contract_decision` |
     | Kapanış | `report_created` (raporun üretileceği son sonuç kaydedildi; rapor dosyası oluşturulmaz), `review_closed` |
-    | Hata | `review_failed` (`reason`: `prepare_error` / `provider_config` / `internal_error`) |
+    | Hata | `review_failed` (`reason`: `prepare_error` / `provider_config` / `internal_error` / `process_interrupted`) |
 
   - Kim yazar: hazırlık olaylarını hazırlık fonksiyonu; `model_call` / `tool_call` middleware'leri;
     `finding`'i `review_rule` (`actor` = `agent`; kodun kurduğu `no_finding` bulgusunda da, sebep
@@ -1400,6 +1416,9 @@ altında yeniden okunan durum ikinciyi 409 ile reddeder. Kilit süreç içindir:
     değişikliğiyle aynı transaction'da. Karar ucu `review_failed` yazmaz (§6).
   - İstisna: hazırlık yarıda kalırsa `review_failed`'ı (`reason: prepare_error`) hazırlık
     fonksiyonunun kendisi yazar; çağıran o noktada `review_id`'yi henüz bilmez.
+  - İstisna (Adım 19h): önceki sürecin `running` bıraktığı incelemenin `review_failed`'ını
+    (`reason: process_interrupted`) başlangıçta `Store.fail_running` yazar, durum değişikliğiyle
+    aynı transaction'da (§6 "Süreç inceleme sırasında ölürse").
   - **API'nin yazdığı olaylar** (`actor` = `system`):
     - `awaiting_lawyer`: `{finding_count, needs_review_count}`. `Store.save_findings` bu satırı
       bulguları ve `awaiting_lawyer` durumunu yazdığı transaction'da ekler (ya hepsi ya hiçbiri).

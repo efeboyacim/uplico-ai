@@ -129,6 +129,15 @@ flowchart LR
 
 İnceleme durumları: `running → awaiting_lawyer → approved | changes_requested` (hata: `failed`).
 
+**Süreç inceleme sırasında ölürse (Adım 19h):** konteyner durdurulur, süreç öldürülür ya da makine
+kapanırsa hata yakalanamaz ve satır `running` kalır; indeks süreçle birlikte gittiği için inceleme
+sürdürülemez. Uygulama başlarken (`python -m src.api`, sunmaya başlamadan önce; `create_app` içinde
+değil) anahtarı olan her tenant'ın `running` incelemelerini `failed` yapar ve her biri için
+`review_failed` (`reason: process_interrupted`) yazar; durum ve audit satırı tenant başına tek
+transaction'dadır (ya hepsi ya hiçbiri). Sözleşme yeniden yüklenir; yeniden deneme ucu yoktur.
+Tarama tek süreç varsayımına dayanır: aynı veri dizininde ikinci bir süreç başlatılırsa ilkinin
+süren incelemesi `failed` olur (desteklenmeyen kullanım; `agent_design.md` §6).
+
 ### API uçları
 | Uç | İş | Gerekli rol |
 |---|---|---|

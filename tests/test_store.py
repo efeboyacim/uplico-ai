@@ -677,6 +677,82 @@ def test_review_mark_failed_only_from_running(data_dir: Path) -> None:
     assert record is not None and record.status == "awaiting_lawyer"
 
 
+# Reviews an earlier process left running (step 19h)
+
+INTERRUPTED = "process_interrupted"
+
+
+def test_review_fail_running_closes_every_running_review_and_nothing_else(data_dir: Path) -> None:
+    store = Store(data_dir, "acme")
+    first = store.create_review("metin", "groq", "m")
+    store.append_audit(first, "system", "review_started", {"provider": "groq", "model": "m"})
+    second = store.create_review("metin 2", "groq", "m")
+    awaiting = _awaiting(store)
+    decided = _awaiting(store)
+    assert store.complete_review(decided, "changes_requested", _outcome(), "Ayşe", _events())
+    failed = store.create_review("metin", "groq", "m")
+    assert store.mark_failed(failed) is True
+    others = (awaiting, decided, failed)
+    before = {rid: (store.get_review(rid), store.list_audit(rid)) for rid in others}
+
+    assert store.fail_running(INTERRUPTED) == [first, second]
+
+    for review_id in (first, second):
+        record = store.get_review(review_id)
+        assert record is not None and record.status == "failed"
+        last = store.list_audit(review_id)[-1]
+        assert (last.actor, last.event) == ("system", "review_failed")
+        assert last.payload == {"reason": INTERRUPTED}
+    assert [r.event for r in store.list_audit(first)] == ["review_started", "review_failed"]
+    assert [r.event for r in store.list_audit(second)] == ["review_failed"]
+    for review_id, (record, audit) in before.items():
+        assert store.get_review(review_id) == record
+        assert store.list_audit(review_id) == audit
+
+    # Nothing is running any more: a second call writes nothing.
+    assert store.fail_running(INTERRUPTED) == []
+    assert len(store.list_audit(first)) == 2
+    assert len(store.list_audit(second)) == 1
+
+
+def test_review_fail_running_without_running_reviews_writes_nothing(data_dir: Path) -> None:
+    store = Store(data_dir, "acme")
+    awaiting = _awaiting(store)
+    assert store.fail_running(INTERRUPTED) == []
+    assert [r.event for r in store.list_audit(awaiting)] == ["awaiting_lawyer"]
+
+
+def test_review_fail_running_audit_failure_changes_no_status(data_dir: Path) -> None:
+    store = Store(data_dir, "acme")
+    first = store.create_review("metin", "groq", "m")
+    second = store.create_review("metin", "groq", "m")
+    # TEMP: the trigger lives on the store's shared connection, not in the database file. It
+    # lets the first review's row in and rejects the second one's.
+    store._conn.execute(
+        "CREATE TEMP TRIGGER fail_second_row BEFORE INSERT ON main.audit_log "
+        "WHEN (SELECT COUNT(*) FROM main.audit_log) >= 1 "
+        "BEGIN SELECT RAISE(ABORT, 'yazilamadi'); END"
+    )
+    with pytest.raises(sqlite3.IntegrityError, match="yazilamadi"):
+        store.fail_running(INTERRUPTED)
+    for review_id in (first, second):
+        record = store.get_review(review_id)
+        assert record is not None and record.status == "running"
+        assert store.list_audit(review_id) == []
+    assert not store._conn.in_transaction
+
+
+def test_review_fail_running_leaves_the_other_tenant_alone(data_dir: Path) -> None:
+    acme = Store(data_dir, "acme")
+    globex = Store(data_dir, "globex")
+    acme_review = acme.create_review("metin", "groq", "m")
+    globex_review = globex.create_review("metin", "groq", "m")
+    assert acme.fail_running(INTERRUPTED) == [acme_review]
+    record = globex.get_review(globex_review)
+    assert record is not None and record.status == "running"
+    assert globex.list_audit(globex_review) == []
+
+
 def test_review_missing_id_returns_none_and_false(data_dir: Path) -> None:
     store = Store(data_dir, "acme")
     missing = str(uuid.uuid4())

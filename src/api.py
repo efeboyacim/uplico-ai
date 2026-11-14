@@ -80,6 +80,8 @@ from src.text import strip_invisible
 logger = logging.getLogger(__name__)
 
 SYSTEM_ACTOR = "system"
+# `review_failed` reason of a review an earlier process left `running` (agent_design.md §6).
+INTERRUPTED_REASON = "process_interrupted"
 
 # Characters of the contract text, not bytes. Checked in the endpoint so that it comes after
 # authentication and answers 413 rather than 422.
@@ -681,9 +683,34 @@ def _decide(
 # --- App ------------------------------------------------------------------------------------------
 
 
+def _tenant_ids(settings: Settings) -> list[str]:
+    """The tenants that have an API key, sorted."""
+    return sorted({p.tenant_id for p in settings.api_keys.values()})
+
+
+def close_interrupted_reviews(settings: Settings) -> int:
+    """Fail the reviews an earlier process left `running`; returns how many it closed.
+
+    A process that dies during `POST /reviews` runs no `except`: the row stays `running`, its
+    index is gone with the process and nothing can resume it. Each such review becomes `failed`
+    with `review_failed` (`reason: process_interrupted`) as its last audit row, written with the
+    status in one transaction per tenant (`Store.fail_running`).
+
+    Called once by `main`, before serving, never by `create_app`: an app can be built while a
+    review of this process is running, and that review must not be failed. One process per data
+    dir is assumed (agent_design.md §6).
+    """
+    closed = 0
+    for tenant_id in _tenant_ids(settings):
+        for review_id in Store(settings.data_dir, tenant_id).fail_running(INTERRUPTED_REASON):
+            logger.warning("Yarıda kalmış inceleme kapatıldı: inceleme=%s", review_id)
+            closed += 1
+    return closed
+
+
 def _check_tenants(settings: Settings) -> None:
     """Every API key must map to a known tenant; otherwise the app does not start."""
-    for tenant_id in sorted({p.tenant_id for p in settings.api_keys.values()}):
+    for tenant_id in _tenant_ids(settings):
         try:
             Store(settings.data_dir, tenant_id)
         except UnknownTenantError:
@@ -825,6 +852,8 @@ def main() -> None:
     except ConfigError as exc:
         print(f"Yapılandırma hatası: {exc}", file=sys.stderr)
         raise SystemExit(1) from None
+    # After create_app (the tenants are known), before serving (no review of this process runs).
+    close_interrupted_reviews(settings)
     uvicorn.run(app, host="0.0.0.0", port=8000)
 
 
