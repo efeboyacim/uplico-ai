@@ -507,7 +507,12 @@ yoktur.**
   "Geciken her gün için bedelin %1'i ceza uygulanır, ancak 20 günü aşan gecikmede ceza
   sınırsızdır." ("en çok %10" kuralında okunan `[1]`; "20 gün" başka türdendir) ve "Ödeme, fatura
   tarihinden itibaren 45 günü izleyen ayın sonunda yapılır." ("en çok 45 gün" kuralında `[45]`)
-  `passed` alır. Aynı açık önceki tasarımda tek değerli taslakta da vardı. Böyle bir taslak
+  `passed` alır. Aynı açık önceki tasarımda tek değerli taslakta da vardı. Çok değerli taslakta
+  açık genişledi: değerler tek tek denetlenir, toplanmaz ve birbirine bağlanmaz. Okunan her
+  değer kurala uyup toplamda ya da zincirlenerek kuralı aşan taslak ("%5'i ceza uygulanır;
+  ayrıca %8 ek ceza uygulanır", "en çok %10" kuralında `[5, 8]`; "Fatura onayı 20 gün içinde
+  yapılır; ödeme onaydan itibaren 40 gün içinde yapılır", "en çok 45 gün" kuralında `[20, 40]`)
+  artık `passed` alır ve kuyruğa düşmez; önceki tasarımda ikisi de `failed` idi. Böyle bir taslak
   avukat kabul etmedikçe ya da düzenlemedikçe değişiklik talebine girmez (`src/report.py`).
 
   Taslak için ikinci bir LLM çağrılmaz. Sayısal olmayan kurallarda taslağın kurala uyduğunu kod
@@ -672,8 +677,10 @@ yoktur.**
     checksum tuttuğunda (yaklaşık yüzde bir) TCKN olarak maskelenir. Haneler arasındaki boşluk
     gruplamasına bakmayan boşluklu TCKN kalıbı bunları gerçek bir değerden ayıramaz; bedeli
     `500 000 00 00` ile aynıdır (yer tutucu sayı olarak okunmaz).
-  - Kişi adı: taraf ve imza bloklarından ("Ad Soyad:", "Yetkili:", "temsilen") çıkarılır, tüm metinde
-    (sözcük sınırıyla) değiştirilir. Ayırma kuralı:
+  - Kişi adı: üç yoldan bulunur ve bulunan ad tüm metinde (sözcük sınırıyla) değiştirilir. Etiket
+    yolu taraf ve imza bloklarındaki etiketlerden ("Ad Soyad:", "Yetkili:", "temsilen") başlar;
+    Adım 19c'de iki yol eklendi: e-posta bağı ve etiketsiz imza satırı (aşağıda). Etiket yolunun
+    ayırma kuralı:
     - **Dizi:** etiketten sonra, aynı satırda, yalnızca boşlukla ayrılmış ve büyük harfle başlayan
       ardışık sözcükler. Dizi şuralarda durur: satır sonu; ardından `:` gelen sözcük (sıradaki
       etikettir, diziye girmez: "Ad Soyad: Ahmet Yılmaz TCKN: …"); herhangi bir noktalama işareti
@@ -706,6 +713,79 @@ yoktur.**
     - Sınır (fazla maskeleme): listede olmayan birim ya da taraf adı ("Yetkili: Hukuk Müdürlüğü")
       kişi sayılıp tüm metinde maskelenebilir; bilinen bir ad, gövdede bir şirket adının içinde
       geçiyorsa ("Ahmet Yılmaz İnşaat A.Ş.") orada da maskelenir.
+    - **E-posta bağı (Adım 19c):** bulunan bir e-postanın yerel kısmı 2–4 parçaysa (parçalar `.`,
+      `_` ya da `-` ile ayrılır; her parça yalnızca harf ve en az iki harf), parçalar e-postanın
+      **kendi satırında**, aynı sırayla, yalnızca yatay boşlukla ayrılmış ardışık sözcükler olarak
+      aranır. Karşılaştırma Türkçe harf katlamasıyladır (büyük-küçük harf ve şapka farkı yok;
+      `kemal.ucar@` "Kemal Uçar"ı, `ali.tore@` "Ali Töre"yi, `elif.soylu@` "ELİF SOYLU"yu bulur).
+      Eşleşen her sözcük büyük harfle başlamalıdır. Ardındaki ek ada girmez ("[KISI_1]'ya").
+      Ad sayılmaz: birim sözcüğü (Birimi, Ekibi, Departmanı, Müdürlüğü, Servisi) ya da unvan başı
+      içeren eşleşme (`satis.birimi@` "Satış Birimi", `hukuk.muduru@` "Hukuk Müdürü"); yalnızca
+      unvan niteleyicilerinden oluşan eşleşme ("Satın Alma"); şirket işareti (aşağıda "Şirket
+      koruması").
+    - **Etiketsiz imza satırı (Adım 19c):** hemen sonraki satır, girintiden sonra, "İmza"
+      sözcüğüyle başlıyorsa ("İmza:", "IMZA", "İmza / Kaşe:") ve satırın tamamı (girinti hariç)
+      2–4 sözcüklük tek bir ad dizisiyse (etiket yolundaki "Dizi" kuralıyla okunur) o dizi addır.
+      Araya boş satır (yalnızca boşluk içeren satır da) girerse sayılmaz. Ad sayılmaz: unvan başı
+      içeren ya da yalnızca niteleyicilerden oluşan dizi ("Genel Müdür", "Satın Alma"); "Kaşesi",
+      "Mührü" ya da "Adına" içeren dizi ("Tedarikçi Kaşesi", "Alıcı Adına"; bu üç sözcük
+      **yalnızca bu yolda** form sözcüğüdür, genel form sözcüğü listesi ve etiket yolu değişmedi);
+      birim sözcüğü içeren dizi; iki noktası olmadan yazılmış etiket ("Ad Soyad", "Adı Soyadı");
+      taraf rolü sözcüğü içeren dizi ("HİZMET SAĞLAYICI", "Tedarikçi Firma"); şirket işareti;
+      tanımlı terim (aşağıda). Taraf rolü sözcükleri kapalı listedir: Alıcı, Satıcı, Tedarikçi,
+      Yüklenici, İşveren, İşçi, Sahibi, Sağlayıcı, Kiralayan, Müşteri, Firma, Şirket, Taraf,
+      Unvanı / Ünvanı, Onaylayan, Hazırlayan, Yetkili, Temsilci, Vekil, Kefil, Bayi, Distribütör,
+      Acente, İdare, Kurum; ayrıca iki sözcüklü roller "Hizmet Alan", "Hizmet Veren", "Kiraya
+      Veren", "İş Veren" ("Alan" ve "Veren" tek başına soyad olabildiği için yalnızca çift sayılır;
+      "Kiracı" da soyad olabildiği için listede yok). **Tanımlı terim:** aday aynı `mask()`
+      çağrısının metninde kendi satırı dışında en az 3 kez daha geçiyorsa (büyük-küçük harf ve
+      sözcük arası boşluk farkı gözetilmeden) sözleşmenin tanımlı terimidir ("İş Ortağı"), ad
+      sayılmaz.
+    - **Şirket koruması (iki yeni yol):** adayın içinde, ondan sonraki büyük harfli sözcüklerde
+      ("ve …" devamları dahil, en çok 12 sözcük) ya da bunların hemen ardındaki sözcükte şirket eki
+      varsa ad sayılmaz (`Ahmet Yılmaz İnşaat A.Ş. ahmet.yilmaz@…`). Sınır, bir satırda çok aday
+      olduğunda süreyi doğrusal tutmak içindir; etiket yolu sınırsız bakar.
+    - **Yol verme:** yalnızca yeni iki yolun bulduğu (etiket yolunun bulmadığı) bir ad, bir
+      geçişinde başka bir değerle (e-posta, numara, IBAN, etiketli ad) örtüşüyorsa o geçişte yol
+      verir: o geçiş olduğu gibi kalır, öteki değer ad hiç bulunmamış gibi maskelenir; adın öteki
+      geçişleri maskelenir. Böylece yeni yollar, önceden maskelenen hiçbir değerin yerini almaz.
+      Örnek: `Yedek: Kemal Ozturk_kemal@ornek.com … Kemal Ozturk\nİmza:` → `Yedek: Kemal
+      [EPOSTA_1] … [KISI_1]\nİmza:` (e-posta kalıbı `Ozturk_kemal@ornek.com`'u alır; yol verilen
+      geçişte adın e-postaya girmeyen kısmı, "Kemal", ham kalır). Bir madde tek başına adın nasıl
+      bulunduğunu göstermeyebilir; bu yüzden `prepare_contract` bu adları önce bütün sözleşmeden
+      çıkarır (`unlabelled_names`) ve her madde çağrısına verir (`mask(…, unlabelled=…)`). Eşlemede
+      zaten duran bir ad, `unlabelled` ile verilmedikçe yol vermez (eşlemedeki ad olarak, Adım 19c
+      öncesi gibi maskelenir).
+    - **İki aşamalı akışın sonucu:** tanımlı terim sayımı her `mask()` çağrısının kendi metninde
+      yapılır. Bütün metinde gövdede 3+ kez geçtiği için reddedilen bir başlık
+      ("İş Ortağı\nİmza:"), tek başına maskelenen İmzalar parçasında yeniden bulunup yalnızca orada
+      maskelenebilir; gövde değişmez (gövdede "İş Ortağı" ham, İmzalar'da `[KISI_1]`). Aynı yoldan,
+      gövdede 3+ kez geçen ve etiketsiz satırda imzalayan gerçek bir kişinin adı İmzalar'da
+      maskelenir, gövdede ham kalır.
+    - **Sınır (kaçanlar, iki yeni yol):** baş harfli yerel kısım (`a.yilmaz@`); tek sözcüklü posta
+      kutusu (`info@`); adı başka satırda olan e-posta; e-postasından farklı yazılan ad
+      ("Mehmet Ali Kaya" + `mehmetali.kaya@`); küçük harfle yazılmış ad; İmza'dan önce boş satır;
+      satırında başka metin olan ad ("Kemal Uçar, 12.01.2026\nİmza:"); gövdede 3+ kez geçen ve
+      etiketsiz satırda imzalayan kişi (gövdede, yukarıda); 12 sözcükten uzaktaki şirket işareti
+      (görülmez; ad maskelenir).
+    - **Sınır (fazla maskeleme, iki yeni yol):** imza satırında şirket eki taşımayan iki sözcüklü
+      şirket adı ("Acme Teknoloji\nİmza:"), "Okudum Onayladım", "Kemal Uçar Bey" ("Bey" dahil tek
+      değer), listede olmayan birim ya da rol sözcüğü ("Kalite Kontrol"); e-posta yolunda işlev
+      posta kutuları ("Müşteri Hizmetleri" + `musteri.hizmetleri@`, "Teknik Destek", "Bilgi
+      İşlem"), listede olmayan birim sözcüğü, şirket eki taşımayan şirket ("Ahmet Yılmaz Ticaret"
+      + `ahmet.yilmaz@` → "[KISI_1] Ticaret"). Yarım maskeleme: tireli soyad
+      ("Ahmet Yılmaz-Kaya" + `ahmet.yilmaz@` → "[KISI_1]-Kaya"); e-posta adın yalnızca bir kısmını
+      yazıyorsa o kısım ("Ayşe Nur Kaya" + `nur.kaya@` → "Ayşe [KISI_1]").
+    - **Önceden var olan, Adım 19c'de değişmeyen sınır (açık soru, `spec.md` §10):** (a) etiket
+      yolunun bulduğu ad, boşluksuz bitişik yazılmış bir e-postanın yerini alabilir:
+      `Yetkili: Elif Soylu\nElif Soylu-elif@ornek.com` → `… [KISI_1]-elif@ornek.com` (e-postanın
+      kalanı ham kalır). "Yol verme" yalnızca yeni yolların adlarına uygulanır; etiketli adlarda
+      davranış Adım 19c öncesiyle aynıdır. (b) Avukatın düzenlediği taslak metni kayıtlı eşlemeyle
+      maskelenir (`src/api.py` `_masked_decision`) ve bu çağrıya `unlabelled` listesi verilmez;
+      eşlemedeki ad orada yol vermez. Yeni yolların bulduğu ad, düzenlenen metinde bitişik bir
+      e-postayla yazılırsa e-postanın kalanı ham kalabilir (`Kemal Uçar-kemal@ornek.com` →
+      `[KISI_1]-kemal@ornek.com`). İkisi de adla e-postanın boşluksuz yapıştığı yazımda
+      gösterildi; boşluk ya da noktalamayla ayrıldıklarında ikisi de maskelenir.
   - Yer tutucu türleri: `KISI`, `TCKN`, `IBAN`, `TELEFON`, `EPOSTA`.
   - Aynı değer aynı yer tutucuyu alır; "aynı" birebir aynı yazımdır (maske açma metni aynen geri
     vermek zorundadır), farklı yazılmış aynı ad ya da numara ayrı yer tutucu alır. Eşleme yalnızca
@@ -720,11 +800,14 @@ yoktur.**
     `lawyer` görünümünde eşlemedeki değerle açılabilir.
   - Aynı maskeleyici, avukatın karar sırasında yazdığı düzenlenmiş taslak metnine de uygulanır
     (incelemenin mevcut eşlemesiyle, aynı çağrı zinciriyle: `mask(strip_invisible(metin), eşleme)`;
-    ayrıntı `architecture.md` §3 "Avukat kararı"). Orada eşlemede olmayan yeni bir kişi adı
+    ayrıntı `architecture.md` §3 "Avukat kararı"). Orada eşlemede olmayan yeni bir kişi adı,
+    üç keşif yolundan biri (etiket, aynı satırdaki e-posta, etiketsiz imza satırı) bulmadıkça
     yakalanmaz; `viewer` onu inceleme yanıtında, raporda ve audit'te görebilir (bilinen sınır).
-  - Sınır: maskelenmesi garanti edilmeyenler kaçabilir: gövdede geçen ad, etiketsiz imza satırındaki
-    ad, satıra bölünmüş, tireli ya da çift boşluklu IBAN, ayraçsız öneksiz cep numarası
-    (`5335550530`), öneksiz sabit hat (`212 555 12 34`), öneksiz yazılmış parantezli alan kodu
+    Bu çağrıya `unlabelled` listesi verilmez (yukarıda "Önceden var olan … sınır" (b)).
+  - Sınır: maskelenmesi garanti edilmeyenler kaçabilir: gövdede geçen ad ve etiketsiz imza
+    satırındaki ad (Adım 19c'den sonra e-posta bağı ve imza satırı yolu bunların bir kısmını bulur;
+    kaçanlar yukarıda "Kişi adı"), satıra bölünmüş, tireli ya da çift boşluklu IBAN, ayraçsız
+    öneksiz cep numarası (`5335550530`), öneksiz sabit hat (`212 555 12 34`), öneksiz yazılmış parantezli alan kodu
     (`(532) 123 45 67`, `(212) 555 12 34`), ülke kodundan sonra parantez içinde tek başına sıfır
     taşıyan sabit hat (`+90 (0) 212 555 12 34`; cep numarasında `+90 (0) 532 123 45 67` yazımının
     yalnızca `532 123 45 67` kısmı öneksiz cep olarak maskelenir), çift boşluklu ya da sekmeyle ayrılmış
@@ -745,9 +828,10 @@ yoktur.**
     parantezli telefondan hemen sonra gelen numaradır (yukarıda "Telefon, önekli ve alan kodu
     parantez içinde"). Öneksiz cep kalıbı
     checksum'sızdır; kapsamı bilerek dardır. Örtüşen iki geçerli TCKN adayından yalnızca önce
-    başlayan maskelenir. Ad sözleşmenin hiçbir yerinde bir etiketin
-    ("Ad Soyad:", "Yetkili:", "temsilen") yanında geçmiyorsa hiçbir yazımı yakalanmaz: imza
-    bloğunda yalnızca "AHMET YILMAZ" satırı, gövdede "Ahmet Yılmaz" varsa ikisi de modele gider.
+    başlayan maskelenir. Ad sözleşmenin hiçbir yerinde ne bir etiketin ("Ad Soyad:", "Yetkili:",
+    "temsilen") yanında, ne kendi e-postasıyla aynı satırda, ne de hemen altı "İmza" olan bir
+    satırda tek başına geçiyorsa hiçbir yazımı yakalanmaz: imza bloğunda "AHMET YILMAZ" ile
+    "İmza:" arasında boş satır varsa, gövdedeki "Ahmet Yılmaz" ile birlikte ikisi de modele gider.
     Varsayılan modda maskelenmeyen her şey Groq'a (başka bir bulut sağlayıcı seçilirse ona) gider
     (`architecture.md` §6 "Veri nereye gidiyor");
     maskeleme bu yüzden sağlayıcıdan bağımsız, graph'tan önce yapılır ve kapatılamaz.

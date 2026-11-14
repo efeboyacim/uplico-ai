@@ -316,6 +316,28 @@
   başka bir değerden metin almaz (`… (0212) 555 12 34 533 555 05 30` ardından gelen satırda
   `533 555 05 30 64 27 928 34` içindeki boşluklu TCKN bütün kalır; avukatın düzenlediği taslakta
   da).
+- **Ad keşfi: e-posta bağı ve etiketsiz imza satırı (Adım 19c; `tests/test_pii.py`,
+  `tests/test_prepare.py`, `tests/test_dataset.py`):** maskelenir: e-postayla aynı satırdaki ad
+  (`kemal.ucar@` ↔ "Kemal Uçar", `tore` ↔ "Töre"), ekli ad ("Soylu'ya"), büyük harfli yazım; bu
+  yolla bulunan adın başka satırlardaki geçişleri; imza satırı "İmza:", "IMZA", "İmza / Kaşe:"
+  ve girintili; tek başına soyad olan "Alan" / "Veren". Maskelenmez (yalnızca e-posta ya da
+  hiçbir şey): `info@`, `a.yilmaz@`, küçük harfli eşleşme, şirket ekli dizi, yalnızca unvan
+  satırı, tek sözcük, ad ile "İmza" arasında boş satır, "Tedarikçi Kaşesi", birim sözcüklü posta
+  kutuları, iki noktasız etiket, taraf rolü başlıkları ("HİZMET SAĞLAYICI", "Hizmet Alan").
+  Tanımlı terim: başlık metinde kendi satırı dışında 2 kez geçiyorsa maskelenir, 3 kez geçiyorsa
+  maskelenmez; bütün metinde reddedilen başlık tek başına İmzalar parçasında maskelenir. Etiket
+  yolu değişmedi ("Kaşesi" yalnızca imza yolunda form sözcüğü). Şirket koruması 12 sözcük ileri
+  bakar. Yol verme: yalnızca yeni yolların bulduğu ad, bitişik yazılmış e-postanın yerini almaz
+  (e-posta Adım 19c öncesindeki gibi maskelenir), madde düzeyinde de (`prepare_contract`
+  `unlabelled_names`'i her maddeye verir); eşlemedeki ad yalnızca `unlabelled` ile verilince yol
+  verir; `unlabelled_names` etiket yolunun bulduğu adları içermez. Sabitlenen sınırlar: imza
+  satırındaki iki sözcüklü eksiz şirket adı maskelenir; etiketli adın bitişik e-postanın yerini
+  alması Adım 19c öncesiyle aynıdır. Değişmez, tohumlu üretimle (3.000 girdi; adlar, birim / şirket
+  dizileri, e-postalar, imza satırları ve etiketler karışık) sınanır: iki yeni yol testte
+  kapatıldığında maskelenen her (başlangıç, bitiş, ham değer) aralığı, açıkken de aynıdır ya da
+  yeni bir `KISI` aralığının içindedir; numara, e-posta ve IBAN aralıkları birebir aynıdır;
+  maske açma metni aynen geri verir. Dataset testi: sözleşme 5'in beş `pii_best_effort`
+  değerinin beşi de maskelenir; modelsiz koşu testi garanti edilmeyen sızıntıyı 0 / 5 bekler.
 - **Tutar, süre ve tarih maskelenmez:** "1.250.000 TL", "5.000.000,00 TL", "90 gün", "otuz (30) gün",
   "01.01.2026", "2026-01-01", "%15", "Madde 12" ve yan yana yazılmış "01.01.2026 1.250 TL" içeren
   metin maskelemeden aynen çıkar. Telefon kalıbı bunların hiçbirini yakalamaz; "+90 532 123 45 67"
@@ -494,7 +516,7 @@ birer boşluk ya da bölünemez boşluk) tek satırlık IBAN; önekli telefon, a
 yazılmış olsa da; 3-3-2-2 ayraçla (boşluk,
 nokta ya da tire) yazılmış öneksiz cep telefonu; e-posta; taraf/imza bloğundaki adlar).
 `pii_best_effort`: maskelenmesi **garanti edilmeyen** her kimlik bilgisi (gövdede geçen ad, etiketsiz
-imza satırındaki ad, satıra bölünmüş, tireli ya da çift boşluklu IBAN, ayraçsız ya da bölünemez
+imza satırındaki ad (Adım 19c'nin iki yolu bulsa da), satıra bölünmüş, tireli ya da çift boşluklu IBAN, ayraçsız ya da bölünemez
 boşlukla gruplanmış öneksiz cep numarası, öneksiz sabit hat, öneksiz yazılmış parantezli alan kodu,
 binlik gibi gruplanmış TCKN).
 Değerler maskeleyicinin onları yakalayıp yakalamadığına göre değil, ne olduklarına göre etiketlenir.
@@ -502,7 +524,14 @@ Değerler maskeleyicinin onları yakalayıp yakalamadığına göre değil, ne o
 (`TR18 00010 00406 02833 88480 99`) ve öneksiz cep telefonu (`533 555 05 30`) Adım 17b'den sonra
 garanti edilen biçimlerdendir, ama Adım 17b'nin önce/sonra kaydı görünür kalsın diye
 `pii_best_effort` listesinde bırakılmıştır ("garanti edilmeyen PII sızıntısı" 5 / 5 → 2 / 5; kalan
-ikisi adlardır). `tests/test_dataset.py` bu üçünün maskelendiğini, iki adın maskelenmediğini sınar.
+ikisi adlardır). Bu iki ad ("Elif Soylu": gövdede, madde 11'de `elif.soylu@` ile aynı satırda, madde
+12'de yalın; "Kemal Uçar": etiketsiz imza satırı) Adım 19c'nin iki keşif yoluyla (e-posta bağı,
+etiketsiz imza satırı; `agent_design.md` "Kişi adı") maskelenir ve listede **kalır**: bu yollar
+en iyi çabadır, garanti iddiası doğmaz; `labels.json` değişmedi. Modelsiz `--prepare-only` ile
+ölçülen (2026-11-14, `7f7cbf9`): varsayılan kümede garanti edilmeyen PII sızıntısı 2 / 5 → 0 / 5,
+garanti edilen sızıntı 0; holdout'ta 4 / 4, değişmedi (dört irtibat adı "Müşteri: Elif
+Tanrıverdi, Bilgi İşlem Müdürü, Tel: …" biçiminde; ne e-postası ne imza satırı var). `tests/test_dataset.py`
+sözleşme 5'in beş `pii_best_effort` değerinin beşinin de maskelendiğini sınar.
 Kuralın önemi (`critical` / `normal`) etiketten değil, tenant'ın `rules.yaml` dosyasından okunur.
 
 Eval graph'ı `interrupt`'a kadar çalıştırır; avukat aşaması (karar, rapor) eval'de değil unit
@@ -904,6 +933,26 @@ Sonuç `evals/results/` altına ve README'ye yazılır.
   dosyasına `commit` olarak (küçük harfle) ve tablo başlığına yazılır. Koşucu git çalıştırmaz
   (Docker imajında `.git` yok); değer host'ta `git rev-parse HEAD` ile alınıp verilir.
   Önbelleğe ve koşu özetine girmez.
+- **`--keep-drafts FILE` (Adım 19c):** isteğe bağlı. Tam kipte, bir sözleşmenin doğrulanmış
+  bulguları ("sonra", `verify(…, enabled=True)`; graph'takiyle aynı olduğu denetlendikten sonra)
+  hesaplanınca, taslağı olan her bulgu için `FILE`'a bir JSONL satırı **eklenir** (dosya baştan
+  yazılmaz; klasörü yoksa açılır; UTF-8, LF, `ensure_ascii=False`). Alanlar bu sırayla:
+  `contract_id`, `rule_id`, `clause_id` (taslağın maddesi), `proposed_text`, `code_check`.
+  Metin doğrulanmış bulgunun **maskeli** taslağıdır (kod denetiminin baktığı metin; audit'teki
+  tool çağrıları değil); maskesi açılmaz. Satırlar sözleşme sırasıyla, sözleşme içinde kural
+  sırasıyla yazılır. Yazılmaz: seçenek verilmezse; `--prepare-only`'de; limite takılan
+  sözleşmede (satırlar kurulmaz); `--resume`'da önbellekten gelen sözleşmede (o sözleşmenin
+  satırları önceki koşudan dosyada kalır). Yol `--results-dir`'in kendisi ya da içindeyse
+  (iki yol `resolve()` edilip karşılaştırılır) argüman hatası (`1`), hiçbir şey yazılmaz. Sonuç
+  dosyası ve önbellek taslak metni tutmamaya devam eder. `evals/drafts/` `.gitignore`'dadır;
+  Docker'da yalnızca `/app/evals` ve `/app/data` kalıcı olduğu için yol `/app/evals/drafts/`
+  altında verilir (ör. `--keep-drafts /app/evals/drafts/19c-sonnet.jsonl`). Bilinen sınırlar:
+  (a) koşu bir sözleşmenin satırları yazıldıktan sonra ama sözleşme önbelleğe girmeden çökerse
+  (`--resume` o sözleşmeyi yeniden koşar) ya da komut aynı dosyayla `--fresh` (veya önbelleksiz)
+  yeniden koşulursa satırlar çiftlenir: `(contract_id, rule_id)` başına **son** satır geçerlidir;
+  çıkış `1`'den sonra dosya elle temizlenir. (b) Yol kontrolü Windows'a özgü yol biçimlerini
+  (`\\?\` öneki, `\\localhost\C$\…` yönetici paylaşımı) sonuç klasörüyle aynı yer olarak tanımaz
+  ve kabul eder; koşu Docker'da (Linux) yapılır.
 - **`rate_limited` koşuyu geçersiz kılar:** herhangi bir kural `no_finding` (sebep `rate_limited`)
   dönerse eval metrik basmaz; kaç kuralın limite takıldığını söyleyen açık bir hatayla, sıfır olmayan
   çıkış koduyla durur. Limite takılan bir kural "modelin hatası" gibi sayılmaz. Uzak ya da vekil

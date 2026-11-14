@@ -226,7 +226,20 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   650–1.100 sayfa; 300 sayfalık bir sözleşme geçer). Sunucunun okuduğu bayt miktarı sınırlanmaz.
 - **Sözleşme başına enjeksiyon işareti sayısı:** sınırlanmaz. Her işaret bir audit satırı ve avukatın
   listesinde bir girdidir; üst sınır ya da özet satırı Adım 12'de düşünüldü ve bilerek eklenmedi.
-- **Düzenlenmiş taslaktaki yeni kişi adı:** Avukatın `edited_text`'e yazdığı, eşlemede olmayan yeni bir kişi adı maskelenmez; viewer onu inceleme yanıtında, raporda ve audit'te görebilir.
+- **Düzenlenmiş taslaktaki yeni kişi adı:** Avukatın `edited_text`'e yazdığı, eşlemede olmayan yeni bir kişi adı, keşif yollarından biri (etiket, aynı satırdaki e-posta, etiketsiz imza satırı) bulmadıkça maskelenmez; viewer onu inceleme yanıtında, raporda ve audit'te görebilir.
+- **Kişi adı keşfi en iyi çabadır (Adım 19c'den sonra da):** ad üç yoldan bulunur: etiket
+  ("Ad Soyad:", "Yetkili:", "temsilen"), aynı satırdaki e-postanın yerel kısmı (`elif.soylu@` →
+  "Elif Soylu") ve hemen altı "İmza" olan etiketsiz satır. Kaçanlar: baş harfli ya da tek
+  sözcüklü e-posta (`a.yilmaz@`, `info@`), adı başka satırda olan ya da e-postasından farklı
+  yazılan ad, "İmza"dan önce boş satır, satırında başka metin olan ad, gövdede 3+ kez geçen
+  (tanımlı terim sayılan) ve etiketsiz satırda imzalayan kişinin gövdedeki adı. Fazla maskeleme:
+  imza satırında şirket eki taşımayan şirket adı ("Acme Teknoloji"), "Okudum Onayladım",
+  "Kemal Uçar Bey" ("Bey" dahil), listede olmayan birim ya da rol sözcükleri ("Kalite Kontrol"),
+  işlev posta kutuları ("Müşteri Hizmetleri" + `musteri.hizmetleri@`); tireli soyad yarım
+  maskelenir ("[KISI_1]-Kaya"). Ayrıntı ve tam liste: `agent_design.md` "PII maskeleme" → "Kişi
+  adı". Sözleşme 5'in iki adı bu yollarla maskelenir ama `pii_best_effort`'ta kalır; garanti
+  iddiası yoktur (`evals.md` §3). Adla e-postanın boşluksuz yapıştığı iki yazımda e-postanın bir
+  kısmı ham kalabilir (aşağıda §10, açık soru).
 - **Karar kilidi tek süreç içindir:** aynı incelemeye aynı anda gelen iki karardan yalnızca birinin
   işlenmesini süreç içi bir kilit sağlar; uygulama tek süreç çalışır (`python -m src.api`, tek
   uvicorn worker). Çok süreçli dağıtımda yalnızca veritabanındaki durum şartı kalır.
@@ -278,7 +291,8 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
 - Her tenant'ın en az bir `lawyer` ve bir `viewer` anahtarı vardır. `lawyer` anahtarını taşıyan kişi
   o şirketin avukatıdır; kayda anahtarın sunucudaki adı yazılır. Anahtarı ele geçiren o rolü kazanır.
 - Sözleşmeler "Madde N" başlıklarıyla yazılmış, 5–30 sayfa arası.
-- Kişi adı maskeleme en iyi çabadır (taraf/imza blokları); gövdede geçen adlar, satıra bölünmüş,
+- Kişi adı maskeleme en iyi çabadır (taraf/imza blokları, aynı satırdaki e-posta, etiketsiz imza
+  satırı; §8); bu yolların bulmadığı gövde adları, satıra bölünmüş,
   tireli ya da çift boşluklu IBAN, ayraçsız ya da bölünemez boşlukla gruplanmış öneksiz cep
   numarası, öneksiz sabit hat, öneksiz yazılmış parantezli alan kodu (`(532) 123 45 67`) ve binlik
   gibi gruplanmış TCKN (`21 473 873 960`; tutardan
@@ -357,6 +371,17 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
       8K TPM'li anahtarda 4 ile ilk istek 5 kuraldan 3'ünü `rate_limited` yapıyordu. Bedeli: yüksek
       limitli hesapta inceleme yavaşlar (örnek sözleşmede 49 sn yerine 112 sn); orada
       `MAX_CONCURRENCY=4` verilebilir.
+- [ ] **Bitişik yazılmış ad + e-posta (Adım 19c'de görüldü, kullanıcı kararı bekliyor):** iki
+      durumda e-postanın bir kısmı ham kalır. (a) Önceden var olan, Adım 19c'de değişmeyen:
+      etiket yolunun bulduğu ad, boşluksuz bitişik e-postanın yerini alır
+      (`Yetkili: Elif Soylu\nElif Soylu-elif@ornek.com` → `… [KISI_1]-elif@ornek.com`). (b)
+      Avukatın düzenlediği taslak kayıtlı eşlemeyle maskelenir (`src/api.py` `_masked_decision`) ve
+      oraya "yol verme" listesi (`unlabelled`) verilmez: yeni yolların bulduğu ad aynı bitişik
+      yazımda e-postanın yerini alabilir (`Kemal Uçar-kemal@ornek.com` →
+      `[KISI_1]-kemal@ornek.com`). Boşluk ya da noktalamayla ayrılmış yazımda ikisi de maskelenir.
+      Soru: "yol verme" kuralı etiketli adlara ve karar ucuna da genişletilsin mi ((a) için
+      Adım 19c öncesinde maskelenen aralıklar değişir), yoksa sınır olarak mı kalsın?
+      Ayrıntı: `agent_design.md` "Kişi adı" → "Önceden var olan … sınır".
 
 ### Adım 12 gözlemleri (2026-11-12, ilk gerçek model denemesi)
 Tek sözleşme (`tests/fixtures/sample_contract.md`: 15 madde, 7 enjeksiyon işareti), `acme`'nin 5

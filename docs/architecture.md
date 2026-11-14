@@ -347,8 +347,11 @@ Kurallar:
   yazmaz. Tek istisna `finalize` içinde `complete_review`'ün `False` dönmesinden gelen 409'dur:
   girdiler resume'dan önce yazıldığı için kalır (aşağıda "Eşzamanlılık"). Resume sonra hata verirse yazılan girdiler kalır (yalnızca ekleme; aynı değer yeniden
   gelince aynı yer tutucuyu alır). State, checkpoint, audit log ve trace yalnızca maskeli metni
-  görür. Sınır: eşlemede olmayan yeni bir kişi adı yakalanmaz (serbest metin adlarıyla aynı sınır);
+  görür. Sınır: eşlemede olmayan yeni bir kişi adı, keşif yollarından biri (etiket, aynı satırdaki
+  e-posta, etiketsiz imza satırı) bulmadıkça yakalanmaz (serbest metin adlarıyla aynı sınır);
   `viewer` onu inceleme yanıtında, raporda ve audit'te görebilir (`spec.md` §8 "Bilinen sınırlar").
+  Bu çağrıya Adım 19c'nin "yol verme" listesi (`unlabelled`) verilmez: eşlemedeki ad, boşluksuz
+  bitişik yazılmış bir e-postanın bir kısmını ham bırakabilir (`spec.md` §10, açık soru).
   TCKN, IBAN, telefon ve e-posta yakalanır.
 - Düzenlenmiş metin kod kontrolünden geçmez; avukatın kararıdır.
 - Avukat taslağı olmayan bir bulguya yeni taslak ekleyemez (kapsam dışı).
