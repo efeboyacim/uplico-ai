@@ -62,7 +62,11 @@ bütün sert eşikler tuttu, aynı iki yanlış satır) ve Anthropic `claude-son
 çalışmaz, `none` ile çalıştı (başka değer denenmedi): 0 ile her çağrı yerelde `ValueError` verir, başlangıç kontrolü yakalamaz.
 Adım 19b (madde listesi denemesi) kullanıcının kararıyla geri alındı; iş `exp/clause-outline`
 dalında, `main`'de yok. Sonuçlar `docs/evals.md` §4, `docs/plan.md` Adım 18 "Ek koşular" ve 19b.
-Sıradaki: Adım 20 — teslim (kullanıcı onayıyla push). Ayrıntı `docs/plan.md` "Durum".
+Sıradaki: Adım 19c — Sonnet koşusunun gösterdiği üç hata (kod denetiminden kalan uygun taslaklar,
+maskelenmeyen iki ad, denetlenemeyen taslağın avukata gitmemesi) düzeltilir ve Sonnet ile yeniden
+ölçülür. Plan `docs/plan.md` "Adım 19c"de eksiksiz yazılıdır; `fable-orchestration` skill'iyle,
+`step-19c` dalında yürütülür; araştırma kayıtları `.claude/plans/19c/` altındadır (commit edilmez).
+Sonra Adım 20 — teslim (kullanıcı onayıyla push). Ayrıntı `docs/plan.md` "Durum".
 
 ## Komutlar
 ```bash

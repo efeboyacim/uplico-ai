@@ -486,7 +486,9 @@
   alındı; iş `exp/clause-outline` dalında, `main`'de yok. `main`'de 1858 test.
 - **Dokümanlar (2026-11-14):** README, `evals.md`, `plan.md`, `tech_stack.md`, `architecture.md`,
   `spec.md`, `decisions.md` ve `CLAUDE.md` bu duruma göre güncellendi; kod değişmedi.
-- **Sıradaki:** Adım 20 — teslim (kullanıcı onayıyla push).
+- **Sıradaki:** Adım 19c — Sonnet koşusunun gösterdiği üç hatanın düzeltilmesi ve yeniden ölçüm
+  (plan aşağıda, yeni oturumda oradan yürütülür; alt adımlar 19c-1 … 19c-6). Sonra Adım 20 —
+  teslim (kullanıcı onayıyla push).
 - **Adım 18c'ye başlarken (2026-11-13 oturumunun devri):**
   1. Depo temiz; son commit bu notun commit'i. `origin`'e push yapılmadı (push Adım 20'dir).
   2. Holdout koşusu bitti; eval önbelleği yok. `src/`, `evals/*.py` ve `uv.lock` artık
@@ -1771,6 +1773,304 @@ gereksiz yönlendirme satırları bunu gösterir.
   (`evals/results/20261113-221845_anthropic_claude-sonnet-5-5.json`). `main`'in kodu bu
   denemeyle değişmedi (testler 1858).
 - **Eksik:** aynı modelde (Groq) son biçimin ölçümü.
+
+### [ ] Adım 19c — Sonnet koşusunun gösterdiği üç hatanın düzeltilmesi ve yeniden ölçüm
+Bu adım yeni bir oturumda, bu metinden çalıştırılmak üzere yazıldı (kullanıcı, 2026-11-14). Önceki
+oturumun konuşması gerekmez; gereken her şey burada ve aşağıdaki dosyalardadır.
+
+- **Kullanıcının isteği (2026-11-14):** aşağıdaki üç hata için çözüm; ardından Anthropic
+  `claude-sonnet-5-5` ile tam eval ve sonucun mevcut Sonnet koşusuyla karşılaştırılması. Plan
+  `fable-orchestration` skill'iyle yürütülür.
+- **Başlangıç durumu:** `main` = bu planın commit'i; kod `598a948` ile aynı (1858 test). Karşılaştırma
+  tabanı: `evals/results/20261113-223738_anthropic_claude-sonnet-5-5.json` (bugünkü `main` kodu,
+  `LLM_TEMPERATURE=none`, 35 / 35, yönlendirme 13 / 35, öneri uygunluğu 8 / 11, garanti edilmeyen
+  PII 2 / 5).
+- **Başlarken kontrol:** `git status` temiz (yalnızca `?? .claude/`) ve `git log -1` bu planın
+  `docs:` commit'i olmalı; değilse durulur ve sorulur. Oturum bu çalışma kopyasında açılır
+  (worktree ya da klon değil): skill `.claude/skills/fable-orchestration/SKILL.md`'dedir ve
+  izlenmez; yüklenemezse aşağıdaki "Yürütme" tablosu yeterlidir. `.claude/` hiçbir commit'e
+  girmez: `git add` dosya adlarıyla ya da `git add -A -- . ':!.claude'` ile yapılır. Dal:
+  `git switch -c step-19c` (`main`'den).
+- **Araştırma kayıtları (commit edilmez, depoda izlenmeyen klasör):** `.claude/plans/19c/`
+  altında üç rapor (`RESULT-drafts.md`, `RESULT-unverifiable.md`, `RESULT-pii.md`) ve
+  araştırmada koşulan betikler (`drafts/`, `unverifiable/`, `pii/`). Klasör yoksa adım yine
+  yürütülebilir; aşağıdaki özetler yeterlidir, betikler yeniden yazılır. Notların içindeki
+  scratchpad yolları geçersizdir; betikler `.claude/plans/19c/<konu>/` altındadır.
+
+#### Üç hata ve kök nedenleri (2026-11-14 araştırması; model çağrılmadan, kod koşularak)
+- **A — Kod denetiminden kalan taslaklar.** Sonnet koşusunda üç satır: sözleşme 2 ve 7
+  `late_penalty_cap`, sözleşme 4 `payment_term` (`code_check=failed` → `proposal_noncompliant`).
+  Aynı kural Groq (2026-11-13) ve Gemini denemesinde de kaldı.
+  - *Koşularak gösterildi:* `_proposal_check` (`src/verify.py` ≈988–994) taslaktaki kuralın
+    türündeki değerlerin **hepsinin aynı** olmasını ister (`_single`). Prompt ise "maddenin tamamı"nı
+    ister (`src/prompts/rule_agent.md` 4. adım). Maddenin tamamı kurala uyan ikinci bir değer taşır:
+    gecikme cezasında günlük oran (%1) ile üst sınır (%10) → okunan `[1, 10]` → `failed`;
+    ödemede "otuz (30) gün … ithal 45 gün" → `[30, 30, 45]` → `failed`. Yani uygun taslak
+    reddediliyor; çıkarım (`extract`) doğru okuyor, reddeden tasarımdaki tek değer şartı.
+    Başlık satırı ("## Madde 5 - …"), "kırk beş (45)" yazımı ve IBAN rakamları kalmaya yol açmıyor.
+  - *Çıkarım (gösterilmedi):* Sonnet'in üç taslağının metni yok (eval geçici klasörü silindi).
+    Sözleşme 2 ve 7 büyük olasılıkla bu biçimdeydi. Sözleşme 4'te taslak ithal süresini 45
+    yazdıysa aynı durum; 75'i koruduysa ya da andıysa taslak gerçekten uygunsuzdur ve kalması
+    doğrudur.
+- **B — Maskelenmeyen iki kişisel veri (sözleşme 5, garanti edilmeyen 2 / 5).** Modelden bağımsız.
+  - *Koşularak gösterildi:* kaçan iki değer iki addır: "Elif Soylu" (gövdede, "depo sorumlusu"
+    unvanından sonra; madde 11 ve 12) ve "Kemal Uçar" (etiketsiz imza satırı: `Kemal Uçar\nİmza:`).
+    Ad keşfi yalnızca etiketlerden başlar ("Ad Soyad:", "Yetkili:", "temsilen" …;
+    `src/prepare/pii.py` `_LABEL`, `_discover_names`); iki ad da hiçbir etiketin yanında geçmez.
+    Bulunmuş adın bütün metinde yeniden aranması zaten var ve çalışıyor (pii.py ≈711–723); sorun
+    keşifte.
+- **C — Kodun denetleyemediği taslak avukat kuyruğuna düşmüyor.** Sözleşme 5 `governing_law`
+  (Sonnet ve Groq'un son iki koşusu): `code_check=unverifiable`, `needs_review=false`.
+  - *Koşularak gösterildi:* `_verify_one` yalnızca `failed` için sebep ekler. `check_decision`
+    yalnızca kuyruktaki bulgular için karar ister; avukat taslağa hiç karar vermeden sözleşmeyi
+    kapatabilir. Karar verilmemiş taslak raporda `proposals[]` içinde `proposal_action: null` ile
+    durur; `requested_changes`'e **girmez**. İhlali kelimesi kelimesine tekrar eden bir taslak da
+    aynı sonucu alır. İkinci etki: `check`'i olmayan bir kuralda (acme `liability_cap`,
+    acme `governing_law`, globex `confidentiality`) **yanlış** bir "uygun değil" kararı, model
+    taslak yazdıysa kuyruğa düşmez.
+
+#### Kararlar (her biri tek öneri; gerekçesiyle)
+1. **C için: yeni sebep `proposal_unverifiable`.** `code_check == "unverifiable"` olan her bulgu
+   kuyruğa girer; mevcut karar kuralı (`missing_action`, `missing_proposal_action`) avukatı taslağa
+   karar vermeye zorlar. Reddedilenler: karar ucunda kuyruk dışı ikinci bir "karar şart" sınıfı
+   (eval'de görünmez, tek işaret ilkesini bozar); yalnızca arayüzde işaret (kimseye yükümlülük
+   getirmez). Bedeli: koşu başına bir "gereksiz yönlendirme" daha.
+2. **A için: taslak denetimi "taslakta kuralı çiğneyen değer yok" olur.** `_proposal_check`'te
+   `_single` şartı yerine: en az bir değer var, okunamayan ifade yok, **her** değer kurala uyuyor.
+   Değişiklik tek yönlüdür (yalnızca `failed` → `passed`; bugün geçen her taslak yine geçer).
+   Reddedilen / ertelenen: prompt'u sıkılaştırmak (her kuralın taslağını değiştirir, etkisi
+   denetim değişikliğinden ayrılamaz; bu adımda **yapılmaz**); `propose_change`'te geri bildirim
+   döngüsü ("tool yalnızca şemayı denetler" tasarımını değiştirir; yalnızca bu adımdan sonra
+   gerçekten uygunsuz taslak kalırsa ayrı adım olur). Bilinen sınır (dokümana yazılır): kod hangi
+   değerin "düzenlenen" değer olduğunu bilmez ve yalnızca okuduğu değerleri denetler; okunan her
+   değer kurala uyduğu sürece, üst sınırı silen ya da kuralı değer olmayan bir ifadeyle delen
+   taslak (koşularak gösterildi: "… ancak 20 günü aşan gecikmede ceza sınırsızdır", "… 45 günü
+   izleyen ayın sonunda") geçer ve kuyruğa düşmez; bugün de tek değerli taslakta aynısı geçer.
+   Böyle bir taslak avukat kabul etmedikçe değişiklik talebine girmez (`src/report.py`).
+3. **B için: iki yeni keşif yolu, garanti listesi genişlemez.**
+   - *E-posta bağı:* bulunan bir e-postanın yerel kısmı (`ad.soyad`) aynı satırdaki büyük harfle
+     başlayan sözcüklerle, Türkçe harf katlamasıyla eşleşirse o sözcükler addır ("elif.soylu@" →
+     "Elif Soylu"). Birim sözcükleri (Birimi, Ekibi, Departmanı, Müdürlüğü, Servisi) içeren
+     eşleşme atlanır (`satis.birimi@` "Satış Birimi"ni maskelemesin). Sözleşme 5'te e-posta yalnızca madde 11'de
+     adla aynı satırdadır; madde 12'deki "Elif Soylu", bulunan adın bütün metinde yeniden
+     aranmasıyla maskelenir.
+   - *Etiketsiz imza satırı:* satırın tamamı 2–4 sözcüklük bir ad dizisiyse, şirket işareti ve
+     unvan içermiyorsa ve hemen sonraki satır "İmza" ile başlıyorsa o satır addır. "Kaşesi" ve
+     "Mührü" **yalnızca bu yeni yolda** form sözcüğü sayılır (`Tedarikçi Kaşesi\nİmza:`
+     maskelenmesin); genel `_FORM_WORDS` listesine eklenmez, etiket yolu değişmez (eklenirse
+     "Yetkili: Ahmet Yılmaz Kaşesi" bugünkünden farklı maskelenir ve fark testi değişmezi bozulur).
+   - İki ad `labels.json`'da `pii_best_effort`'ta **kalır** (Adım 17b'deki gibi; garanti iddiası
+     doğmaz, sözleşme özeti değişmez). Reddedilenler: unvandan sonra gelen diziyi ad saymak
+     (koşularak gösterildi: "Haftalık Raporu", "İstanbul Ofisinde" maskeleniyor); "rol: ad," kalıbı
+     (yalnızca holdout'u etkiler, "Acme Teknoloji,"yi maskeler; ayrı karar).
+   - Bilinen fazla maskeleme (dokümana yazılır): `Acme Teknoloji\nİmza:` gibi şirket işareti
+     taşımayan iki sözcüklü şirket adı imza satırında ad sayılır.
+4. **Sıra ve ayrıştırma:** C → A → B, her biri kendi `docs:` + `feat:` / `fix:` commit çiftiyle;
+   sonra tek Sonnet koşusu. Üçü de modelin gördüğünü ya değiştirmez (A, C: `verify` ajandan sonra
+   çalışır) ya da yalnızca sözleşme 5'in üç parçasını değiştirir (B), bu yüzden tek koşuda satır
+   satır ayrıştırılabilirler.
+5. **Taslak metinleri koşu sırasında saklanır.** Karşılaştırmanın (A) "taslak gerçekten uygunsuz
+   mu, denetim mi okuyamadı" sorusunu cevaplayabilmesi için koşucuya `--keep-drafts <dosya>`
+   seçeneği eklenir: her `propose_change` çağrısının maskeli `proposed_text`'ini, sözleşme ve kural
+   kimliğiyle, **sonuç klasörünün dışındaki** verilen dosyaya JSONL olarak yazar. Sonuç dosyası ve
+   önbellek metin tutmamaya devam eder; dosya `.gitignore`'a girer, commit edilmez.
+6. **Dal:** iş `step-19c` dalında yapılır; `main`'e karşılaştırma görüldükten ve kullanıcı
+   onayladıktan sonra alınır (19b'deki gibi geri dönüş noktası `main`'dir).
+
+#### Alt adımlar
+**Durma noktaları.** Alt adımlar `CLAUDE.md`'deki anlamda ayrı plan adımı değildir: 19c-1 → 19c-4
+arasında onay için durulmaz. Durulan yerler: (1) 19c-5 başlamadan önce "Ölçüm"deki tek soru;
+(2) 19c-6'nın commit'inden sonra (`main`'e alma ve Adım 20 için); (3) bir alt adımın bağımsız
+incelemesi buradaki bir kararı değiştiren bulgu verirse (o zaman kullanıcıya sorulur).
+**Eval kuralına istisna.** "Her adım için ortak kurallar"daki "davranışı değiştiren her commit'ten
+önce eval" bu adımda uygulanmaz: kullanıcı tek bir Sonnet koşusu istedi (2026-11-14); 19c-1 … 19c-3
+eval'siz commit edilir, modelli tek koşu 19c-5'tir, arada yalnızca modelsiz `--prepare-only` koşulur.
+
+Her alt adımda: önce doküman, sonra test ve kod; `uv run pytest`, `ruff check .`,
+`ruff format --check .`, `mypy src evals` temiz; bağımsız inceleme; sonra commit. `verify` ve
+maskeleyici çekirdek modüldür: davranışları hakkında söylenen her şey koşularak gösterilir ve
+**eski kodla fark testi** olmadan commit edilmez.
+
+- **19c-1 — `proposal_unverifiable` (C).**
+  - *Dokümanlar:* `agent_design.md` §5 sinyal tablosu ve "Taslak kontrolü" tablosu (unverifiable
+    satırı "Yok" değil artık), §6 hata tablosundaki taslak satırı; `architecture.md` §3 "Veri akışı" adım 5
+    (verify), §3 "Avukat kararı" (unverifiable taslak her zaman kuyruktadır), ADR-003 "Sınır"; `spec.md` §4
+    Senaryo 1 "Avukat kuyruğuna düşen durumlar", §5 FR-4 ve §8 "Bilinen sınırlar"ın ilk maddesi; `evals.md` §2 "Taslak kontrolü" ve §4'e "önceki
+    koşular değişiklikten öncedir" notu (eski sayılar yeniden yazılmaz).
+  - *Kod:* `src/models.py` `ReviewReason` literal'ine `proposal_noncompliant`'tan hemen sonra
+    `proposal_unverifiable`; `src/verify.py` `_verify_one`'da `elif code_check == "unverifiable"`;
+    `src/static/index.html` `REASONS` haritasına etiket ("Taslak kodca doğrulanamadı"). CSP özeti
+    çalışma zamanında hesaplanır, saklı özet yoktur. Not: `proposal_unverifiable` aynı zamanda
+    mevcut bir eval metriğinin adıdır (`metrics.after.proposal_unverifiable`); dokümanda ve
+    karşılaştırmada "sebep `proposal_unverifiable`" ile "Öneri uygunluğu (unverifiable)" ayrı
+    adlandırılır.
+  - *Değişecek mevcut testler:* `tests/test_verify.py`
+    `test_verify_proposal_rule_without_check_unverifiable_not_queued` (beklenti tersine döner),
+    `test_verify_non_compliant_masked_number_not_signalled` (check'siz kural + taslak kullanıyor),
+    `tests/test_eval_run.py` `test_run_broken_hard_threshold_exits_3_with_table_and_file` (eşiği
+    başka yoldan kırar: `liability_cap`'te yanlış "uygun"). Yeniden bakılacak dört API testi
+    (check'siz kural + taslaktan geçenler): `test_role_based_presentation_review_and_audit`,
+    `test_response_fixed_field_lists_per_role`,
+    `test_report_mask_fully_opened_for_lawyer_and_kept_for_viewer[accept]` ve `[edit]`.
+  - *Yeni testler:* sebep "uygun değil" ve "uygun" bulgudaki taslakta eklenir; `enabled=False`
+    iken eklenmez; `passed` / `failed` taslakta eklenmez; sebep sırası (literal sırası); karar ucu
+    kuyruktaki unverifiable taslak için `missing_proposal_action` verir; `REASONS` haritasında her
+    `ReviewReason` için etiket var.
+  - *Fark testi:* eski `verify` (`git show main:src/verify.py`) ile yenisi rastgele üretilmiş
+    ≥ 60.000 girdide yan yana; çıktılar yalnızca `enabled` ve yeni `code_check == "unverifiable"`
+    olan satırlarda farklıdır ve fark tam olarak "eski sebepler + yeni sebep (literal sırasında),
+    `needs_review=True`"dir. Sebebi yanlış sıraya koyan bir mutant yakalanmalıdır.
+  - *Commit:* `docs: design the proposal_unverifiable review reason` ·
+    `feat: queue findings whose draft the code cannot check`
+- **19c-2 — Taslak denetimi (A).**
+  - *Dokümanlar:* `agent_design.md` §5 "Taslak kontrolü" (`passed` tanımı; `failed`'den "birden çok
+    farklı değer var" çıkar; gerekçe; yukarıdaki bilinen sınır); `evals.md` §2 "Taslak kontrolü"
+    satırı ve metrik tablosunda "Öneri uygunluğu"nun anlamı; `spec.md` §5 FR-4'teki taslak denetimi
+    cümlesi ("sayıyı" → "sayıları").
+  - *Kod:* `src/verify.py` `_proposal_check`: `not _single(extraction)` yerine
+    `not extraction.values or extraction.unreadable`; `_evaluate` zaten her değer geçerse `True`
+    döner. Başka satıra dokunulmaz.
+  - *Değişecek mevcut test:* `tests/test_verify.py` taslak denetimi tablosunda
+    "Bildirim 30 ila 60 gün önceden yapılır." (≥ 30 gün) `failed` → `passed`.
+  - *Yeni testler (hepsi araştırmada koşuldu):* günlük %1 + üst sınır %10 (≤ %10) geçer; günlük %1
+    + %20 kalır; "otuz (30) gün … ithal … 45 gündür" (≤ 45 gün) geçer; aynısı 75 ile kalır;
+    "(önceki 75 gün yerine)" kalır; "45 iş günüdür" kalır (okunamayan); "%10 (yüzde on)" geçer;
+    "15 ila 60 gün" (≥ 30) kalır.
+  - *Fark testi:* (1) eski ve yeni `_proposal_check` her eval ve holdout maddesi × iki tenant'ın
+    her `check`'li kuralı (araştırmada 9 sözleşme dosyasında 945 hücre, 8'i değişti;
+    `evals/holdout/expected.md` sözleşme değildir, sayıma girmez) ve rastgele üretilmiş taslaklar
+    üzerinde; değişen her hücrede eski sonuç `failed`, yeni sonuç `passed` olmalı ve hücre "en az
+    iki farklı değer, okunamayan yok, her değer kurala uyuyor" koşulunu sağlamalıdır; başka yönde
+    tek bir fark hatadır. (2) `verify`'ın tamamı, 19c-1'in `feat:` commit'indeki `src/verify.py`
+    (19c-2 commit'inden önce `git show HEAD:src/verify.py`) ile yan yana: fark yalnızca
+    `proposal.code_check`'in `failed` → `passed` olduğu satırlardadır; bu satırlarda
+    `review_reasons`'tan yalnızca `proposal_noncompliant` düşer ve `needs_review` kalan sebeplerden
+    yeniden hesaplanır; başka alan değişmez.
+  - *Commit:* `docs: redefine the draft check as "no value breaks the rule"` ·
+    `fix: accept drafts that keep the clause's other compliant values`
+- **19c-3 — Ad keşfi (B).**
+  - *Dokümanlar:* `agent_design.md` "Girdi güvenliği" → "PII maskeleme" → "Kişi adı" (iki yeni
+    yol, korumaları, fazla maskeleme sınırları) ve "Sınır" metni; `spec.md` §8; `evals.md` §3
+    "Bilinçli istisna" (adlar `pii_best_effort`'ta kalır) ve §2 zorunlu testler.
+  - *Kod:* `src/prepare/pii.py` ad keşfine iki yol (yaklaşık 80–120 satır; Adım 17b 15 satır
+    tahmin edilip 175 olmuştu, bir-iki inceleme turu beklenir). `labels.json` değişmez.
+  - *Değişecek mevcut testler:* `tests/test_pii.py`
+    `test_mask_unlabelled_name_everywhere_nothing_masked_documented_limit` (beklenti döner:
+    "AHMET YILMAZ\nİmza:" artık maskelenir), `tests/test_dataset.py`
+    `test_dataset_contract_05_step_17b_formats_masked_names_not` (maskelenen indeksler `{2, 3, 4}` →
+    `{0, 1, 2, 3, 4}`; test adı da değişir), `tests/test_eval_run.py`'de 2 / 5 bekleyen
+    `test_run_prepare_only_calls_no_model_and_measures_pii` ve
+    `test_run_contract_05_outputs_carry_no_raw_pii`. İkincisi silinmez: beklentisi
+    `best_effort_leaked_count == 0` ve boş liste olur; stdout'ta ve sonuç dosyasında hiçbir
+    `pii_values` / `pii_best_effort` değeri bulunmadığını sınayan döngü aynen kalır.
+  - *Yeni testler:* e-posta + aynı satırda ad (ucar ↔ Uçar, tore ↔ Töre), ekli ad, büyük harfli
+    yazım; imza satırı "İmza:", "IMZA", "İmza / Kaşe:", girintili; olumsuzlar: `info@`,
+    `a.yilmaz@`, küçük harfli eşleşme, şirket işaretli dizi, yalnızca unvan satırı, tek sözcük,
+    ad ile İmza arasında boş satır, "Tedarikçi Kaşesi", birim sözcüklü posta kutuları.
+  - *Fark testi:* `git show main:src/prepare/pii.py` ayrı modül olarak yüklenir ve yenisiyle
+    karşılaştırılır: (1) 7 eval sözleşmesi, 2 holdout sözleşmesi ve `tests/fixtures/sample_contract.md`
+    için hazırlık çıktısı — beklenen tek fark sözleşme 5'in madde 11, madde 12 ve İmzalar parçası;
+    (2) test takımındaki her `mask()` çağrısı; (3) ≥ 80.000 rastgele girdi. Değişmez: eski kodda
+    maskelenen her aralık aynıdır ya da yeni bir `KISI` aralığıyla örtülüdür; numara, e-posta ve
+    IBAN aralıkları bayt bayt aynıdır; `unmask(mask(x)) == x`. (4) Modelsiz ölçüm:
+    `--prepare-only` iki veri kümesinde (geçici `--results-dir` ile): varsayılan kümede garanti
+    edilen sızıntı 0, garanti edilmeyen 2 / 5 → 0 / 5; holdout 4 / 4 değişmez (holdout model ile
+    **yeniden koşulmaz**).
+  - *Commit:* `docs: design two more name discovery paths` ·
+    `feat: discover names from e-mail addresses and unlabelled signature lines`
+- **19c-4 — Koşucuya `--keep-drafts <dosya>` (karar 5).** `evals/run.py` `_run_contract` içinde,
+  doğrulanmış bulgular ("sonra") hesaplandıktan sonra, taslağı olan her bulgu için bir JSONL
+  satırı: `contract_id`, `rule_id`, `clause_id`, `proposed_text` (maskeli), `code_check`. Kaynak
+  audit'teki tool çağrıları değil, doğrulanmış bulgudur (kod denetiminin baktığı metin odur).
+  Dosyaya **eklenir** (baştan yazılmaz): `--resume`'da önbellekten gelen sözleşmenin satırları
+  önceki koşudan kalır. Yol `--results-dir`'in içindeyse argüman hatası (çıkış kodu 1). Docker'da
+  yalnızca `/app/evals` ve `/app/data` kalıcıdır; yol bu yüzden `/app/evals/drafts/` altındadır
+  ve `.gitignore`'a `evals/drafts/` eklenir. `evals/` bağlı klasör olduğu için bu değişiklik
+  imaj yeniden kurulmadan kapsayıcıda görünür (`src/` değişiklikleri için kurulum yine gerekir).
+  Dokümanlar: `docs/evals.md` §6. Testler: seçenek verilmezse hiçbir şey yazılmaz; verilirse
+  alanlar yukarıdaki gibidir ve dosya eklemeyle büyür; sonuç klasörü içindeki yol reddedilir;
+  sonuç dosyası ve önbellek yine metinsizdir. Karşılaştırmada her taslak için `main`'deki
+  `_proposal_check` sonucu da hesaplanır (dosyaya yazılmaz). *Commit:* `feat: keep draft texts of an eval run in a local file`
+- **19c-5 — Sonnet tam eval ve karşılaştırma.** Aşağıda "Ölçüm".
+- **19c-6 — Dokümanlar ve kapanış.** `evals.md` §4 (yeni koşu ayrı satır / alt başlık; eski
+  sayılar yerinde), README (eval bölümü, "Bilinen sınırlar", "Daha fazla vaktim olsaydı"),
+  `decisions.md` (şu an tam 900 sözcük: eklenen her sözcük kadar çıkarılır, `wc -w` ≤ 900), `CLAUDE.md` "Şu an", bu adımın "Gerçekleşen" ve
+  "Ölçüm" kayıtları; adımın kutusu bu `docs:` commit'inde işaretlenir. Sonra dur: `main`'e alma
+  (onaylanırsa `git switch main && git merge --ff-only step-19c`) ve Adım 20 kullanıcı
+  onayıyladır.
+
+#### Ölçüm (19c-5)
+- **Önkoşul (kullanıcıya sorulur, tek soru):** `.env`'de `LLM_API_KEY` hâlâ Anthropic anahtarı mı?
+  `.env` okunmaz. Koşu kullanıcının isteğinde yer alıyor (2026-11-14), ama anahtarın yerinde
+  olduğu ve ≈ 620K token'lık koşunun şimdi başlatılacağı koşudan hemen önce teyit edilir.
+- **İmaj:** `src/` değiştiği için `docker compose build app`.
+- **Komut (Git Bash; sağlayıcı ve model komutta verilir, `.env`'e dokunulmaz):**
+  `MSYS_NO_PATHCONV=1 docker compose run --rm --no-deps -e LLM_PROVIDER=anthropic -e LLM_MODEL=claude-sonnet-5-5 -e LLM_TEMPERATURE=none -e LLM_BASE_URL= -e MAX_CONCURRENCY=1 app python -m evals.run --fresh --commit $(git rev-parse --short HEAD) --keep-drafts /app/evals/drafts/19c-sonnet.jsonl`
+  (`--commit` değeri 19c-4'ün commit'inden sonra alınır; imaj o commit'ten kurulmuş olmalıdır.)
+  Arka planda, çıktısı scratchpad'e yönlendirilerek. Bilinenler: `LLM_TEMPERATURE=none` olmadan
+  her çağrı yerelde `ValueError` verir ve bütün kurallar "bulunamadı" olur; önceki iki Sonnet
+  koşusu 261–277 sn ve 617K–757K token tuttu; maliyet satırı "bilinmiyor" çıkar. Çıkış kodu 2
+  (hız limiti) gelirse aynı komut `--resume` ile.
+- **Karşılaştırma:** taban dosya ile yeni dosya kural kural (35 satır): `status`, `clause_no`,
+  `needs_review`, `review_reasons`, `code_check`, `search_calls`; sonra metrik tablosu ve
+  sözleşme başına token / süre.
+- **Beklenen farklar (yalnızca bunlar değişikliklere bağlanabilir):**
+
+  | Satır | Tabanda | Beklenen | Hangi değişiklik |
+  |---|---|---|---|
+  | Sözleşme 5 `governing_law` | kuyruk dışı, `unverifiable` | kuyrukta, sebep `proposal_unverifiable` | 19c-1 |
+  | Sözleşme 2 `late_penalty_cap` | `failed`, kuyrukta | büyük olasılıkla `passed`, kuyruk dışı | 19c-2 |
+  | Sözleşme 7 `late_penalty_cap` | `failed`, kuyrukta | büyük olasılıkla `passed`, kuyruk dışı | 19c-2 |
+  | Sözleşme 4 `payment_term` | `failed`, kuyrukta (tek sebep `proposal_noncompliant`) | taslak ithal süresini 45 yazdıysa `passed`, kuyruk dışı; 75'i koruduysa ya da andıysa `failed` kalır, kuyrukta | 19c-2 |
+  | Garanti edilmeyen PII | 2 / 5 | 0 / 5 | 19c-3 |
+  | Yönlendirme | 13 / 35 | sözleşme 4 taslağı kalırsa 12 / 35 (bir yeni, iki eksik), geçerse 11 / 35 (bir yeni, üç eksik); diğer satırlar aynı kalırsa | toplam |
+  | Gereksiz yönlendirme | 13 / 13 | aynı koşulla 12 / 12 ya da 11 / 11 | toplam |
+  | Öneri uygunluğu | 8 / 11 | 10 / 11 ya da 11 / 11 | 19c-2 |
+
+  Sert eşikler yine tutmalı (güvensiz hata 0, PII sızıntısı 0, alıntı geçerliliği %100).
+- **Nasıl okunacak:** taban da yeni koşu da **tek koşudur**; model `temperature` almadan çalışır
+  ve koşudan koşuya değişir. Beklenen satırların dışında bir satır değişirse değişikliğe
+  bağlanmaz: önce o satırın hangi değişiklikten etkilenebileceğine bakılır (A ve C ajandan sonra
+  çalışır, modelin gördüğünü değiştirmez; B yalnızca sözleşme 5'in madde 11, 12 ve İmzalar
+  parçasını değiştirir), etkilenemiyorsa "koşu oynaklığı" diye yazılır. Beklenen satırlar da yalnızca şu koşulla
+  değişikliğe bağlanır: 19c-2 satırları için saklanan taslak `git show main:src/verify.py`'deki
+  `_proposal_check` ile `failed`, yeni kodla `passed` olmalıdır (eski kodla da `passed` ise
+  değişiklik model oynaklığıdır: model bu kez yalnızca üst sınırı yazmış olabilir); 19c-1 satırı
+  için satırda taslak olmalı ve `code_check == "unverifiable"` olmalıdır (taslak yoksa yönlendirme
+  `missing_proposal`'dandır, bu değişiklikten değil). Yönlendirme toplamı satır satır sebeplerden
+  yeniden kurulur. Garanti edilmeyen PII modelden bağımsızdır; `--prepare-only` ile koşudan önce
+  gösterilir. Kalan her `failed` taslak
+  için saklanan metin `extract` ile okunur ve "gerçekten uygunsuz" / "denetim okuyamadı" diye
+  sınıflanır; geçen çok değerli taslaklarda düzenlenen değerin (üst sınırın) gerçekten yazıldığı
+  elle okunur (karar 2'deki bilinen sınırın gerçekleşip gerçekleşmediği).
+- **Yapılmayacaklar:** eşikler değiştirilmez; holdout modelle koşulmaz; Groq koşusu bu adımın
+  parçası değildir (günlük limit; istenirse ayrıca sorulur); sonuç beğenilmezse kod sonuca göre
+  ayarlanıp yeniden koşulmaz — bulgu yazılır ve kullanıcıya sorulur.
+
+#### Yürütme (`fable-orchestration`)
+Ana döngü yargı, brief ve sentez içindir; her `Agent` / `Workflow` çağrısında `model:` açıkça
+verilir. Bir delegenin raporu iddiadır: diff, çıktı ya da örnek kontrol edilmeden "bitti" denmez.
+
+| İş | Kime | Brief |
+|---|---|---|
+| 19c-1, 19c-2, 19c-3 uygulaması (doküman + test + kod; çekirdek modül, çok dosya) | Opus | Gevşek: hedef, yukarıdaki karar ve sınırlar, "bitti" tanımı, fark testi şartı |
+| 19c-4 (`--keep-drafts`; tasarımı belli, tek dosya ağırlıklı) | Sonnet | Sıkı: dosyalar, adımlar, alan adları, dokunulmayacaklar |
+| Her alt adımın bağımsız incelemesi (fark testi, mutant, doküman–kod uyumu) | Opus, taze ajan | Akran sorusu: kod ve iddialar verilir, sonuç verilmez; kapsam raporu zorunlu |
+| Kapanış dokümanlarındaki sayıların sonuç dosyalarından yeniden hesaplanması | Opus | Kendi betiğiyle, yazanınkini kullanmadan |
+| Mekanik doküman taramaları (eski ifade kalıntısı, satır sonu, sözcük sayısı) | Sonnet | Tam belirlenmiş komut ve kabul ölçütü |
+| Kararlar, bulguların hükme bağlanması, karşılaştırmanın yorumu, kullanıcıya rapor | Ana döngü | — |
+
+Brief'lere her seferinde yazılacak kurallar: `.env` okunmaz; model sağlayıcısına çağrı yok
+(19c-5 dışında, onu ana döngü başlatır); `uv lock` / `uv sync` / docker / git durumunu değiştiren
+komut yok ("salt okunur" brief'te ayrıca: depo içinde `cd` ile komut koşma değil, yalnızca
+okuma); kaçış dizisi içeren kaynak Write / Edit ile yazılır; uzun bulgular şema yerine rapor
+dosyasına ya da son mesaja; inceleyici boş bulgu listesiyle değil kapsam raporuyla döner.
+
+- **Doğrulama (adımın tamamı):** üç komut temiz; üç fark testi yukarıdaki koşulları sağlıyor;
+  `--prepare-only` garanti edilmeyen PII'yi 0 / 5 gösteriyor; Sonnet koşusu bitti ve karşılaştırma
+  tablosu `docs/evals.md`'de; beklenen satırların her biri için "oldu / olmadı / neden" yazılı;
+  hiçbir sayı sonuç dosyasından yeniden hesaplanmadan dokümana girmedi.
+- **Commit:** alt adımlardaki çiftler; sonuç dosyası için `chore:`; kapanış için `docs:`.
 
 ### [ ] Adım 20 — Teslim
 - **Ne:** Kullanıcının onayıyla `origin`'e push edilir. AI oturumları bu planın dışındadır: ham
