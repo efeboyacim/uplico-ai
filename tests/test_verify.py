@@ -330,6 +330,62 @@ def test_verify_model_unit_case_insensitive_turkish() -> None:
     assert _reasons(_finding("500 TL ceza", value=500, unit="tl"), rule) == []
 
 
+@pytest.mark.parametrize("unit", ["takvim günü", "Takvim Günü", "TAKVİM GÜNÜ", "takvim  günü"])
+def test_verify_model_unit_bridge_word_and_duration_form_read(unit: str) -> None:
+    assert _reasons(_finding("30 gün önceden", value=30, unit=unit), AT_LEAST_30_DAYS) == []
+
+
+def test_verify_model_unit_bridge_word_matches_quote_and_other_units() -> None:
+    finding = _finding("30 takvim günü önceden", value=30, unit="takvim günü")
+    assert _reasons(finding, AT_LEAST_30_DAYS) == []
+    # Same as unit="ay": 30 days lie inside one month (28-31 days).
+    finding = _finding("30 gün önceden", value=1, unit="takvim ayı")
+    assert _reasons(finding, AT_LEAST_30_DAYS) == []
+    finding = _finding("14 gün önceden", value=14, unit="takvim gün")
+    assert _reasons(finding, _rule(">=", 2, "hafta")) == []
+
+
+@pytest.mark.parametrize(
+    ("quote", "value"),
+    [("30 ay önceden", 30), ("30 gün önceden", 45)],
+)
+def test_verify_model_unit_bridge_word_value_differs_numeric_mismatch(
+    quote: str, value: float
+) -> None:
+    finding = _finding(quote, value=value, unit="takvim günü")
+    assert _reasons(finding, AT_LEAST_30_DAYS) == ["numeric_mismatch"]
+
+
+@pytest.mark.parametrize(
+    "unit",
+    [
+        "iş günü",
+        "İş Günü",
+        "takvim iş günü",
+        "işgünü",
+        "takvim saat",
+        "takvim sene",
+        "takvim",
+        "takvim günü.",
+        "gün takvim",
+    ],
+)
+def test_verify_model_unit_not_bridge_word_and_form_numeric_mismatch(unit: str) -> None:
+    finding = _finding("30 gün önceden", value=30, unit=unit)
+    assert _reasons(finding, AT_LEAST_30_DAYS) == ["numeric_mismatch"]
+
+
+@pytest.mark.parametrize(
+    ("quote", "rule"),
+    [("%30 oranında", _rule("<=", 30, "%")), ("30 TL ceza", _rule("<=", 30, "TL"))],
+)
+def test_verify_model_unit_bridge_word_in_other_kind_numeric_mismatch(
+    quote: str, rule: Rule
+) -> None:
+    finding = _finding(quote, value=30, unit="takvim günü")
+    assert _reasons(finding, rule) == ["numeric_mismatch"]
+
+
 def test_verify_code_verdict_contradicts_status_numeric_mismatch() -> None:
     finding = _finding("45 gün önceden", status="non_compliant", proposal=_proposal("60 gün"))
     assert _reasons(finding, AT_LEAST_30_DAYS) == ["numeric_mismatch"]

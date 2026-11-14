@@ -907,13 +907,24 @@ def _match_quote(quote: str | None, clause: Clause | None) -> tuple[int, int] | 
 
 
 def _model_unit(raw: str | None, rule_unit: CheckUnit) -> CheckUnit | None:
-    """The unit the model gave: the rule's when empty, None when unknown."""
+    """The unit the model gave: the rule's when empty, None when unknown.
+
+    A unit of the check's list is matched whatever its letter case. Only when none matches, and
+    only for a duration rule, two words are read as the reader reads them after a number: the
+    kind's bridge word and one of the closed duration forms ("takvim günü", "Takvim Ayı") give
+    that form's unit. Nothing else is a unit: "iş günü" (no bridge word), a form alone ("günlük",
+    "günü"), "TRY", "yüzde".
+    """
     if raw is None or not raw.strip():
         return rule_unit
     wanted = _lower(raw.strip())
     for unit in _CHECK_UNITS:
         if _lower(unit) == wanted:
             return unit
+    kind = _KIND_OF_UNIT[rule_unit]
+    words = wanted.split()
+    if kind == "duration" and len(words) == 2 and words[0] in _BRIDGES[kind]:
+        return _DURATION_FORMS.get(words[1])
     return None
 
 
