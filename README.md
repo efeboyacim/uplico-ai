@@ -396,8 +396,10 @@ maliyet düşürülebilirdi, ama projenin ilk sürümünde doğruluğu hedefledi
   ilk arama sonucuna bütün maddelerin ilk satırını eklemek. Sonnet'te hiçbir kararı değiştirmedi,
   girdi token'ını %24 artırdı ve bir maddenin ilk satırındaki talimatı her kurala taşıdı
   (`exp/clause-outline` dalı).
-- **Gerçek ad tanıma.** Bugünkü ad keşfi kural tabanlıdır; gövdede yalın geçen adı bulamaz.
-  Maskeleme sistemin en katı kuralı olduğu için yerel bir NER modeli sıradaki adımdır.
+- **Ad tanıma (NER) modeli.** Kişi adları kalıpla maskeleniyor; madde gövdesindeki ve unvanla
+  yazılmış adlar kaçabiliyor. Sonraki adım önceden eğitilmiş bir Türkçe ad tanıma (NER) modeli
+  eklemek: model ad adaylarını önerir, kod adayın metinde birebir geçtiğini doğrulayıp maskeler.
+  Kimlik numarası, IBAN ve telefon kodda kalır, çünkü garanti yalnızca oradan gelir.
 - **Taslak denetimini güçlendirmek.** Kuralın düzenlediği değeri ayırt etmek, taslağı bulgunun
   maddesiyle eşleştirmek, taslağı özgün maddeyle karşılaştırıp neyin değiştiğini avukata
   göstermek ve avukatın düzenlediği taslağı da kodla denetlemek.
