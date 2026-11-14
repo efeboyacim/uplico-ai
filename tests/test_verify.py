@@ -1394,6 +1394,169 @@ def test_extract_amount_restatement_round_trip_seeded() -> None:
             assert result.unreadable, text
 
 
+# --- A percent restated in words in parentheses ---------------------------------------------------
+
+AT_LEAST_100_PERCENT = _rule(">=", 100, "%")
+
+
+@pytest.mark.parametrize(
+    ("text", "value"),
+    [
+        ("%25'i (yüzde yirmi beşi)", 25),
+        ("%100'ü (yüzde yüzü)", 100),
+        ("%20'sini (yüzde yirmisini)", 20),
+        ("%50'si (yüzde ellisi)", 50),
+        ("%40'ı (yüzde kırkı)", 40),
+        ("%10'u (yüzde onu)", 10),
+        ("%6'sı (yüzde altısı)", 6),
+        ("%25'ine (yüzde yirmi beşine)", 25),
+        ("%30'unu (yüzde otuzunu)", 30),
+        ("%15'inden (yüzde on beşinden)", 15),
+        ("%25'e (yüzde yirmi beşe)", 25),
+        ("%120'si (yüzde yüz yirmisi)", 120),
+        ("% 25'i (yüzde yirmi beşi)", 25),
+        ("yüzde 25'i (yüzde yirmi beşi)", 25),
+        (f"%25{chr(0x2019)}i (yüzde yirmi beşi)", 25),
+        ("%25'i (YÜZDE YİRMİ BEŞİ)", 25),
+        ("%25'i(yüzde yirmi beşi)", 25),
+    ],
+)
+def test_extract_percent_restated_in_words_single_value(text: str, value: float) -> None:
+    result = extract(f"Sorumluluk bedelin {text} ile sınırlıdır.", "percent")
+    assert result == Extraction((Quantity(value, "%"), Quantity(value, "%")), ())
+    assert verify_module._single(result)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # Words that say another value.
+        ("%25'i (yüzde otuzu)", Extraction((Quantity(25, "%"),), ("yüzde otuzu",))),
+        ("%25'i (yüzde yirmi altısı)", Extraction((Quantity(25, "%"),), ("yüzde yirmi altısı",))),
+        ("%100'ü (yüzde onu)", Extraction((Quantity(100, "%"),), ("yüzde onu",))),
+        # The suffix differs, or is written on one side only.
+        ("%25'i (yüzde yirmi beşini)", Extraction((Quantity(25, "%"),), ("yüzde yirmi beşini",))),
+        ("%25 (yüzde yirmi beşi)", Extraction((Quantity(25, "%"),), ("yüzde yirmi beşi",))),
+        # Not a suffix of the closed list, not canonical words, not a percent sign.
+        ("%10'luk (yüzde onluk)", Extraction((Quantity(10, "%"),), ("yüzde onluk",))),
+        ("%25'i (yüzde yirmibeşi)", Extraction((Quantity(25, "%"),), ("yüzde yirmibeşi",))),
+        ("%25'i (%yirmi beşi)", Extraction((Quantity(25, "%"),), ("%yirmi beşi",))),
+        # Not right after the digits, or not the whole group.
+        ("%25'i, (yüzde yirmi beşi)", Extraction((Quantity(25, "%"),), ("yüzde yirmi beşi",))),
+        ("%25'i (yüzde yirmi beşi", Extraction((Quantity(25, "%"),), ("yüzde yirmi beşi",))),
+        (
+            "%25'i (oran yüzde yirmi beşi)",
+            Extraction((Quantity(25, "%"),), ("yüzde yirmi beşi",)),
+        ),
+        # The digits are no read one-number percent expression.
+        ("%1,5 milyon'u (yüzde yüzü)", Extraction((), ("%1,5 milyon", "yüzde yüzü"))),
+        (
+            "%25 (30)'u (yüzde otuzu)",
+            Extraction((Quantity(25, "%"), Quantity(30, "%")), ("yüzde otuzu",)),
+        ),
+        # The words first: as for TL ("bin TL (₺1.000)"), that order stays unreadable.
+        ("yüzde yirmi beşi (%25'i)", Extraction((Quantity(25, "%"),), ("yüzde yirmi beşi",))),
+    ],
+)
+def test_extract_percent_words_not_restating_digits_unreadable(
+    text: str, expected: Extraction
+) -> None:
+    assert extract(f"Sorumluluk bedelin {text} ile sınırlıdır.", "percent") == expected
+
+
+def test_extract_percent_words_without_suffix_unchanged() -> None:
+    # Words without a suffix were already read; they still are, and a different value conflicts.
+    assert extract("bedelin %25 (yüzde yirmi beş) ile", "percent") == Extraction(
+        (Quantity(25, "%"), Quantity(25, "%")), ()
+    )
+    assert extract("bedelin %25 (yüzde otuz) ile", "percent") == Extraction(
+        (Quantity(25, "%"), Quantity(30, "%")), ()
+    )
+    assert extract("yüzde yirmi beş (%25) oranında", "percent") == Extraction(
+        (Quantity(25, "%"), Quantity(25, "%")), ()
+    )
+
+
+def test_extract_percent_restatement_gives_unit_to_linked_neighbour() -> None:
+    # As for TL: the restatement is read, so the connector rule gives its unit to the unit-less
+    # 30; before, the words were unreadable and 30 had no unit.
+    assert extract("bedelin %25'i (yüzde yirmi beşi) ila 30 arası", "percent") == Extraction(
+        (Quantity(25, "%"), Quantity(25, "%"), Quantity(30, "%")), ()
+    )
+
+
+@pytest.mark.parametrize(
+    ("text", "kind"),
+    [
+        ("25'i (yüzde yirmi beşi) gün", "duration"),
+        ("₺25'i (yüzde yirmi beşi)", "amount"),
+    ],
+)
+def test_extract_percent_restatement_other_kinds_no_value(text: str, kind: Kind) -> None:
+    assert Quantity(25, "%") not in extract(f"Süre {text} olarak.", kind).values
+
+
+def test_verify_percent_restated_in_words_draft_passed() -> None:
+    clause = "Sorumluluk bedelin %25'i (yüzde yirmi beşi) ile sınırlıdır."
+    draft = "Sorumluluk bedelin %100'ü (yüzde yüzü) ile sınırlıdır."
+    finding = _finding(clause, status="non_compliant", proposal=_proposal(draft))
+    result = _run(finding, AT_LEAST_100_PERCENT)
+    assert result.review_reasons == []
+    assert result.proposal is not None
+    assert result.proposal.code_check == "passed"
+
+
+def test_verify_percent_restated_in_words_wrong_compliant_numeric_mismatch() -> None:
+    quote = "Sorumluluk bedelin %25'i (yüzde yirmi beşi) ile sınırlıdır."
+    assert _reasons(_finding(quote), AT_LEAST_100_PERCENT) == ["numeric_mismatch"]
+
+
+@pytest.mark.parametrize(
+    "draft",
+    [
+        "Sorumluluk bedelin %100'ü (yüzde onu) ile sınırlıdır.",
+        "Sorumluluk bedelin %100'ü (yüzde yüzünü) ile sınırlıdır.",
+        "Sorumluluk bedelin %10'u (yüzde onu) ile sınırlıdır.",
+    ],
+)
+def test_verify_proposal_percent_words_differ_failed(draft: str) -> None:
+    finding = _finding("x", status="non_compliant", proposal=_proposal(draft))
+    result = _run(finding, AT_LEAST_100_PERCENT, "x")
+    assert result.proposal is not None
+    assert result.proposal.code_check == "failed"
+    assert "proposal_noncompliant" in result.review_reasons
+
+
+_PERCENT_SUFFIXES = ["i", "ı", "u", "ü", "si", "sı", "su", "sü", "ini", "ine", "inde", "e", "a"]
+
+
+def test_extract_percent_restatement_round_trip_seeded() -> None:
+    # The suffix is written as-is on both sides (harmony is not checked): the value comes from the
+    # words, compared with the digits.
+    # Left out: 200, 300 ... 900 ("iki yüzü" reads "iki" as 2 and leaves "yüzü" alone, a limit
+    # older than this rule).
+    def known_limit(k: int) -> bool:
+        return k % 100 == 0 and k >= 200
+
+    rng = random.Random(19_061)
+    for _ in range(400):
+        n = rng.randint(1, 999)
+        if known_limit(n):
+            continue
+        suffix = rng.choice(_PERCENT_SUFFIXES)
+        same = f"bedelin %{n}'{suffix} (yüzde {_turkish_words(n)}{suffix}) ile"
+        assert extract(same, "percent") == Extraction((Quantity(n, "%"), Quantity(n, "%")), ()), (
+            same
+        )
+        other = rng.choice([k for k in (n + 1, n - 1, n * 2, rng.randint(1, 999)) if k != n])
+        if not 1 <= other <= 999 or known_limit(other):
+            continue
+        text = f"bedelin %{n}'{suffix} (yüzde {_turkish_words(other)}{suffix}) ile"
+        result = extract(text, "percent")
+        assert result.values == (Quantity(n, "%"),), text
+        assert result.unreadable, text
+
+
 # --- A quote match may not cut a value expression -------------------------------------------------
 
 

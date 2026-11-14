@@ -24,7 +24,9 @@ Design (`docs/agent_design.md` §5 "Doğrulama katmanı"):
   every value passes - never reads such a token on its own. No reading path can read part of a
   number. Its one exception reads a whole token: a TL amount in canonical words ("iki milyon dört
   yüz bin") that restates in parentheses the same amount in digits next to it gets the digits'
-  value; words that say another amount stay unreadable.
+  value; words that say another amount stay unreadable. Likewise a percent in words with a case
+  suffix ("yüzde yirmi beşi", unreadable on its own) that restates in parentheses the percent in
+  digits before it with the same suffix ("%25'i") gets the digits' value.
 - A sign or prefix belongs only to the number next to it, with at most a space between.
 - A quote match may not cut a word, a number or a value expression of any kind: an occurrence
   that does is skipped.
@@ -738,6 +740,27 @@ def _amount_words(text: str) -> float | None:
     return float(total)
 
 
+# --- A percent restated in words ------------------------------------------------------------------
+# Closed list of the case suffixes read after a percent restated in words: possessive (-i, -si),
+# possessive + case (-ini, -ine, -inde, -inden, -inin; -sini ...) and a bare case (-e, -ye, -de,
+# -te, -den, -ten, -in, -nin, -yi). Vowels in every harmony form.
+_PERCENT_SUFFIX_RE = re.compile(
+    r"s?[ıiuü](?:n(?:[ıiuü]n?|[ae]|d[ae]n?))?|y?[ıiuüae]|[dt][ae]n?|n?[ıiuü]n"
+)
+
+
+def _percent_words(text: str, suffix: str) -> float | None:
+    """A percent in canonical words 1-999 (`_amount_group`) followed by `suffix` ("yirmi beşi"
+    with "i", "yüzü" with "ü", "yirmisini" with "sini"); None otherwise."""
+    if not _PERCENT_SUFFIX_RE.fullmatch(suffix) or not text.endswith(suffix):
+        return None
+    words = text[: -len(suffix)].split(" ")
+    total, k = _amount_group(words, 0)
+    if k != len(words) or total == 0:
+        return None
+    return float(total)
+
+
 class _Reader:
     def __init__(self, text: str, kind: Kind, hours: bool = False) -> None:
         self.norm, self.tokens = _tokenize(text)
@@ -861,6 +884,8 @@ class _Reader:
         tok = toks[m]
         if _readable(tok, self.kind):
             return tok.value
+        if self.kind == "percent":
+            return self._percent_restated(m, members, unit, first, last)
         if self.kind != "amount" or unit != "TL" or tok.kind != "number":
             return None
         words = _amount_words(tok.text)
@@ -889,6 +914,47 @@ class _Reader:
             and self.value_until.get(m - 2) == words
         )
         return words if restates else None
+
+    def _percent_restated(
+        self, m: int, members: Sequence[int], unit: CheckUnit, first: int, last: int
+    ) -> float | None:
+        """A percent in words with a case suffix that restates a read percent in digits: the
+        digits' value, or None (`_value`).
+
+        The suffix is written after both, after an apostrophe on the digits' side, and is the same
+        on both sides: "%25'i (yüzde yirmi beşi)", "%100'ü (yüzde yüzü)", "%20'sini (yüzde
+        yirmisini)". The digits are a read one-number percent expression; then the suffix, "("
+        with at most a space before it, "yüzde", the words and ")": the group is the whole
+        expression. Not "%25'i (yüzde otuzu)" (another value), not "%25 (yüzde yirmi beşi)" (no
+        suffix after the digits), not "yüzde yirmi beşi (%25'i)" (the words first: as for TL,
+        "bin TL (₺1.000)", that order stays unreadable). A percent in words without a suffix needs
+        none of this: "%25 (yüzde yirmi beş)" reads two equal values.
+        """
+        toks = self.tokens
+        tok = toks[m]
+        if unit != "%" or list(members) != [m] or first != m - 1 or last != m or m < 4:
+            return None
+        digits, suffix, opened, prefix = toks[m - 4], toks[m - 3], toks[m - 2], toks[m - 1]
+        closed = m + 1 < len(toks) and toks[m + 1].kind == "symbol" and toks[m + 1].text == ")"
+        restates = (
+            not tok.continued
+            and closed
+            and prefix.kind == "word"
+            and prefix.text == _PERCENT_WORD
+            and opened.kind == "symbol"
+            and opened.text == "("
+            and opened.joined_left
+            and suffix.kind == "word"
+            and self.norm[digits.end : suffix.start] == "'"
+            and digits.kind == "number"
+            and not digits.spelled
+        )
+        if not restates:
+            return None
+        words = _percent_words(tok.text, suffix.text)
+        if words is None or self.value_until.get(m - 4) != words:
+            return None
+        return words
 
     def _drop(self, members: Sequence[int], first: int, last: int) -> None:
         """An expression whose unit word lies across a sentence boundary ("Fiyat 5. Ayrıca"): no
@@ -1024,7 +1090,9 @@ class _Reader:
         """
         toks = self.tokens
         if self.kind == "percent" and _prefix(toks, i) == "%":
-            self._record([i], None, i - 1, i)
+            # Unreadable unless it restates the percent in digits before it ("%100'ü (yüzde
+            # yüzü)"): `_value` decides.
+            self._record([i], "%", i - 1, i)
             return
         close = _group_close(toks, i + 1)
         k = close + 1 if close is not None else i + 1
