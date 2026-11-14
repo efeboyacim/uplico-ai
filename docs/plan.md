@@ -2406,7 +2406,8 @@ Dokümanlar en sonda tek commit'te (kullanıcının 19c'deki talimatı). Tek ba�
   ayrıca kapatıldı; bu son değişiklikten sonra yalnızca testler koşuldu (2425 test, ruff, mypy
   temiz). RULE-03 taslağı yerelde `failed` → `passed`; "bir sonraki gün içinde" hâlâ kalır.
   Ardından Sonnet ile tam eval (`85362c7`): sert eşikler tuttu, 35 / 35 satır önceki koşuyla
-  aynı; veri kümesi düzeltmenin kendisini sınamaz, dış sözleşme bu kodla koşulmadı
+  aynı; veri kümesi düzeltmenin kendisini sınamaz, ikinci dış sözleşme de Sonnet ile yeniden koşuldu:
+  RULE-03 taslağı `passed`, öneri uygunluğu 1 / 2 → 2 / 2, öteki dokuz kural aynı
   (`docs/evals.md` §4).
 - **Ölçülmeyen:** dış sözleşmedeki etki tek koşudur; prompt cümlesinin etkisi başka modelde
   ölçülmedi; Groq bu kodla koşulmadı; holdout ve birinci dış sözleşme yeniden koşulmadı.

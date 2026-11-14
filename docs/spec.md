@@ -354,7 +354,8 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   ("bir önceki yılın") düzeltildi: "bir önceki / evvelki" + süre birimi artık atlanır. Aynı sınıfın
   kalanı sürer: "bir sonraki gün", "bir başka gün", "bir tam yıl", "(bir önceki yılın)", "bir
   önceki takvim yılı". Düzeltmeden sonra tam eval Sonnet ile bir kez koşuldu (hiçbir satır
-  değişmedi; veri kümesi bu ifadeyi süre kuralında sınamaz); dış sözleşme yeniden koşulmadı.
+  değişmedi; veri kümesi bu ifadeyi süre kuralında sınamaz); ikinci dış sözleşme de bir kez
+  yeniden koşuldu (taslak `passed`; `evals.md` §4).
 - **Groq `openai/gpt-oss-120b` (üç tam koşu) ve Anthropic `claude-sonnet-5-5` (dört tam koşu, her biri farklı kodla)
   dışındaki her yapılandırma "çalışır, ölçülmedi"dir (`google_genai` tek sözleşmede denendi,
   ölçülmedi):** ölçümler `evals.md` §4'tedir; iki model ayrı okunur. Ollama "ölçülmedi"

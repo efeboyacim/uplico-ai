@@ -338,8 +338,9 @@ hatalar düzeltildikten sonra (`LLM_TEMPERATURE=none`, `MAX_CONCURRENCY=1`):
   taslak alt maddelerini korudu; karar yine 9 / 10. Koşu bir sınır daha gösterdi:
   taslak artık maddenin tamamını içerdiği için, başka bir alt maddedeki "bir önceki yılın" ifadesi
   okunamayan değer sayılıyor ve uygun taslak kod kontrolünden kalıp avukata gidiyordu. Bu ifade
-  düzeltildi (bu sözleşme o kodla yeniden koşulmadı); aynı türden başka ifadeler ("bir sonraki gün") bilerek
-  avukata gitmeye devam ediyor. Birinci sözleşme yeniden koşulmadı.
+  düzeltildi ve sözleşme Sonnet ile yeniden koşuldu: aynı taslak artık geçiyor (2 / 2). Aynı
+  türden başka ifadeler ("bir sonraki gün") bilerek avukata gitmeye devam ediyor. Birinci sözleşme
+  yeniden koşulmadı.
 
 ## Veri nereye gidiyor
 

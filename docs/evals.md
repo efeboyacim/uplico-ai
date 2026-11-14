@@ -1324,7 +1324,8 @@ Bütün sert eşikler tuttu; eşikler değiştirilmedi.
 - **Ne gösterir, ne göstermez:** düzeltmenin bu veri kümesinde hiçbir satırı değiştirmediğini
   gösterir. Düzeltmenin kendisini ölçmez: veri kümesinde "bir önceki yılın" yalnızca fiyat artışı
   maddelerinde geçer ve o kuralların `check`'i yüzdedir, süre değildir. Düzeltmenin hedefi olan
-  ikinci dış sözleşme bu kodla yeniden koşulmadı. Tek koşudur.
+  ikinci dış sözleşme bu kodla ayrıca koşuldu (yukarıda, "bir önceki yıl" düzeltmesinden sonra:
+  RULE-03 taslağı `passed`). Tek koşudur.
 
 ## 5. Önce/sonra karşılaştırması
 **Değişiklik:** doğrulama katmanı kapalı → açık.
