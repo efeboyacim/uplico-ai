@@ -502,8 +502,9 @@
 - **Adım 19f bitti (2026-11-14; `step-19f` dalında, `main`'e henüz alınmadı):** ikinci dış
   sözleşmenin Sonnet koşusunun gösterdiği dört kod sınırı dört commit'le düzeltildi (yazıyla
   tekrarlanan yüzde `c4dfc8d`, düz numaralı başlık `d8efef6`, etiketli TCKN ve akan metinde ad
-  `55222fb`, sebep `proposal_partial` `c3f3f69`). Dış sözleşme modelle yeniden koşulmadı (yerel
-  modelsiz tekrar); tam eval Sonnet ile bir kez (`c3f3f69`): sert eşikler tuttu, 34 / 35 satırın
+  `55222fb`, sebep `proposal_partial` `c3f3f69`). Dış sözleşme önce yerelde modelsiz
+  tekrarlandı, sonra Sonnet ile bir kez yeniden koşuldu (9 / 10, garanti edilmeyen PII 0 / 6;
+  `docs/evals.md` §4); tam eval Sonnet ile bir kez (`c3f3f69`): sert eşikler tuttu, 34 / 35 satırın
   sebepleri tabanla aynı, `proposal_partial` veri kümesinde sınanmıyor. Groq bu kodla koşulmadı.
   Ayrıntı Adım 19f "Gerçekleşen".
 - **Sıradaki:** Adım 20 — teslim (kullanıcı onayıyla push).
@@ -2389,9 +2390,14 @@ Dokümanlar en sonda tek commit'te (kullanıcının 19c'deki talimatı). Tek ba�
   `injection_suspected` ile kuyruktaydı; koşu oynaklığı olarak okunur). Hiçbir satır
   `proposal_partial` almadı: veri kümesinin maddelerinde noktalı alt madde numarası yok, yeni
   sebep bu veri kümesiyle sınanmıyor. Ayrıntı `docs/evals.md` §4 "Adım 19f'den sonra".
-- **Ölçülmeyen:** dört düzeltmenin dış sözleşmedeki etkisi modelle ölçülmedi; prompt ve tool
-  açıklamasındaki yeni cümlenin taslakları değiştirip değiştirmediği ölçülmedi; Groq bu kodla
-  koşulmadı; holdout yeniden koşulmadı.
+- **Dış sözleşme Sonnet ile yeniden (2026-11-14, tek koşu, `c3f3f69`, geçici yamalar olmadan):**
+  status yine 9 / 10 (RULE-04); garanti edilmeyen PII 6 / 6 → 0 / 6; doğru madde 8 / 9; RULE-01
+  taslağı `passed`; RULE-03, -04, -01, -06 ve -09 taslakları alt maddeleri korur, yalnızca
+  RULE-10 taslağı 12.2'yi çıkarır ve `proposal_partial` alır. Yeni sınır (düzeltilmedi): RULE-03'ün
+  bütün madde taslağında 3.3'teki "bir önceki yılın" değer gibi okunur ve taslak
+  `proposal_noncompliant` olur. Ayrıntı `docs/evals.md` §4.
+- **Ölçülmeyen:** dış sözleşmedeki etki tek koşudur; prompt cümlesinin etkisi başka modelde
+  ölçülmedi; Groq bu kodla koşulmadı; holdout ve birinci dış sözleşme yeniden koşulmadı.
 - **Kalan sınırlar** (`docs/agent_design.md` §4–§5, `docs/spec.md` §8): gövdesi kendi alt
   maddesiyle başlamayan, küçük harfli ya da kalın düz başlık numarasız kalır, sırayı bozan tek
   aday metni paragraf kipine döndürür; ters sıralı, tek taraflı ekli ya da `-lik` ekli yüzde

@@ -343,10 +343,14 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   yazılmış madde. Fazla yakalama (avukat yönünde): taslakta `3.1)`, `Madde 3.1`, `**3.1.**`,
   başlığa noktalamasız bitişik numara. Eval veri kümesinin maddelerinde böyle numara olmadığı
   için sebep orada hiç üretilmez; modelle ölçülmedi.
-- **Adım 19f'nin düzeltmeleri dış sözleşmeyle modelle yeniden ölçülmedi:** sınırları gösteren
-  ikinci dış sözleşme depoda değildir. Düzeltmelerden sonra o koşunun kayıtlı bulgularıyla yerelde
-  (modelsiz) yeniden hazırlık ve `verify` çalıştırıldı; tam eval Sonnet ile bir kez koşuldu
-  (`evals.md` §4 "Adım 19f'den sonra"), Groq ile koşulmadı.
+- **Adım 19f'nin düzeltmeleri dış sözleşmede tek koşuyla ölçüldü:** sınırları gösteren ikinci dış
+  sözleşme depoda değildir. Düzeltmelerden sonra Sonnet ile bir kez yeniden koşuldu (status
+  9 / 10, garanti edilmeyen PII 0 / 6); tam eval de Sonnet ile bir kez koşuldu (`evals.md` §4),
+  Groq ile koşulmadı.
+- **Taslakta sayı sözcüğü "bir" değer gibi okunabilir (dış sözleşmenin yeniden koşusunda
+  görüldü, düzeltilmedi):** gün kurallı bir maddenin bütün metnini içeren taslakta "bir önceki
+  yılın" ifadesi kuralı çiğneyen bir değer sayıldı ve uygun taslak `proposal_noncompliant` ile
+  avukata gitti. Hata güvenli yöndedir; okumanın mekanizması incelenmedi.
 - **Groq `openai/gpt-oss-120b` (üç tam koşu) ve Anthropic `claude-sonnet-5-5` (üç tam koşu, her biri farklı kodla)
   dışındaki her yapılandırma "çalışır, ölçülmedi"dir (`google_genai` tek sözleşmede denendi,
   ölçülmedi):** ölçümler `evals.md` §4'tedir; iki model ayrı okunur. Ollama "ölçülmedi"

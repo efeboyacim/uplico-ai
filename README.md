@@ -329,7 +329,11 @@ hatalar düzeltildikten sonra (`LLM_TEMPERATURE=none`, `MAX_CONCURRENCY=1`):
   yanlış "uygun" yok, enjeksiyona uyulmadı. Bu iki sözleşme dokuz kod sınırı gösterdi (Adım 19e ve
   19f); aralarında başlık biçimleri, `saat` birimi, yazıyla tekrarlanan tutar ve yüzde, sağlama
   hanesi tutmayan etiketli TCKN, unvandan sonraki adlar ve alt maddeyi düşüren taslak var. Hepsi
-  düzeltildi ve testle sabitlendi; düzeltmelerden sonra bu sözleşmeler modelle yeniden koşulmadı.
+  düzeltildi ve testle sabitlendi. İkinci sözleşme düzeltmelerden sonra Sonnet ile bir kez daha
+  koşuldu: maskelenmeyen kişisel veri 6 / 6 → 0 / 6, maddeler kodun kendisiyle numaralandı, beş
+  taslak alt maddelerini korudu; karar yine 9 / 10. Koşu yeni bir sınır da gösterdi
+  (düzeltilmedi): taslaktaki "bir önceki yılın" ifadesinin "bir"i değer gibi okunuyor ve uygun bir
+  taslak kod kontrolünden kalıp avukata gidiyor. Birinci sözleşme yeniden koşulmadı.
 
 ## Veri nereye gidiyor
 
