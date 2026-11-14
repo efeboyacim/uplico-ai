@@ -9,6 +9,7 @@ import re
 import unicodedata
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
+from itertools import pairwise
 
 from src.models import MaskedText
 from src.prepare.clauses import _any_case
@@ -176,9 +177,12 @@ def _loose(word: str) -> str:
 
 
 _LABEL_GAP = "[" + _HSPACE_CHARS + "*_]*"
+# Label words that need a ":" after them; without it, a signature line made of one is a field
+# caption, not a name (see `_names_from_signature_lines`).
+_COLON_LABEL_WORDS = ("Adı Soyadı", "Ad Soyad", "Yetkili")
 _LABEL = re.compile(
     r"(?<![^\W_])(?:(?:"
-    + "|".join(_loose(w) for w in ("Adı Soyadı", "Ad Soyad", "Yetkili"))
+    + "|".join(_loose(w) for w in _COLON_LABEL_WORDS)
     + ")"
     + _LABEL_GAP
     + ":|"
@@ -438,7 +442,130 @@ def _name_tokens(run: list[_Token]) -> list[_Token]:
     return run
 
 
+# E-mail linkage: a local part of 2-4 letter-only parts of at least two letters, joined by ".",
+# "_" or "-" ("elif.soylu"). A one-word box ("info") or an initial ("a.yilmaz") names no one.
+_EMAIL_NAME_LOCAL = re.compile(r"[A-Za-z]{2,}(?:[._\-][A-Za-z]{2,}){1,3}")
+_EMAIL_NAME_SPLIT = re.compile(r"[._\-]")
+# A functional mailbox spells a unit, not a person ("satis.birimi@" -> "Satış Birimi").
+_UNIT_WORDS = frozenset(_fold(w) for w in ("Birimi", "Ekibi", "Departmanı", "Müdürlüğü", "Servisi"))
+
+
+def _names_from_emails(text: str) -> Iterator[str]:
+    """Names spelled by an e-mail's local part on the e-mail's own line.
+
+    The parts of "elif.soylu@..." are looked for as consecutive words, in order and separated
+    only by horizontal spaces, on the line that holds the address, compared in their folded
+    form (`_fold`: any case, with or without Turkish diacritics; "ucar" finds "Uçar", "tore"
+    finds "Töre") and with the name boundaries of `_BOUNDARIES`. A hit is a name when every word
+    starts with a capital letter, no word is a unit word or a title head, the words are not only
+    title modifiers ("Satın Alma") and no company marker follows (in the
+    hit, the name words after it, a "ve ..." continuation or the token after them). The name is
+    then masked everywhere like any discovered name; a suffix after it ("Soylu'ya") stays
+    outside. Each line with an e-mail is read once, whatever the number of addresses on it.
+    """
+    targets: dict[int, set[tuple[str, ...]]] = {}  # line start -> folded local parts
+    breaks: list[int] | None = None
+    for email in _EMAIL.finditer(text):
+        local = email.group().split("@", 1)[0]
+        if not _EMAIL_NAME_LOCAL.fullmatch(local):
+            continue
+        if breaks is None:
+            breaks = [i for i, ch in enumerate(text) if ch == "\n"]
+        line = bisect.bisect_left(breaks, email.start())
+        line_start = breaks[line - 1] + 1 if line else 0
+        targets.setdefault(line_start, set()).add(
+            tuple(part.lower() for part in _EMAIL_NAME_SPLIT.split(local))
+        )
+    before, after = _BOUNDARY_PATTERNS["KISI"]
+    for line_start, wanted in targets.items():
+        line_end = text.find("\n", line_start)
+        if line_end < 0:
+            line_end = len(text)
+        sizes = {len(parts) for parts in wanted}
+        words = list(_LETTERS.finditer(text, line_start, line_end))
+        for i in range(len(words)):
+            for size in sizes:
+                group = words[i : i + size]
+                if len(group) < size:
+                    continue
+                gaps = (text[a.end() : b.start()] for a, b in pairwise(group))
+                if any(not gap or gap.strip(_HSPACE_CHARS) for gap in gaps):
+                    continue  # not separated by horizontal spaces only
+                if tuple(_fold(word.group()) for word in group) not in wanted:
+                    continue
+                start, end = group[0].start(), group[-1].end()
+                if not (before.match(text, start) and after.match(text, end)):
+                    continue
+                if not all(word.group()[0].isupper() for word in group):
+                    continue
+                folded = [_fold(word.group()) for word in group]
+                if any(w in _UNIT_WORDS or w in _TITLE_HEADS for w in folded):
+                    continue  # a unit or a title mailbox ("hukuk.muduru@" -> "Hukuk Müdürü")
+                if all(w in _TITLE_MODIFIERS for w in folded):
+                    continue  # a body or unit such as "Satın Alma"
+                # The guard covers the name words that go on after the hit, as for a labelled
+                # run: "Ahmet Yılmaz İnşaat A.Ş." is a company even when only "ahmet.yilmaz@"
+                # spells it.
+                more = _scan_run(text, end)
+                guard_end = _guard_end(text, more[-1].end if more else end)
+                if _COMPANY_MARKER.search(text[start:guard_end]):
+                    continue
+                yield text[start:end]
+
+
+# Unlabelled signature line: the next line starts, after any indent, with the form word "İmza"
+# in any spelling ("İmza:", "IMZA", "İmza / Kaşe:").
+_SIGNATURE_NEXT = re.compile(r"(?m)^" + _HSPACE + "*" + _loose("İmza") + _NO_LETTER_AFTER)
+# Form words only on this path: "Tedarikçi Kaşesi\nİmza:" is a stamp field and "Alıcı Adına\nİmza:"
+# a party caption, not a person. Not in `_FORM_WORDS`, so the label path ("Yetkili: Ahmet Yılmaz
+# Kaşesi") is unchanged.
+_SIGNATURE_FORM_WORDS = frozenset(_fold(w) for w in ("Kaşesi", "Mührü", "Adına"))
+# A label word written without its ":" ("Ad Soyad\nİmza:") is a caption, not a name.
+_SIGNATURE_CAPTIONS = frozenset(" ".join(_fold(w) for w in c.split()) for c in _COLON_LABEL_WORDS)
+
+
+def _names_from_signature_lines(text: str) -> Iterator[str]:
+    """A line that is only a name, directly above an "İmza" line.
+
+    The whole line, after any indent, is one name run (`_scan_run`) of 2-4 words with no title
+    head, not only title modifiers, no signature form word ("Kaşesi", "Mührü", "Adına"), no unit
+    word, not a label written without its ":" ("Ad Soyad") and no company marker. A blank line
+    between the name and "İmza" is not bridged.
+    """
+    for signature in _SIGNATURE_NEXT.finditer(text):
+        line_end = signature.start() - 1  # the line break that ends the line above
+        if line_end < 0:
+            continue
+        start = text.rfind("\n", 0, line_end) + 1
+        while start < line_end and text[start] in _HSPACE_CHARS:
+            start += 1
+        run = _scan_run(text, start)
+        if not 2 <= len(run) <= 4:
+            continue
+        if text[run[-1].end : line_end].strip(_HSPACE_CHARS + "\r"):
+            continue  # the line holds more than the run
+        folded = [_fold(t.word) for t in run]
+        if any(_is_head(t) for t in run):
+            continue
+        if any(w in _SIGNATURE_FORM_WORDS or w in _UNIT_WORDS for w in folded):
+            continue  # a stamp field, a party caption or a unit ("Satış Birimi")
+        if all(w in _TITLE_MODIFIERS for w in folded):
+            continue  # a body or unit such as "Satın Alma"
+        if " ".join(folded) in _SIGNATURE_CAPTIONS:
+            continue  # "Ad Soyad" without its ":"
+        if _COMPANY_MARKER.search(text[run[0].start : _guard_end(text, run[-1].end)]):
+            continue
+        yield text[run[0].start : run[-1].end]
+
+
 def _discover_names(text: str) -> Iterator[str]:
+    """Names next to a label, then names linked to an e-mail and unlabelled signature lines."""
+    yield from _names_from_labels(text)
+    yield from _names_from_emails(text)
+    yield from _names_from_signature_lines(text)
+
+
+def _names_from_labels(text: str) -> Iterator[str]:
     for label in _LABEL.finditer(text):
         run = _scan_run(text, label.end())
         if not run:

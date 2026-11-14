@@ -768,9 +768,202 @@ def test_mask_name_other_case_inside_longer_word_not_masked() -> None:
     assert "AHMET YILMAZER" in masked
 
 
-def test_mask_unlabelled_name_everywhere_nothing_masked_documented_limit() -> None:
+def test_mask_unlabelled_signature_line_name_masked_everywhere() -> None:
+    # Step 19c: a line that is only a name, directly above "İmza", is a name; it is then searched
+    # in the whole text like a labelled one, so the body spelling is masked too.
     text = _BODY + "AHMET YILMAZ\nİmza:"
+    masked, mapping = mask(text, {})
+    assert masked == (
+        "Madde 5. Tedarikçi adına [KISI_1] bildirimleri yapar.\n\nİMZALAR\n[KISI_2]\nİmza:"
+    )
+    assert mapping == {"[KISI_1]": "Ahmet Yılmaz", "[KISI_2]": "AHMET YILMAZ"}
+    assert unmask(masked, mapping) == text
+    assert mask(masked, mapping) == (masked, mapping)
+
+
+# --- Name discovery from an e-mail's local part (step 19c) --------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "expected", "name"),
+    [
+        (
+            "Bildirim Kemal Uçar'a (kemal.ucar@ornek.com) yapılır.",
+            "Bildirim [KISI_1]'a ([EPOSTA_1]) yapılır.",
+            "Kemal Uçar",
+        ),
+        (
+            "Hakan Töre'ye hakan.tore@ornek.com üzerinden ulaşılır.",
+            "[KISI_1]'ye [EPOSTA_1] üzerinden ulaşılır.",
+            "Hakan Töre",
+        ),
+        (
+            "Depo sorumlusu Elif Soylu aranır (e-posta: elif.soylu@ornek.com.tr).",
+            "Depo sorumlusu [KISI_1] aranır (e-posta: [EPOSTA_1]).",
+            "Elif Soylu",
+        ),
+        (
+            "HAKAN TÖRE (hakan.tore@ornek.com)",
+            "[KISI_1] ([EPOSTA_1])",
+            "HAKAN TÖRE",
+        ),
+        (
+            "Sorumlu: ahmet_can-yilmaz@ornek.com, Ahmet Can Yılmaz",
+            "Sorumlu: [EPOSTA_1], [KISI_1]",
+            "Ahmet Can Yılmaz",
+        ),
+    ],
+    ids=["ucar-Uçar", "tore-Töre", "body-after-title", "upper-case", "three-parts"],
+)
+def test_mask_name_spelled_by_email_on_same_line_masked(
+    text: str, expected: str, name: str
+) -> None:
+    masked, mapping = mask(text, {})
+    assert masked == expected
+    assert mapping["[KISI_1]"] == name
+    assert unmask(masked, mapping) == text
+    assert mask(masked, mapping) == (masked, mapping)
+
+
+def test_mask_name_found_by_email_masked_on_other_lines_too() -> None:
+    # Contract 5: the e-mail stands next to the name only in clause 11; clause 12 names her again.
+    text = (
+        "Depo sorumlusu Elif Soylu aranır (e-posta: elif.soylu@ornek.com).\n"
+        "Giriş yetkisi Elif Soylu adına, ELİF SOYLU imzasıyla tanımlanır."
+    )
+    masked, mapping = mask(text, {})
+    assert masked == (
+        "Depo sorumlusu [KISI_1] aranır (e-posta: [EPOSTA_1]).\n"
+        "Giriş yetkisi [KISI_1] adına, [KISI_2] imzasıyla tanımlanır."
+    )
+    assert mapping == {
+        "[KISI_1]": "Elif Soylu",
+        "[EPOSTA_1]": "elif.soylu@ornek.com",
+        "[KISI_2]": "ELİF SOYLU",
+    }
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Bize info@ornek.com adresinden ulaşın; Info Masası yanıtlar.",
+        "Bildirim a.yilmaz@ornek.com adresine, Sn. A. Yılmaz'a yapılır.",
+        "hakan töre adına hakan.tore@ornek.com kullanılır.",
+        "Ahmet Yılmaz İnşaat A.Ş. ile yazışma ahmet.yilmaz@ornek.com üzerinden yapılır.",
+        "Ahmet Yılmaz\nahmet.yilmaz@ornek.com adresine yazılır.",
+        "Satış Birimi siparişleri satis.birimi@ornek.com adresine iletir.",
+        "Destek Ekibi destek.ekibi@ornek.com üzerinden ulaşılır.",
+        "Bilgi İşlem Departmanı bilgi.islem.departmani@ornek.com",
+        "Hukuk Müdürlüğü hukuk.mudurlugu@ornek.com",
+        "Teknik Servisi teknik.servisi@ornek.com",
+        "Hukuk Müdürü hukuk.muduru@ornek.com",
+        "Genel Müdür genel.mudur@ornek.com",
+        "Satın Alma satin.alma@ornek.com",
+    ],
+    ids=[
+        "one-part-box",
+        "initial",
+        "lower-case",
+        "company",
+        "other-line",
+        "unit-birimi",
+        "unit-ekibi",
+        "unit-departmani",
+        "unit-mudurlugu",
+        "unit-servisi",
+        "title-head",
+        "title-head-genel",
+        "modifiers-only",
+    ],
+)
+def test_mask_email_spelling_no_person_only_email_masked(text: str) -> None:
+    masked, mapping = mask(text, {})
+    assert list(mapping) == ["[EPOSTA_1]"]
+    assert unmask(masked, mapping) == text
+
+
+# --- Unlabelled signature line (step 19c) -------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("## İmzalar\n\nKemal Uçar\nİmza:", "## İmzalar\n\n[KISI_1]\nİmza:"),
+        ("Kemal Uçar\nIMZA", "[KISI_1]\nIMZA"),
+        ("Kemal Uçar\nİmza / Kaşe:", "[KISI_1]\nİmza / Kaşe:"),
+        ("   Kemal Uçar  \n   İmza: ____", "   [KISI_1]  \n   İmza: ____"),
+        ("Kemal Uçar\r\nİmza:", "[KISI_1]\r\nİmza:"),
+    ],
+    ids=["imza-colon", "imza-upper", "imza-kase", "indented", "crlf"],
+)
+def test_mask_unlabelled_signature_line_masked(text: str, expected: str) -> None:
+    masked, mapping = mask(text, {})
+    assert masked == expected
+    assert mapping == {"[KISI_1]": "Kemal Uçar"}
+    assert unmask(masked, mapping) == text
+    assert mask(masked, mapping) == (masked, mapping)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Kemal\nİmza:",
+        "Kemal Uçar\n\nİmza:",
+        "Genel Müdür\nİmza:",
+        "Alıcı Yetkilisi\nİmza:",
+        "Satın Alma\nİmza:",
+        "Tedarikçi Kaşesi\nİmza:",
+        "Şirket Mührü\nİmza:",
+        "Acme Teknoloji A.Ş.\nİmza:",
+        "Kemal Uçar:\nİmza:",
+        "Kemal Uçar\nİmzası alınır.",
+        "Kemal Uçar 0532\nİmza:",
+        "Satış Birimi\nİmza:",
+        "Destek Ekibi\nİmza:",
+        "Tedarikçi Adına\nİmza:",
+        "Alıcı Adına\nİmza:",
+        "Ad Soyad\nİmza:",
+        "ADI SOYADI\nİmza:",
+    ],
+    ids=[
+        "single-word",
+        "blank-line-between",
+        "title-only",
+        "title-head-last",
+        "modifiers-only",
+        "kasesi",
+        "muhru",
+        "company-marker",
+        "colon",
+        "imzasi",
+        "digit-on-line",
+        "unit-birimi",
+        "unit-ekibi",
+        "tedarikci-adina",
+        "alici-adina",
+        "label-without-colon",
+        "label-without-colon-upper",
+    ],
+)
+def test_mask_signature_line_not_a_name_nothing_masked(text: str) -> None:
     assert mask(text, {}) == (text, {})
+
+
+def test_mask_signature_form_words_only_on_signature_path_label_path_unchanged() -> None:
+    # "Kaşesi" is a form word only for an unlabelled signature line; after a label the run is
+    # cut as before step 19c.
+    masked, mapping = mask("Yetkili: Ahmet Yılmaz Kaşesi\nİmza:", {})
+    assert masked == "Yetkili: [KISI_1]\nİmza:"
+    assert mapping == {"[KISI_1]": "Ahmet Yılmaz Kaşesi"}
+
+
+def test_mask_two_word_company_on_signature_line_masked_documented_limit() -> None:
+    # Documented in agent_design.md "PII maskeleme": a company name without a company marker
+    # looks like a name on a signature line.
+    assert mask("Acme Teknoloji\nİmza:", {}) == (
+        "[KISI_1]\nİmza:",
+        {"[KISI_1]": "Acme Teknoloji"},
+    )
 
 
 @pytest.mark.parametrize(
@@ -1509,3 +1702,68 @@ def test_mask_phone_in_parentheses_never_takes_place_of_old_value(
     # nothing.
     assert found > 500
     assert overlapping > 100
+
+
+_GEN_NAMES = ("Ahmet Yılmaz", "Elif Soylu", "Kemal Uçar", "Hakan Töre", "AHMET YILMAZ")
+_GEN_OTHER_RUNS = (
+    "Satış Birimi",
+    "Acme Teknoloji",
+    "Genel Müdür",
+    "Tedarikçi Kaşesi",
+    "Ahmet Yılmaz İnşaat A.Ş.",
+    "Kemal",
+)
+_GEN_LOCALS = ("ahmet.yilmaz", "elif.soylu", "kemal.ucar", "hakan.tore", "satis.birimi", "info")
+_GEN_SIGNATURES = ("İmza:", "IMZA", "İmza / Kaşe:", "  İmza: ____", "İmzası alınır")
+
+
+def _gen_name_token(rng: random.Random) -> str:
+    pick = rng.randrange(6)
+    if pick == 0:
+        return rng.choice(_GEN_NAMES)
+    if pick == 1:
+        return rng.choice(_GEN_OTHER_RUNS)
+    if pick == 2:
+        return rng.choice(_GEN_LOCALS) + "@ornek.com"
+    if pick == 3:
+        line = rng.choice(_GEN_NAMES + _GEN_OTHER_RUNS + ("", "Tel: 0532 123 45 67"))
+        return line + rng.choice(("\n", "\n\n", " ")) + rng.choice(_GEN_SIGNATURES)
+    if pick == 4:
+        return "Ad Soyad: " + rng.choice(_GEN_NAMES + _GEN_OTHER_RUNS)
+    return _gen_token(rng)
+
+
+def test_mask_email_and_signature_names_never_take_place_of_old_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # With the two step 19c discovery paths switched off in memory, every masked (start, end,
+    # raw value) is masked identically with them on, or lies inside a new name; numbers, e-mails
+    # and IBANs are masked byte for byte the same.
+    rng = random.Random(1903)
+    joints = (" ", ", ", "\n", "\n", "\n\n", " (", ") ", "'a ", "")
+    by_email = by_signature = 0
+    for _ in range(3_000):
+        parts = [_gen_name_token(rng) for _ in range(rng.randint(2, 7))]
+        text = "".join(part + rng.choice(joints) for part in parts)
+        with monkeypatch.context() as patched:
+            patched.setattr(pii, "_names_from_emails", lambda _text: iter(()))
+            patched.setattr(pii, "_names_from_signature_lines", lambda _text: iter(()))
+            old_masked, old_mapping = mask(text, {})
+        new_masked, new_mapping = mask(text, {})
+        old = _masked_spans(text, old_masked, old_mapping)
+        new = _masked_spans(text, new_masked, new_mapping)
+        old_kind = {value: key[1 : key.rindex("_")] for key, value in old_mapping.items()}
+        new_kind = {value: key[1 : key.rindex("_")] for key, value in new_mapping.items()}
+        assert {s for s in old if old_kind[s[2]] != "KISI"} == {
+            s for s in new if new_kind[s[2]] != "KISI"
+        }, text
+        names = [(start, end) for start, end, value in new if new_kind[value] == "KISI"]
+        for span in old - new:
+            assert any(start <= span[0] and span[1] <= end for start, end in names), (text, span)
+        assert unmask(new_masked, new_mapping) == text
+        if new != old:
+            by_email += any(pii._names_from_emails(text))
+            by_signature += any(pii._names_from_signature_lines(text))
+    # The generator must reach both paths, or the test proves nothing.
+    assert by_email > 50
+    assert by_signature > 50

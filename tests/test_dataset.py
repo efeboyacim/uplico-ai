@@ -149,19 +149,18 @@ def test_dataset_contract_05_has_best_effort_pii() -> None:
     assert BY_ID["contract-05"]["pii_best_effort"]
 
 
-# Positions in contract 5's `pii_best_effort` that step 17b masks: the bare mobile number, the
-# spaced TCKN and the freely grouped IBAN. The two others are names (body, unlabelled signature).
-_CONTRACT_05_MASKED_SINCE_17B = {2, 3, 4}
+# Contract 5's `pii_best_effort`: two names (0: in the body, next to her e-mail; 1: an unlabelled
+# signature line), masked since step 19c, and the bare mobile number, the spaced TCKN and the
+# freely grouped IBAN (2-4), masked since step 17b. They stay best effort: no guarantee is claimed.
+_CONTRACT_05_MASKED_BEST_EFFORT = {0, 1, 2, 3, 4}
 
 
-def test_dataset_contract_05_step_17b_formats_masked_names_not() -> None:
+def test_dataset_contract_05_best_effort_values_all_masked() -> None:
     best_effort = BY_ID["contract-05"]["pii_best_effort"]
     masked = _masked_text("contract-05")
     assert len(best_effort) == 5
     hidden = {i for i, value in enumerate(best_effort) if value not in masked}
-    assert hidden == _CONTRACT_05_MASKED_SINCE_17B
-    left = [best_effort[i] for i in range(5) if i not in hidden]
-    assert all(" " in value and not any(ch.isdigit() for ch in value) for value in left)
+    assert hidden == _CONTRACT_05_MASKED_BEST_EFFORT
 
 
 @pytest.mark.parametrize("contract_id", IDS)
