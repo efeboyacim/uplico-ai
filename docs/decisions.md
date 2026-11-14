@@ -70,7 +70,7 @@ reddetmesi eklenirdi; bu projede eklenmedi, koruma işletim kuralıdır.
 **Ölçülmeyen:** `qwen3.5:9b` denenmedi, Ollama ile eval koşulmadı. Tek sözleşmede `qwen3.5:4b`
 443 sn (GPU) ve 903 sn (CPU) sürdü; sayısal hatalarını `numeric_mismatch` kuyruğa aldı,
 `check`'siz bir kuralda iki koşuda farklı sonuç verdi. Ölçülenler: Groq (üç koşu) ve
-Anthropic `claude-sonnet-5-5` (iki koşu; `LLM_TEMPERATURE=none` ile). Gemini'nin OpenAI
+Anthropic `claude-sonnet-5-5` (üç koşu; `LLM_TEMPERATURE=none` ile). Gemini'nin OpenAI
 uyumlu adreste tool döngüsü kırıldığı için Google paketi eklendi (bedeli herkese
 `langchain-core` 1.8.0); tek sözleşmede denendi, ölçülmedi.
 **Eksik kalan:** anahtar döndürme ve kişi bazlı kimlik yok; audit log dosya düzeyinde korunmuyor

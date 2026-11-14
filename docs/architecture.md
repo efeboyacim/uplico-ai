@@ -57,8 +57,9 @@ flowchart LR
 2. **Hazırlık (graph dışı, `prepare_contract()`), şu sırayla:**
    - **Sakla:** Asıl sözleşme metni değiştirilmeden tenant'ın `app.db`'sine kaydedilir.
    - **Böl:** Sözleşme maddelere bölünür; her madde asıl metindeki ofsetini taşır. Başlık
-     `Madde N`'dir; metinde hiç yoksa numaralı Markdown başlığı (`## 4. Fesih`); o da yoksa metin
-     paragraflara bölünür. İlk başlıktan önceki ve son maddeden sonraki metin de birer maddedir
+     `Madde N`'dir; metinde hiç yoksa numaralı Markdown başlığı (`## 4. Fesih`); o da yoksa düz
+     numaralı başlık (`7. SORUMLULUK`; büyük harfli, paragraf başında, hemen ardından kendi alt
+     maddesi `7.1` gelen, 1..n sıralı; Adım 19f); o da yoksa metin paragraflara bölünür. İlk başlıktan önceki ve son maddeden sonraki metin de birer maddedir
      (sınır ve kimlik kuralları, paragraf kipinin bilinen sınırı: `agent_design.md` §4 "RAG").
    - **Tara:** Enjeksiyon kalıpları ve gizli karakterler, görünmez karakterleri çıkarılmış bir
      kopyada taranır; eşleşme konumları asıl metne eşlenir (`src/text.py`). Şüpheli ifade
@@ -86,7 +87,10 @@ flowchart LR
    (`models.ReviewReason` ile aynı sırada); "uygun" bulgunun gösterdiği maddede `TCKN` / `TELEFON`
    yer tutucusu varsa `masked_value_in_clause` de bunlardandır (maskelenmiş bir sayı kodca okunamaz).
    Kuralında `check` olmayan bir bulgunun taslağı varsa kod taslağı denetleyemez
-   (`code_check=unverifiable`) ve bulgu `proposal_unverifiable` ile kuyruğa girer.
+   (`code_check=unverifiable`) ve bulgu `proposal_unverifiable` ile kuyruğa girer. Taslak
+   maddenin tamamının yerine geçer; maddenin satır başındaki alt madde numaralarından (`3.1.`)
+   birini taslakta taşımayan taslak `proposal_partial` ile kuyruğa girer (Adım 19f; `code_check`
+   değişmez).
 6. **human_review:** Graph `interrupt()` ile durur. Graph döndükten sonra API doğrulanmış bulguları
    ve taslakları (maskeli) `reviews` tablosuna yazar, durumu `awaiting_lawyer` yapar, `awaiting_lawyer`
    audit satırını aynı transaction'da ekler, indeksi siler ve incelemeyi HTTP 200 ile döner (yanıt
@@ -330,7 +334,9 @@ Son sonuç (raporda ve `reviews` kaydında):
 - Karar verilmeyen taslak (yalnızca kuyruk dışında olabilir) "karar verilmedi" (`proposal_action:
   null`) olarak görünür ve talep edilen değişikliklere **girmez**. Kodun denetleyemediği taslak
   (`code_check=unverifiable`) her zaman kuyruktadır (`proposal_unverifiable`), bu yüzden kararsız
-  kalamaz; kuyruk dışındaki taslak kodun denetimini geçmiş (`passed`) taslaktır. (Kuyruk
+  kalamaz; kuyruk dışındaki taslak kodun denetimini geçmiş (`passed`) ve maddenin alt madde
+  numaralarını koruyan taslaktır (alt madde düşüren taslak `proposal_partial` ile kuyruktadır,
+  Adım 19f). (Kuyruk
   `awaiting_lawyer`'a geçerken kaydedilir; bu sebepten önce kaydedilmiş bir incelemede
   `unverifiable` taslak kuyruk dışında kalmış olabilir.)
 - Son sonucu `non_compliant` olmayan bir bulgunun taslağı talep edilen değişikliklere girmez.
@@ -349,7 +355,9 @@ Kurallar:
   girdiler resume'dan önce yazıldığı için kalır (aşağıda "Eşzamanlılık"). Resume sonra hata verirse yazılan girdiler kalır (yalnızca ekleme; aynı değer yeniden
   gelince aynı yer tutucuyu alır). State, checkpoint, audit log ve trace yalnızca maskeli metni
   görür. Sınır: eşlemede olmayan yeni bir kişi adı, keşif yollarından biri (etiket, aynı satırdaki
-  e-posta, etiketsiz imza satırı) bulmadıkça yakalanmaz (serbest metin adlarıyla aynı sınır);
+  e-posta, etiketsiz imza satırı, etiketli kimlik numarasından önceki ad, unvandan sonraki ad)
+  bulmadıkça yakalanmaz (serbest metin adlarıyla aynı sınır); son ikisi burada yalnızca taslağın
+  kendi metniyle çalışır, tanımlı terim kanıtı zayıftır (`agent_design.md` §5 "Akan metinde ad");
   `viewer` onu inceleme yanıtında, raporda ve audit'te görebilir (`spec.md` §8 "Bilinen sınırlar").
   Bu çağrıya Adım 19c'nin "yol verme" listesi (`unlabelled`) verilmez; eşlemedeki ad yine de
   boşluksuz bitişik yazılmış bir e-postaya yol verir (Adım 19d, kural `mask` içindedir;
@@ -655,7 +663,8 @@ insanlar okuyabilir. Maskeleme her sağlayıcıda graph'tan önce aynı şekilde
     `langchain-core`.
 - **Sonuçlar / ödünleşimler:**
   - Varsayılan Groq `openai/gpt-oss-120b` üç tam eval koşusuyla, Anthropic `claude-sonnet-5-5`
-    bir tam koşuyla ölçüldü (2026-11-13; `evals.md` §4); diğerleri "çalışır, ölçülmedi"dir;
+    üç tam koşuyla (2026-11-13 ve iki kez 2026-11-14, her biri farklı kodla) ölçüldü (`evals.md`
+    §4); diğerleri "çalışır, ölçülmedi"dir;
     `google_genai` tek sözleşmede denendi (2026-11-13), ölçülmedi (`spec.md` §8 "Bilinen
     sınırlar", `plan.md` Adım 18d "Elle deneme"). `claude-sonnet-5-5` `LLM_TEMPERATURE=none`
     ister: varsayılan 0 ile her çağrı istek gönderilmeden `ValueError` verir; başlangıçtaki

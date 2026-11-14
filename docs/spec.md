@@ -228,10 +228,20 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   650–1.100 sayfa; 300 sayfalık bir sözleşme geçer). Sunucunun okuduğu bayt miktarı sınırlanmaz.
 - **Sözleşme başına enjeksiyon işareti sayısı:** sınırlanmaz. Her işaret bir audit satırı ve avukatın
   listesinde bir girdidir; üst sınır ya da özet satırı Adım 12'de düşünüldü ve bilerek eklenmedi.
-- **Düzenlenmiş taslaktaki yeni kişi adı:** Avukatın `edited_text`'e yazdığı, eşlemede olmayan yeni bir kişi adı, keşif yollarından biri (etiket, aynı satırdaki e-posta, etiketsiz imza satırı) bulmadıkça maskelenmez; viewer onu inceleme yanıtında, raporda ve audit'te görebilir.
-- **Kişi adı keşfi en iyi çabadır (Adım 19c'den sonra da):** ad üç yoldan bulunur: etiket
+- **Düzenlenmiş taslaktaki yeni kişi adı:** Avukatın `edited_text`'e yazdığı, eşlemede olmayan yeni bir kişi adı, keşif yollarından biri (etiket, aynı satırdaki e-posta, etiketsiz imza satırı, etiketli kimlik numarasından önceki ad, unvandan sonraki ad) bulmadıkça maskelenmez; viewer onu inceleme yanıtında, raporda ve audit'te görebilir. Son iki yol (Adım 19f) bu çağrıda yalnızca taslağın kendi metniyle çalışır (`src/api.py` `unlabelled` listesi vermez): tanımlı terimi ayıran kanıt yalnızca taslaktan sayılır, bu yüzden taslakta unvandan sonra gelen bir terim ("Şirket Müdürü Sözleşme Bedeli …") kişi sayılıp maskelenebilir.
+- **Kişi adı keşfi en iyi çabadır (Adım 19c ve 19f'den sonra da):** ad beş yoldan bulunur: etiket
   ("Ad Soyad:", "Yetkili:", "temsilen"), aynı satırdaki e-postanın yerel kısmı (`elif.soylu@` →
-  "Elif Soylu") ve hemen altı "İmza" olan etiketsiz satır. Kaçanlar: baş harfli ya da tek
+  "Elif Soylu"), hemen altı "İmza" olan etiketsiz satır ve Adım 19f'nin akan metin çapaları:
+  parantez içindeki etiketli kimlik numarasından hemen önceki ad ("Ahmet Yılmaz (TCKN: …)") ve
+  listedeki bir unvandan sonraki 2–3 sözcüklük ad ("Teknik Direktör Zeynep Kaya", "Av. Mehmet
+  Demir"). Akan metin çapaları yalnızca bütün metinde çalışır; madde çağrıları adları bütün
+  metnin eşlemesinden alır. Kaçanlar (Adım 19f): parantezsiz çapa ("Ahmet Yılmaz, TCKN: …"),
+  tek sözcüklü ad, unvandan sonra 4+ sözcüklü ad, unvandan önce gelen ad, listede olmayan unvan
+  (çapa 1 dışında), küçük harfli ad, ilk adı metinde 3+ kez daha geçen ad. Fazla maskeleme (Adım
+  19f): unvandan sonra ad olmayan 2–3 büyük harfli sözcük ("GENEL MÜDÜR ONAY YETKİSİ"), metinde
+  az geçen bir terim ("Satın Alma Direktörü Gecikme Cezası …" yazılırsa "Gecikme Cezası" her
+  yerde, kural maddesinde de `[KISI_n]` olur; denemeyle gösterildi, veri kümesinde yok), çapa
+  1'de cümle başındaki ad olmayan sözcük ve üç sözcüklü adın son iki sözcüğü. Önceki kaçanlar: baş harfli ya da tek
   sözcüklü e-posta (`a.yilmaz@`, `info@`), adı başka satırda olan ya da e-postasından farklı
   yazılan ad, "İmza"dan önce boş satır, satırında başka metin olan ad, gövdede 3+ kez geçen
   (tanımlı terim sayılan) ve etiketsiz satırda imzalayan kişinin gövdedeki adı. Fazla maskeleme:
@@ -260,6 +270,12 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   sanıp maskeleyebilir ve kod yer tutucuyu sayı olarak okuyamaz. Telafisi: "uygun" bulgunun
   gösterdiği maddede böyle bir yer tutucu varsa bulgu avukata gider (`masked_value_in_clause`);
   yer tutucu başka bir maddedeyse ya da bulgu "uygun değil" ise bu telafi çalışmaz.
+- **Checksum'ı tutmayan TCKN yalnızca etiketliyse ve bitişikse maskelenir (Adım 19f):** "TCKN:",
+  "T.C. Kimlik No", "Kimlik No" gibi bir etiketten hemen sonra gelen bitişik 11 hane checksum'a
+  bakılmadan TCKN'dir. Etiketsiz numara, boşluklu numara (`TCKN: 1234 5678 951`), etiketi sayıdan
+  sonra gelen numara ("… T.C. kimlik numaralı") ve `TCKN'si` checksum kuralında kalır;
+  checksum'ı tutmuyorsa maskelenmez. `Vergi Kimlik No: <11 hane>` TCKN olarak maskelenir (fazla
+  maskeleme).
 - **Arama yalnızca BM25'tir:** kuralın sözcüklerini kullanmadan yazılmış madde bulunamayabilir.
   Eval'de (Adım 18) arama isabeti 30 / 32; sözleşme 4'te madde 9 ("Sır Saklama") ve madde 11
   ("Sözleşmenin Sona Ermesi … bir ay önceden … haber vererek") kaçtı, iki kural `not_found`
@@ -267,9 +283,18 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   ayarlanmadı. Groq'ta 2026-11-13'te üçüncü kez görüldü. Anthropic `claude-sonnet-5-5` iki maddeyi
   buldu (başka model, tek koşu; Groq'la karşılaştırılmaz). Madde ilk satırlarının listesiyle ucuz bir önlem denendi ve geri alındı (`plan.md`
   "Adım 19b").
-- **Madde bölme yalnızca iki başlık biçimini tanır (Adım 19e'den sonra kalan):** `Madde N` ve
-  (metinde `Madde N` yoksa) numaralı Markdown başlığı (`## 4. Fesih`). Roma rakamlı (`## IV.`)
-  ya da işaretsiz (`4. Fesih`) başlıklı sözleşme paragraflara bölünür; paragraf kipinde `verify`
+- **Madde bölme yalnızca üç başlık biçimini tanır (Adım 19e ve 19f'den sonra kalan):** `Madde N`,
+  (metinde `Madde N` yoksa) numaralı Markdown başlığı (`## 4. Fesih`) ve (ikisi de yoksa) düz
+  numaralı başlık (`7. SORUMLULUK`; Adım 19f). Düz başlık ancak büyük harfliyse, paragraf
+  başındaysa, en çok 100 karakterse, noktalamayla bitmiyorsa, **hemen sonraki satır kendi alt
+  maddesiyle** (`7.1`) başlıyorsa ve bütün adaylar 1, 2, 3, … sırasıyla en az iki taneyse
+  böler; değilse hiçbiri bölmez. Kalan sınırlar: gövdesi kendi alt maddesiyle başlamayan düz
+  başlık (ardından düz bir cümle, boş satır ya da metnin sonu gelen; `7. BAŞLIK` / boş satır /
+  `7.1.` dahil), küçük harfli (`4. Fesih`) ya da kalın (`**4. FESİH**`) başlık numarasız kalır;
+  sırayı bozan tek bir aday (ör. `1.` ile yeniden başlayan ek) bütün metni paragraf kipine
+  döndürür; 1..n sıralı, her biri kendi alt numarasıyla süren büyük harfli numaralı bir liste
+  yanlış başlık olabilir (maddeler yalnızca birleşir). Roma rakamlı (`## IV.`)
+  ya da bu koşulları tutmayan işaretsiz başlıklı sözleşme paragraflara bölünür; paragraf kipinde `verify`
   alıntı dışındaki, kuralı çiğneyen değeri komşu paragrafta göremez ve yanlış bir "uygun" avukata
   gitmeden geçebilir (koşularak gösterildi; `agent_design.md` §4 "RAG"). Numaralı başlık bölmesinin
   bir geçişi güvensiz yöndedir (kabul edildi): önünde boş satır olmayan başlık (ya da `İmzalar`
@@ -291,7 +316,13 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   yazım, `yalnız …`, kendi birimini taşıyan yazıdan sonra parantezde rakam (`bir milyon iki yüz
   bin Türk lirası (1.200.000 TL)`) ve "X milyon bin" okunamayan kalır; parantezde birimi
   yazılmamış çelişen değer (`1.200.000 TL (1.300.000)`) önceden olduğu gibi görülmez; ayraçlı
-  biçimde (`₺500 , (beş yüz)`) yazı başka bir şeye ait olabilir (değer eşit, sonuç güvenli). Saat
+  biçimde (`₺500 , (beş yüz)`) yazı başka bir şeye ait olabilir (değer eşit, sonuç güvenli).
+  Yazıyla yazılmış ekli yüzde (Adım 19f) yalnızca rakamla yazılmış yüzdeyi aynı ekle tekrarlıyorsa
+  okunur (`%25'i (yüzde yirmi beşi)`); ters sıra (`yüzde yirmi beşi (%25'i)`), yalnızca bir
+  tarafta ya da farklı ek, `-lik`, kesir (`%2,5'i (yüzde iki buçuğu)`) okunamayan kalır
+  (gereksiz yönlendirme). Birler sözcüğünden sonra çekimli `yüz` ("yüzde iki yüzü") artık
+  okunamayandır (önceden %2 okunuyordu); `yüzde`, `yüzyıl`, `yüzey`, `yüzük`, `yüzölç…` ve `bir
+  yüzü` hariç; "iki yüzde" iki ayrı yüzdenin başı sayılır. Saat
   yalnızca saat birimli kuralda okunur; öteki kurallarda okunamayan kalır; `saatine` /
   `saatinde` / `saatinden` okunmaz; saat zamanı olabilecek sayı (`08:30`, `08 : 30`, `08h30`,
   `08 30`, `9,30 saati`) okunamayan kalır, bedeli `1,50 saat` ve `Madde 4: 30 saat`'in de kuyruğa
@@ -303,7 +334,20 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
 - **Adım 19e'nin düzeltmeleri gerçek sözleşmeyle ölçülmedi:** beş sınırı gösteren dış sözleşme
   depoda değildir; düzeltmeler bildirimden yeniden kurulan girdilerle ve eski kodla fark
   testleriyle doğrulandı, model çağıran eval koşulmadı.
-- **Groq `openai/gpt-oss-120b` (üç tam koşu) ve Anthropic `claude-sonnet-5-5` (bir tam koşu)
+- **Taslağın alt madde denetimi numaraya bakar (Adım 19f, `proposal_partial`):** taslak
+  maddenin tamamının yerine geçer; maddenin satır başındaki noktalı alt madde numaralarından
+  (`3.1.`, `12.2`) birini satır başında ya da cümle sonu işaretinden sonra taşımayan taslak
+  avukata gider. Kaçanlar: eksik alt maddeyi cümle başında anan taslak ("3.1. madde aynen
+  kalır."), numarası korunup içeriği boşaltılan alt madde, `a)` / `(i)` / `1.` ile numaralı ya
+  da numarasız alt bölüm, maddede `3.1)` ya da kalın yazılmış numara, alt maddeleri tek satırda
+  yazılmış madde. Fazla yakalama (avukat yönünde): taslakta `3.1)`, `Madde 3.1`, `**3.1.**`,
+  başlığa noktalamasız bitişik numara. Eval veri kümesinin maddelerinde böyle numara olmadığı
+  için sebep orada hiç üretilmez; modelle ölçülmedi.
+- **Adım 19f'nin düzeltmeleri dış sözleşmeyle modelle yeniden ölçülmedi:** sınırları gösteren
+  ikinci dış sözleşme depoda değildir. Düzeltmelerden sonra o koşunun kayıtlı bulgularıyla yerelde
+  (modelsiz) yeniden hazırlık ve `verify` çalıştırıldı; tam eval Sonnet ile bir kez koşuldu
+  (`evals.md` §4 "Adım 19f'den sonra"), Groq ile koşulmadı.
+- **Groq `openai/gpt-oss-120b` (üç tam koşu) ve Anthropic `claude-sonnet-5-5` (üç tam koşu, her biri farklı kodla)
   dışındaki her yapılandırma "çalışır, ölçülmedi"dir (`google_genai` tek sözleşmede denendi,
   ölçülmedi):** ölçümler `evals.md` §4'tedir; iki model ayrı okunur. Ollama "ölçülmedi"
   tarafındadır. `claude-sonnet-5-5` varsayılan `LLM_TEMPERATURE` (0) ile çalışmaz, `none` ile çalıştı (başka değer denenmedi): 0 ile
@@ -337,11 +381,13 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   kuyruğuna düşer.
 - Her tenant'ın en az bir `lawyer` ve bir `viewer` anahtarı vardır. `lawyer` anahtarını taşıyan kişi
   o şirketin avukatıdır; kayda anahtarın sunucudaki adı yazılır. Anahtarı ele geçiren o rolü kazanır.
-- Sözleşmeler "Madde N" başlıklarıyla ya da numaralı Markdown başlıklarıyla (`## 4. Fesih`,
-  `## **4.** Fesih`) yazılmış, 5–30 sayfa arası. Başka başlıklı (Roma rakamı, işaretsiz
-  `4. Başlık`) ya da başlıksız sözleşme paragraflara bölünür (§8 "Bilinen sınırlar").
+- Sözleşmeler "Madde N" başlıklarıyla, numaralı Markdown başlıklarıyla (`## 4. Fesih`,
+  `## **4.** Fesih`) ya da hemen altında kendi alt maddesi olan büyük harfli düz numaralı
+  başlıklarla (`7. SORUMLULUK` / `7.1. …`; Adım 19f) yazılmış, 5–30 sayfa arası. Başka başlıklı
+  (Roma rakamı, küçük harfli `4. Başlık`) ya da başlıksız sözleşme paragraflara bölünür (§8
+  "Bilinen sınırlar").
 - Kişi adı maskeleme en iyi çabadır (taraf/imza blokları, aynı satırdaki e-posta, etiketsiz imza
-  satırı; §8); bu yolların bulmadığı gövde adları, satıra bölünmüş,
+  satırı, etiketli kimlik numarasından önceki ad, unvandan sonraki ad; §8); bu yolların bulmadığı gövde adları, satıra bölünmüş,
   tireli ya da çift boşluklu IBAN, ayraçsız ya da bölünemez boşlukla gruplanmış öneksiz cep
   numarası, öneksiz sabit hat, öneksiz yazılmış parantezli alan kodu (`(532) 123 45 67`) ve binlik
   gibi gruplanmış TCKN (`21 473 873 960`; tutardan
@@ -446,6 +492,8 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
       sözleşmede `verify` komşu paragraftaki kuralı çiğneyen değeri göremez (§8 "Madde bölme").
       Soru: paragraf kipine düşüş kayda (`clauses_split`) ya da avukata bir işaret olarak yazılsın
       mı, böyle bir sözleşmedeki "uygun" bulgu kuyruğa mı alınsın, yoksa sınır olarak mı kalsın?
+      Adım 19f düz "7. BAŞLIK" / "7.1." biçimini numaralı maddeye çevirdi (dar koşullarla); soru
+      bu koşulları tutmayan biçimler için açık kalır.
 
 ### Adım 12 gözlemleri (2026-11-12, ilk gerçek model denemesi)
 Tek sözleşme (`tests/fixtures/sample_contract.md`: 15 madde, 7 enjeksiyon işareti), `acme`'nin 5

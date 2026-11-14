@@ -499,6 +499,13 @@
   gerçek bir sözleşmenin gösterdiği beş kod sınırı (numaralı Markdown başlıkları, eval ön
   kontrolü, modelin "takvim günü" birimi, yazıyla tekrarlanan tutar, saat birimi). Modelle
   ölçülmedi. Ayrıntı Adım 19e "Gerçekleşen".
+- **Adım 19f bitti (2026-11-14; `step-19f` dalında, `main`'e henüz alınmadı):** ikinci dış
+  sözleşmenin Sonnet koşusunun gösterdiği dört kod sınırı dört commit'le düzeltildi (yazıyla
+  tekrarlanan yüzde `c4dfc8d`, düz numaralı başlık `d8efef6`, etiketli TCKN ve akan metinde ad
+  `55222fb`, sebep `proposal_partial` `c3f3f69`). Dış sözleşme modelle yeniden koşulmadı (yerel
+  modelsiz tekrar); tam eval Sonnet ile bir kez (`c3f3f69`): sert eşikler tuttu, 34 / 35 satırın
+  sebepleri tabanla aynı, `proposal_partial` veri kümesinde sınanmıyor. Groq bu kodla koşulmadı.
+  Ayrıntı Adım 19f "Gerçekleşen".
 - **Sıradaki:** Adım 20 — teslim (kullanıcı onayıyla push).
 - **Adım 18c'ye başlarken (2026-11-13 oturumunun devri):**
   1. Depo temiz; son commit bu notun commit'i. `origin`'e push yapılmadı (push Adım 20'dir).
@@ -2295,6 +2302,105 @@ Dokümanlar en sonda tek commit'te (kullanıcının 19c'deki talimatı). Tek ba�
 - **Açık kalanlar:** paragraf kipi açığı (Roma rakamı, işaretsiz başlık) — `spec.md` §10'da açık
   soru; parantezde birimi yazılmamış çelişen tutar; `iş günü`, `TRY`, `yüzde` modelin biriminde
   tanınmaz (gereksiz yönlendirme sürer).
+
+### [x] Adım 19f — İkinci dış sözleşmenin gösterdiği dört kod sınırı
+- **Kullanıcının isteği (2026-11-14):** dışarıdan verilen ikinci test sözleşmesi (Ares Teknoloji;
+  yazılım bakım ve destek; madde başlıkları düz "7. BAŞLIK" satırı, alt maddeler "7.1."; 10
+  kural; 12.2'de enjeksiyon; depoda değil) `fdf0bbb` ile Sonnet'te bir kez koşuldu
+  (`docs/evals.md` §4 "Dışarıdan verilen ikinci sözleşme"): status 10'da 9 beklendiği gibi
+  (RULE-04: beklenen `not_found`, model 6.2'deki "kısıtlama yok" notunu alıntılayıp
+  `non_compliant` dedi; savunulabilir); enjeksiyon taraması tuttuğu için bütün bulgular avukata
+  gitti, model talimata uymadı. Koşunun gösterdiği dört kod sınırı düzeltilir.
+- **Dört sınır ve karar:**
+  1. **Yazıyla tekrarlanan yüzde:** "%25'i (yüzde yirmi beşi)" `ambiguous_value` veriyor, doğru
+     taslak `failed` alıyordu. Rakamlı yüzdenin aynı ekle yazıyla tekrarı tek değer okunur
+     (19e'deki TL kuralının yüzde karşılığı; `agent_design.md` §5 "Yazıyla tekrarlanan yüzde").
+  2. **Düz numaralı başlık:** "7. BAŞLIK" numaralanmıyordu (parçalar doğru, `clause_no` boş).
+     Üçüncü başlık kalıbı, yalnızca öteki iki biçim yoksa ve dar koşullarla (`agent_design.md` §4
+     "Üçüncü başlık kalıbı").
+  3. **Kişisel veri:** üç TCKN'nin sağlama hanesi tutmuyordu ("TCKN:" etiketine rağmen
+     maskelenmedi), üç ad unvandan sonra akan metinde geçiyordu; altısı modele gitti. Etiketli
+     bitişik numara checksum'sız TCKN sayılır; akan metinde iki ad çapası (`agent_design.md` §5
+     "Etiketli TCKN", "Akan metinde ad").
+  4. **Kısmi taslak:** RULE-03 taslağı yalnızca 3.2'ydi, RULE-04 6.1'i düşürdü; değerler doğru
+     olduğu için `code_check` görmedi. Yeni sebep `proposal_partial`; prompt ve `propose_change`
+     açıklaması taslağın maddenin yerine geçtiğini söyler (`agent_design.md` §3, §5 "Eksik alt
+     madde").
+- **Dosyalar:** `src/verify.py`, `src/prepare/clauses.py`, `src/prepare/pii.py`, `src/models.py`
+  (`ReviewReason`), `src/prompts/rule_agent.md`, `src/tools.py` (`propose_change` açıklaması),
+  `src/static/index.html` (sebep etiketi "Taslakta maddenin alt maddesi eksik"),
+  `tests/test_verify.py`, `tests/test_clauses.py`, `tests/test_pii.py`; `docs/agent_design.md`
+  §2 tablo satırı kodla aynı commit'te (test tabloyu kodla karşılaştırır). `src/api.py` ve
+  `src/prepare/__init__.py` değişmedi.
+- **Doğrulama:** tam takım 2407 test geçti; ruff ve mypy temiz. Her düzeltme eski kodla fark
+  testinden geçti (aşağıda). Model çağıran tek koşu: tam eval, Sonnet (aşağıda "Ölçüm").
+- **Commit'ler:** `c4dfc8d fix: read a percentage restated in words as one value` ·
+  `d8efef6 feat: number plain all-caps section headings` ·
+  `55222fb fix: mask a labelled TCKN whatever its checksum and names in running text` ·
+  `c3f3f69 feat: send a draft that drops a sub-clause to the lawyer` · dokümanlar bu `docs:`
+  commit'i.
+
+#### Gerçekleşen (2026-11-14, `step-19f` dalı)
+- **Süreç:** her düzeltmeyi bir ajan yazdı, ayrı ve bağımsız bir inceleyici saldırdı. Dördün
+  üçünde kritik sorun bulundu, onarıldı ve yeniden denetlendi: başlıkta uzun boşluk dizisinde
+  karesel geri izleme ve yanlış başlıklar (ek listesi, taraf bloğu sözleşmeyi tek maddeye
+  çöktürüyordu); maskelemede madde çağrısında tanımlı terimin kişi sayılması ("Şirket Müdürü
+  Sözleşme Bedeli …") ve listede olmayan unvandan sonra adın ham kalması; yüzdede "yüzde iki
+  yüzü" (%200) %2 okunması. `proposal_partial`'ın incelemesinde kritik bulgu çıkmadı.
+- **Raporlardan sonra ana döngünün iki değişikliği:** (1) düz başlıkta ikinci yeniden denetim,
+  ardından düz bir ayrıntı satırı gelen numaralı listenin ("1. ALICI / Unvan: …", ek listesi)
+  hâlâ sözleşmeyi çöktürdüğünü gösterdi; kural sıkılaştırıldı: başlığın hemen altındaki satır
+  başlığın kendi alt maddesiyle başlamalıdır. (2) "yüzde iki yüzü" korumasının ilk hali kapalı
+  bir ek listesiydi; ikinci yeniden denetim listede olmayan eklerin (`-dür`, `-yle`, `-ce`) ve
+  tireli yazımın hâlâ %2 okunduğunu gösterdi; koruma ek listesiz oldu (birler sözcüğünden sonra
+  `yüz` ile başlayan her uzun sözcük; `yüzde`, `yüzyıl`, `yüzey`, `yüzük`, `yüzölç` hariç).
+  Sebep: yüzde düzeltmesi, eskiden bu yanlış okumayı rastlantıyla avukata gönderen belirsizliği
+  ("%25'i (yüzde yirmi beşi)") kaldırmıştı. Bu iki değişikliğin ayrıca bağımsız bir incelemesi
+  yapılmadı; testleri commit'tedir.
+- **Fark testleri (eski koda karşı):** madde bölme — depodaki sözleşmeler (7 veri kümesi, 2
+  holdout, örnek) olduğu gibi, CRLF ve BOM ile eskisiyle aynı (`Madde N` / `## N.` başlıklılar;
+  üçüncü kalıp devreye girmez); dış sözleşme `None, 1, …, 12`, parçalar aynı. Maskeleme —
+  depodaki 22 metin (örnek, 7 veri kümesi, 2 holdout, 12 saklı taslak alanı; `prepare_contract`
+  çağrı düzeniyle) eskisiyle birebir aynı, inceleme onarımından sonra 10 sözleşme yine aynı;
+  ilk sürümde 20.000 rastgele girdide eski kodun maskelediği hiçbir karakter açıkta kalmadı
+  (farklar eklenen TCKN / KISI, etiketli numaradan sonraki öneksiz cep, 2 ad yeniden
+  gruplanması, 7 yapışık yazımda yeniden maskeleme farkı); onarımdan sonra onarım öncesine karşı
+  6.000 girdide kaybolan ad, kaybolan katı değer ve maske açma hatası 0, yeniden denetimde 9.000
+  girdide de 0. Maskeleme süresi (ilk sürüm, ölçüldü, test assert'i yok): depo sözleşmesi başına
+  ≈ 15 ms → 47 ms; 46–84 bin karakterlik patolojik tek satırda 0,9–1,6 sn (eskisi 0,05–0,09 sn). Yüzde tekrarı (`c4dfc8d`) — 135 fark, hepsi `<rakam>'<ek>
+  (yüzde` çifti olan metinlerde, depodaki sözleşmelerde 0; 2'si bağlaç basamaklaması (19e'deki
+  TL kabulüyle aynı). `proposal_partial` — 233.528 karşılaştırmada her fark "eski çıktı +
+  `proposal_partial`", yalnızca `enabled=True` ve taslak maddenin bir numarasını taşımadığında;
+  depodaki sözleşmelerde 0 fark. Ek listesiz "iki yüzü" korumasının son hali ve sıkılaştırılmış
+  başlık kuralı için büyük fark testi bu kayda yazılmadı; yerel tekrar ve testler aşağıda.
+- **Dış sözleşmenin yerel tekrarı (modelsiz, `c3f3f69`):** maddeler `None, 1, …, 12`; altı
+  kişisel değerin altısı bütün metinde ve madde çağrılarında maskeli; RULE-01'de `ambiguous_value`
+  yok, taslak `passed`; `proposal_partial` RULE-03, RULE-04, RULE-10 taslaklarında var, RULE-01,
+  06, 09'da yok. Sözleşme modelle yeniden koşulmadı.
+- **Ölçüm (tam eval, Sonnet):** `evals/results/20261114-120841_anthropic_claude-sonnet-5-5.json`,
+  commit etiketi `c3f3f69`, `LLM_TEMPERATURE=none`. "Sonra": güvensiz hata 0 / 35; kaçırılan
+  uygunsuzluk 0 / 12; yanlış bulgu 0 / 12; status 35 / 35; alıntı geçerliliği 24 / 24; kritik
+  kural 1 / 1; arama isabeti 32 / 32; doğru madde 32 / 32; öneri uygunluğu 11 / 11
+  (`unverifiable` 1 / 12); yönlendirme 3 / 35 → 11 / 35; gereksiz yönlendirme 11 / 11; taslak
+  oranı 12 / 12 (12 çağrı, 0 hata); sonuçsuz görev 0; enjeksiyon tarama evet, kandı 0, sonuç 0;
+  PII sızıntısı 0; garanti edilmeyen PII 0 / 5; 269,0 sn; token 617.489 + 23.805. Bütün sert
+  eşikler tuttu. Önceki Sonnet koşusuyla (`7f7cbf9`) satır satır: 35 satırın 34'ünde sebepler
+  aynı; tek fark 06 `confidentiality`'de modelin ek `agent_escalated`'i (satır zaten
+  `injection_suspected` ile kuyruktaydı; koşu oynaklığı olarak okunur). Hiçbir satır
+  `proposal_partial` almadı: veri kümesinin maddelerinde noktalı alt madde numarası yok, yeni
+  sebep bu veri kümesiyle sınanmıyor. Ayrıntı `docs/evals.md` §4 "Adım 19f'den sonra".
+- **Ölçülmeyen:** dört düzeltmenin dış sözleşmedeki etkisi modelle ölçülmedi; prompt ve tool
+  açıklamasındaki yeni cümlenin taslakları değiştirip değiştirmediği ölçülmedi; Groq bu kodla
+  koşulmadı; holdout yeniden koşulmadı.
+- **Kalan sınırlar** (`docs/agent_design.md` §4–§5, `docs/spec.md` §8): gövdesi kendi alt
+  maddesiyle başlamayan, küçük harfli ya da kalın düz başlık numarasız kalır, sırayı bozan tek
+  aday metni paragraf kipine döndürür; ters sıralı, tek taraflı ekli ya da `-lik` ekli yüzde
+  okunamayan kalır; boşluklu ve checksum'ı tutmayan etiketli TCKN, parantezsiz kimlik çapası,
+  tek sözcüklü ya da unvandan önce gelen ad kaçar; unvandan sonra ad olmayan büyük harfli
+  sözcükler ve az geçen terimler fazla maskelenir; avukatın düzenlediği taslakta akan metin
+  çapaları yalnızca taslağın kendi metniyle çalışır (`src/api.py` liste vermez); eksik alt maddeyi
+  cümle başında anan taslak `proposal_partial`'dan kaçar, `3.1)` ya da kalın numaralar okunmaz.
+- **Dal:** `step-19f`, `main`'e alınmadı (kullanıcı onayı bekler). Sıradaki adım yine Adım 20.
 
 ### [ ] Adım 20 — Teslim
 - **Ne:** Kullanıcının onayıyla `origin`'e push edilir. AI oturumları bu planın dışındadır: ham

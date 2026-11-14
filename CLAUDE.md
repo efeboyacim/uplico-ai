@@ -6,7 +6,7 @@ Her kural için sonuç uygun / uygun değil / bulunamadı olur ve sözleşmeden 
 kanıtlanır; uygun olmayan maddeler için değişiklik taslağı yazılır, belirsiz bulgular avukata
 bırakılır. Python, LangChain `create_agent`, LangGraph ve LangSmith ile kurulur; varsayılan model
 sağlayıcısı Groq, çevrimdışı mod Ollama'dır; başka bir sağlayıcı yalnızca env ile seçilir (kod
-değişmez; Groq üç, Anthropic `claude-sonnet-5-5` iki tam eval koşusuyla ölçüldü). İki kurgusal şirketin (tenant) verisi ayrı tutulur.
+değişmez; Groq üç, Anthropic `claude-sonnet-5-5` üç tam eval koşusuyla ölçüldü). İki kurgusal şirketin (tenant) verisi ayrı tutulur.
 
 ## Ana ilke
 **LLM önerir, kod karar verir, yalnızca avukat onaylar.**
@@ -30,7 +30,7 @@ Uygulama `docs/plan.md`'deki adımlarla, sırayla yazılır. Hangi adımda olund
 bölümünde ve adım kutularında yazar; bir oturuma başlarken önce oraya bak. Bir adım doğrulanıp
 commit edilince dur ve sıradaki adıma geçmeden önce kullanıcıdan onay al.
 
-**Şu an:** Adım 0–19c bitti (Adım 17: `evals/metrics.py` ve `evals/run.py`; tek komut önce/sonra
+**Şu an:** Adım 0–19f bitti (Adım 17: `evals/metrics.py` ve `evals/run.py`; tek komut önce/sonra
 tablosunu basar, `--limit N` ve `--prepare-only` seçenekleri var).
 Adım 17 sonrası: `--resume` (içerik özetli önbellek) ve Adım 17b (maskeleyici üç biçim daha
 yakalar; garanti edilmeyen PII 5 / 5 → 2 / 5).
@@ -78,6 +78,16 @@ etiketlerdeki madde numaralarını model çağrısından önce denetler; modelin
 süre biçimi tanınır; bir TL tutarının rakam ve yazıyla aynen tekrarı (biri parantezde) tek değerdir;
 `saat` kural birimidir (yalnızca saat birimli kuralda okunur). Modelle ölçülmedi; kalan sınırlar
 `docs/plan.md` Adım 19e "Gerçekleşen" ve `docs/spec.md` §8'de.
+Adım 19f bitti (2026-11-14; `step-19f` dalında, `main`'e alınmadı): ikinci dış sözleşmenin
+gösterdiği dört kod sınırı — rakamlı yüzdenin aynı ekle yazıyla tekrarı ("%25'i (yüzde yirmi
+beşi)") tek değerdir, birler sözcüğünden sonra çekimli `yüz` ("yüzde iki yüzü") okunamayandır;
+başka başlık yoksa hemen altında kendi alt maddesi olan büyük harfli "7. BAŞLIK" satırları 1..n
+sırasıyla madde böler; etiketli bitişik TCKN checksum'ı tutmasa da maskelenir, akan metinde
+parantezli kimlik numarasından önceki ve unvandan sonraki ad bulunur (yalnızca bütün metinde);
+alt madde numarası düşüren taslak `proposal_partial` ile avukata gider. Dış sözleşme modelle
+yeniden koşulmadı; Sonnet ile tam eval (`c3f3f69`): sert eşikler tuttu, 34 / 35 satırın sebepleri
+önceki koşuyla aynı, `proposal_partial` veri kümesinde sınanmıyor; Groq bu kodla koşulmadı.
+Ayrıntı `docs/plan.md` Adım 19f ve `docs/evals.md` §4.
 Sıradaki: Adım 20 — teslim (kullanıcı onayıyla push). Ayrıntı `docs/plan.md` "Durum".
 
 ## Komutlar
