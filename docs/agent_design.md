@@ -174,18 +174,61 @@ Tek etkileri agent state'ine bir öneri yazmaktır; dış sisteme dokunmazlar.
 ## 4. Bellek ve state
 - **Kısa süreli:** Her kural görevinin kendi mesaj geçmişi vardır; görevler arasında paylaşılmaz.
 - **Uzun süreli:** Yok.
-- **RAG:** Kaynak tek sözleşme. Parça = madde (`Madde N` başlıklarına göre regex; bulunamazsa paragraf).
-  Arama yalnızca BM25'tir.
+- **RAG:** Kaynak tek sözleşme. Parça = madde (`Madde N` başlıklarına göre regex; hiç yoksa
+  numaralı Markdown başlıklarına göre; o da yoksa paragraf). Arama yalnızca BM25'tir.
   - **Başlık kalıbı:** satır başında (isteğe bağlı `#` ya da `**` ile) `Madde` / `MADDE`, sayı ve
     ardından `.`, `:`, `-`, `–`, `—` ya da satır sonu. Satır başına denk gelen "Madde 5'e göre" gibi
     bir atıf başlık sayılmaz. Metnin en başındaki tek `U+FEFF` (BOM; editörlerden gelir) ilk
     satırın başı sayılır: ardından gelen başlık yine başlıktır ve BOM o maddenin metninde kalır
     (`start = 0`; modelin kopyasından §5'teki gibi çıkarılır). Başka bir görünmez karakter ya da
     ikinci bir BOM satır başını bozar; o satır başlık sayılmaz ve karakter §5'teki gibi işaretlenir.
+  - **İkinci başlık kalıbı: numaralı Markdown başlığı (Adım 19e).** Yalnızca metinde hiç
+    `Madde N` başlığı yoksa kullanılır (ikisi karışık yazılmışsa yalnızca `Madde N` böler). Satır
+    başında (BOM kuralı aynı) isteğe bağlı boşluk, bir ya da daha çok `#`, boşluk, isteğe bağlı
+    `**`, 1–3 basamaklı sayı, ardından rakam gelmeyen `.`, isteğe bağlı `**`, sonra boşluk ve başlık
+    metni ya da satır sonu: `## 4. Fesih`, `## **4.** Fesih`, satırında tek başına `## 4.`.
+    `clause_no` üst düzey sayıdır, yazıldığı gibi (`## 01.` → `"01"`). Yalnızca `#` sayısı ilk
+    numaralı başlığınkiyle aynı olan satırlar böler: `## 2. Ekler` altındaki `### 1.` listesi
+    maddenin içinde kalır; ilk numaralı başlık `###` ise `###` düzeyi böler ve `## 2.` maddenin
+    içinde kalır. Bölmeyenler: alt madde (`4.1.`, `## 4.1.`; üst maddenin içinde kalır), tarih
+    (`## 14.11.2026`), tutar (`## 1.200 TL`), 3 basamaktan uzun sayı (`## 2026.`), `## 4 - X`,
+    `## 4.X`, boşluksuz `#4. X`, işaretsiz `4. Başlık`, `#`'siz `**1.**`, numaralı liste ve Roma
+    rakamı (`## I.`). İşaretsiz "N. BAŞLIK" bilerek alınmadı: taraf listesini madde yapıyordu. Alt
+    maddeyi ayrı madde saymak da reddedildi: maddenin tamamı tek parçada kalınca `verify` alıntı
+    dışındaki alt maddede kuralı çiğneyen değeri görür (§5 "Alıntının dışında kalan değerler").
+    `Madde N` başlıklı ya da hiç numaralı başlığı olmayan metnin bölünmesi değişmedi. Giriş,
+    imza, kimlik ve ofset kuralları iki kalıpta aynıdır (aşağıda).
   - **Giriş ve imza:** ilk başlıktan önceki metin ayrı bir maddedir. Son başlıktan sonra satır
     başında `İmza` / `İmzalar` / `Taraflar adına` başlığı varsa orada yeni bir madde başlar; yoksa
     son madde metnin sonuna kadar sürer. Başlık hiç yoksa metin boş satırlardan paragraflara bölünür.
     Yalnızca boşluktan oluşan parça madde olmaz.
+  - **Bilinen sınır (paragraf kipi):** başlıkları Roma rakamlı (`## IV. Fesih`) ya da işaretsiz
+    (`4. Fesih`) sözleşme paragraflara bölünür; "4.1." ve "4.2." ayrı parça olur ve `clause_no`
+    boştur. `verify` yalnızca gösterilen parçaya baktığından alıntı dışındaki, kuralı çiğneyen
+    değeri komşu paragrafta göremez: "en az 30 gün" kuralında 4.1. "45 gün", 4.2. "10 gün" yazan
+    Roma rakamlı maddede 4.1.'den alıntılı yanlış "uygun" avukata gitmeden geçer (koşularak
+    gösterildi); aynı metin `## 4. Fesih` başlığıyla tek madde olur ve `numeric_mismatch` ile
+    kuyruğa düşer.
+  - **Bilinen sınır (numaralı başlık bölmesi her girdide güvenli yönde değildir; kabul edildi):**
+    önünde boş satır olmayan numaralı başlık (ya da son başlıktan sonraki `İmzalar` satırı) yeni
+    madde açar. Adım 19e'den önce böyle bir sözleşme paragraflara bölünüyordu; önceki bölümün sonu
+    ile sonraki başlık aynı paragrafta kaldığı için oradaki kuralı çiğneyen değeri `verify`'ın
+    alıntı dışı kontrolü görüyor ve bulgu rastlantıyla kuyruğa giriyordu; artık görmez. Örnek:
+    `"## 1. Ödeme\nÖdeme 60 gün içinde yapılır.\n## 2. Fatura\nFatura 30 gün içinde kesilir.\n"`,
+    kural ≤ 30 gün, alıntısı "Fatura 30 gün içinde kesilir." olan `compliant` bulgu: önce
+    `numeric_mismatch`, şimdi sebep yok (koşularak gösterildi). Aynı sözleşme `Madde N`
+    başlıklarıyla yazıldığında eski kod da kuyruğa sokmuyordu; yeni davranış `Madde` kipiyle
+    aynıdır. Rastgele 22.489 uygun alıntıda 235 durumda eski kod kuyruğa sokup yeni sokmadı, 753
+    durumda tersi.
+  - **Bilinen sınır (başlık düzeyi ilk numaralı başlıktan alınır):** düzeyi yanlış seçen metinde
+    maddeler yalnızca büyür (`verify` daha çok değer görür), ama raporda madde numarası yanlış
+    görünür (koşularak gösterildi):
+    - girişte `### 1.` listesi, ardından `## 1.` başlıklar: `###` düzeyi böler, `## N.` başlıkları
+      son `###` maddesinin içinde kalır;
+    - `# 1. SÖZLEŞME BAŞLIĞI` belge başlığı: `#` düzeyi böler, bütün sözleşme tek madde (`1`) olur;
+    - karışık düzeyler (`## 1.`, `### 2.`, `## 3.`): 2, 1'in içinde kalır;
+    - `## 1.` ile yeniden başlayan ek yinelenen madde numarası üretir (`Madde` kipinde de aynı;
+      kimlikler çakışmaz, aşağıda "Kimlik").
   - **Kimlik:** `clause_id` belge sırasına göre `c1`, `c2`, … verilir (giriş ve imza dahil);
     başlıktaki numara `clause_no`'dadır, giriş / imza / paragraf parçalarında boştur. Tekrarlanan
     madde numarası kimlik çakışması yaratmaz. Maddenin metni asıl metnin `start`–`end` aralığıdır,
@@ -226,6 +269,10 @@ Tek etkileri agent state'ine bir öneri yazmaktır; dış sisteme dokunmazlar.
   severity: critical                     # critical | normal (varsayılan normal)
   check: {op: ">=", value: 30, unit: gün}  # isteğe bağlı; yalnızca sabit eşikli kurallarda
 ```
+- `check.unit`: `gün | hafta | ay | yıl | saat | % | TL` (kapalı liste; başkası kural yüklenirken
+  reddedilir). Saat birimli kural: `check: {op: "<=", value: 48, unit: saat}`. Saat değeri
+  yalnızca birimi `saat` olan kuralda okunur; öteki süre kurallarında "48 saat" okunamayan
+  ifadedir (§5).
 - `severity`: şirket kendi kural setinde işaretler. Yalnızca avukata ve raporda gösterilen bir
   etikettir; avukat kuyruğuna etkisi yoktur.
 - `check`: yalnızca sabit eşikli kurallarda vardır. Sabit eşiği olmayan kurallarda (ör. "sorumluluk
@@ -292,7 +339,8 @@ yoktur.**
     sayı sözcüğü, ardından birim. Yüzde sayıdan önce yazılır (`%15`, `% 15`, `yüzde 15`).
   - **Sayı sözcükleri:** birlikler (bir…dokuz), onluklar (on…doksan) ve `yüz` bileşimiyle 1–999
     ("on iki", "yüz yirmi"). Harf büyüklüğüne Türkçe kurallarıyla bakılmaz (`İ`→`i`, `I`→`ı`).
-    Tutar (`TL`) sözcükle okunmaz.
+    Tutar (`TL`) sözcükle okunmaz; tek istisna, rakamla yazılmış tutarla parantezli tekrar
+    oluşturan, aynı değeri söyleyen yazıdır (iki sırada da; aşağıda "Yazıyla tekrarlanan tutar").
   - **Rakamla yazılan sayı:** rakam, nokta ve virgülden oluşan en uzun dizidir; her türde nokta
     binlik, virgül ondalık ayracıdır ("1.250.000", "1,5"). Bu biçime uymayan dizi ("1.5") sayı
     olarak okunmaz; ardından birim geliyorsa okunamayan değer ifadesidir. Sıra sayısı da böyledir:
@@ -314,7 +362,8 @@ yoktur.**
     - çarpan ya da kesir sözcüğü, sayıdan hemen sonra: `bin`, `milyon`, `milyar`, `trilyon`, `mn`,
       `mln`, `mlr`, `buçuk`, `yarım`, `çeyrek`, `virgül`, `nokta` ("₺1,5 milyon", "yüzde bir
       buçuk", "%1 buçuk", "yüzde iki virgül beş"). Önünde sayı olmayan `bin`, `milyon`, `milyar`,
-      `trilyon`, `yarım`, `çeyrek` de sayıdır ve okunmaz ("bin beş yüz gün", "yarım yıl");
+      `trilyon`, `yarım`, `çeyrek` de sayıdır ve okunmaz ("bin beş yüz gün", "yarım yıl"; tek
+      istisna, bütün yazının rakamla aynı tutarı tekrarladığı "Yazıyla tekrarlanan tutar"dır);
     - üst ya da alt simge rakam ("30¹ gün": dipnot işareti sayının hanesi olmaz);
     - `/` ya da `⁄` ile bağlı rakam ("1/2 yıl"; NFKC sonrası "½ yıl" da böyledir);
     - boşlukla gruplanmış rakam: tek boşlukla (ya da bölünemez boşlukla) ayrılmış, sonrakilerin
@@ -328,6 +377,41 @@ yoktur.**
     değer sayılır, farklıysa `ambiguous_value`. Önekli biçimde de böyledir ("₺1.000 (5.000)").
     Parantezin içi tek bir sayı değilse ifade okunamayandır. Bir sayı sözcüğünün parçaları arasında
     en çok bir boşluk olur; araya noktalama girerse iki ayrı sayıdır.
+  - **Yazıyla tekrarlanan tutar (Adım 19e).** Tutar türünde (`TL`), yazıyla yazılmış tutar
+    yalnızca rakamla yazılmış aynı tutarla parantezli bir tekrar oluşturuyorsa değer olur ve
+    rakamın değerini alır: rakam önde ve yazı parantezde ya da yazı önde ve rakam parantezde.
+    Her durumda yazı rakamla aynı değeri söylemelidir; ikisi aynı birimle iki değer olduğundan
+    tek değer sayılır. Yazı kanonik Türkçe tutar dilbilgisiyle okunur: `[grup milyar] [grup milyon] [(grup | boş) bin] [grup]`, grup
+    0–999 (`yüz`, `iki…dokuz yüz`, onluk, birlik); her ölçek en çok bir kez ve büyükten küçüğe;
+    `milyon` ve `milyar` önünde grup ister; `bin` tek başına 1000'dir, `bir bin` ve `bir yüz`
+    okunmaz; üst sınır 999.999.999.999. İki biçim okunur:
+    - tek ifadede iki sayı, birim parantezden sonra (ya da önekte), biri rakamla yazılmış ve
+      okunan: `1.000 (bin) TL`, `₺1.000 (bin)`, `TL 1.000 (bin)`; ters sıra yalnızca bu biçimde
+      okunur: `bin (1.000) TL`, `bir milyon iki yüz bin (1.200.000) TL`. Sayı ile `(` arasında
+      rakamlı tekrarın ("₺1.000 (5.000)") izin verdiği her ayraca burada da izin verilir:
+      `₺500 , (beş yüz)` ve cümle sonu `₺500. (Beş yüz) …` de 500 TL okunur;
+    - kendi başına bir ifade olarak parantez: okunan tek sayılı bir TL ifadesinin hemen ardından
+      (arada en çok boşluk) `(`, yazı, ardından birim sözcüğü ve `)`:
+      `2.400.000 TL (iki milyon dört yüz bin Türk lirası)`, `₺1.200.000 (bir milyon iki yüz bin
+      TL)`. Birim `)`'den sonra da aranır, bu yüzden parantez birimden önce de kapanabilir:
+      `1.000 TL (bin) TL)` iki değerdir (1.000 TL).
+
+    Yazı başka bir tutar söylüyorsa (`2.400.000 TL (iki milyon beş yüz bin Türk lirası)`),
+    dilbilgisine uymuyorsa ya da biçim tutmuyorsa (`2.400.000 TL, (…)`, `1.000 TL (iki milyon bin
+    TL)`, `1.000 TL (bin) ila 2.000 TL`: parantezde birim yok) yazı eskisi gibi okunamayan kalır
+    ("Okunamayan değer ifadesi"). Süre ve yüzde okuması değişmedi. Okunan tekrar bağlama kuralıyla
+    birimsiz komşusuna birim verir: `500 (beş yüz) TL ila 2.000` artık 500, 500 ve 2.000 TL'dir
+    (önceden ifade okunamayandı ve 2.000 birimsizdi).
+    **Bilinen sınır:** sözcükle yazılmış tek başına tutar (`beş yüz TL`), bitişik yazım
+    (`ikimilyondörtyüzbin`), `yalnız …` ile başlayan yazı, kendi birimini taşıyan yazıdan sonra
+    parantezde rakam (`bir milyon iki yüz bin Türk lirası (1.200.000 TL)`, `iki milyon dört yüz
+    bin TL (2.400.000 TL)`: yalnızca rakam okunur, yazı okunamayan) ve "X milyon bin" / "X milyar
+    bin" (`1.000.001.000 TL (bir milyar bin TL)`) okunmaz; okunamayan kalır (gereksiz yönlendirme,
+    güvenli yön). Ayraçlı biçimde (`₺500 , (beş yüz)`, `₺500. (Beş yüz) …`) parantezdeki yazı
+    tutara değil başka bir şeye ait olabilir; değer rakamla eşit olduğu için sonuç güvenlidir, ama
+    yazı yanlış yere bağlanmış olabilir (bilinen sınır). Önceden var olan sınır sürer:
+    parantezde birimi yazılmamış çelişen değer görülmez (`1.200.000 TL (1.300.000)` ve
+    `1.200.000 TL (bir milyon üç yüz bin)` yalnızca 1.200.000 TL okunur).
   - **Birim cümle sınırını aşamaz.** Noktalamanın kendisi değil, yalnızca cümle sınırı keser.
     Cümle sınırı bilinçli olarak dar tanımlıdır: cümle sonu işareti (`.` `!` `?`), en az bir boşluk
     karakteri (satır sonu dahil) ve büyük harfle başlayıp küçük harfle süren bir sözcük ("Ayrıca",
@@ -362,6 +446,31 @@ yoktur.**
     (`güne`), bulunma (`günde`), ayrılma (`günden`), tamlayan (`günün`), çoğul (`günler`), iyelik
     + hal (`gününe`, `gününde`, `gününden`) ve ek-fiil (`gündür`, `haftadır`, `aydır`, `yıldır`). Sayı ile birim arasına yalnızca `takvim` girebilir
     ("30 takvim günü" 30 gündür).
+  - **Saat (Adım 19e) yalnızca birimi `saat` olan kuralda okunur.** Biçimler: `saat`, `saatlik`,
+    `saati`, `saate`, `saatte`, `saatten`, `saatin`, `saatler`, `saattir` ("72 takvim saati" 72
+    saattir; "48 ila 72 saat" iki değerdir). `saatine`, `saatinde`, `saatinden` bilerek listede
+    yok: saat bildirir ("17 saatine kadar") ve okunamayan kalır ("72 saatinde" de). "8 iş
+    saati", "8 mesai saati" okunamayan kalır; "1 saat 30 dakika" 1 saat artı okunamayan "30
+    dakika"dır. Ondalık virgül okunur ("1,5 saat", "25,30 saatte" 25,3, "9,60 saatte" 9,6 saat).
+    **Saat zamanı saat değeri değildir (`_clock_time`).** Saat zamanı ya da dakikası olabilecek
+    sayı saat olarak okunmaz, ifadesi okunamayan kalır (bulgu `numeric_mismatch`, taslak
+    `failed`):
+    - sayının önünde, boşluklar ve NBSP atlanarak, iki nokta türünden bir karakter (`:`, U+2236,
+      U+FF1A, U+02D0, U+A789) ve bir rakam: `08:30`, `08: 30`, `08 : 30 saati`;
+    - hemen önünde yalnızca boşlukla ya da tek bir `h` / `H` ile ayrılmış başka bir rakam dizisi:
+      `08 30 saatte`, `08h30`, `08 h 30 saatte`;
+    - `S,DD` / `SS,DD` yazımı, saat 0–24 ve dakika 00–59: `9,30 saati`, `08,30 saatte`.
+      `9.30 saati` önceden olduğu gibi bozuk sayıdır, okunamayan.
+
+    Bedeli (güvenli yön, gereksiz yönlendirme): `1,50 saat` gibi iki ondalıklı süre ve `Madde 4:
+    30 saat` okunamayan kalır, kuyruğa gider; `Süre: 30 saat` okunur (iki noktanın önünde rakam
+    yok). **Kalan sınırlar:** dakikasız saat zamanı saat okunur (`17 saati itibarıyla` 17 saat);
+    bağlaçla bağlı saat zamanının saati birim alır (`14 saat veya 12:00` iki değer, 14 ve 12 saat;
+    `ambiguous_value` ile kuyruğa gider); `8, 30 saat` ve `08. 30 saatte` 30 saat okunur.
+    Birimi `saat` olmayan **her** kuralda saat ifadesi
+    önceki gibi okunamayan kalır (her süre kuralında okumak, rastgele 30.000 vakanın 309'unda
+    güvensiz yönde fark verdi). Saat birimli kuralda saat dışındaki süreler de okunur ve saate
+    çevrilir (aşağıda "Süre çevirme").
   - `%` ve `TL` ayrı türlerdir. `TL` türü `TL`, `₺` ve `lira` köküyle ("Türk Lirası") okunur.
     Yalnızca kuralın `check.unit`'iyle aynı türdeki değerlere bakılır (süre / yüzde / tutar).
   - **Okunamayan değer ifadesi — kod metinde yazılı bir sayı içeren ifadeyi sessizce atmaz.** Bu
@@ -375,7 +484,8 @@ yoktur.**
     bozuk sayı ("1.5 yıl"). Yüzde türünde sayıdan sonra yazılmış işaret ("15%"), tutar türünde
     başka para birimi ("50.000 USD", `$`, `€`, `£`, `¥`, `EUR`, `GBP`, `CHF`, `JPY`, `dolar`,
     `avro`, `euro`, `sterlin`, `frank`) da okunamayandır; `TRY` `TL` gibi okunur. Süre türünde
-    kodun çevirmediği zaman birimleri (`sene`, `saat`, `dakika`) okunamayandır ("48 saat"). Bu
+    kodun çevirmediği zaman birimleri (`sene`, `dakika`) her kuralda, `saat` birimi `saat` olmayan
+    kuralda okunamayandır ("3 sene"; "48 saat" gün kuralında). Bu
     listeler kapalıdır: listede olmayan bir para ya da zaman birimi ("yen", "asır") görülmez;
     bilinen sınırdır. Araya giren "sözcük" rakamla yazılmış bir sayı olamaz ("Madde 5.2
     30 gün" tek değerdir). Bağlama kuralı ("ila / ile / – / veya") yönsüzdür ("15 ila %20", "30 gün
@@ -392,7 +502,11 @@ yoktur.**
   - `check.op`: `>=`, `<=`, `>`, `<`, `==`.
   - **Süre çevirme:** `gün/hafta/ay/yıl` iki ailedir. Aile içi çevirme kesindir: gün ↔ hafta
     (1 hafta = 7 gün), ay ↔ yıl (1 yıl = 12 ay). Aileler arası çevirme aralıktır: ay ya da yıl, gün
-    ya da haftayla karşılaştırılırken n ay = 28n–31n gün, n yıl = 365n–366n gündür.
+    ya da haftayla karşılaştırılırken n ay = 28n–31n gün, n yıl = 365n–366n gündür. Bir taraf
+    `saat` ise iki taraf saate çevrilir: gün ve hafta kesindir (1 gün = 24, 1 hafta = 168 saat),
+    ay ve yıl gün aralığının 24 katıdır (1 ay = 672–744, 1 yıl = 8.760–8.784 saat). Saat birimi
+    ancak saat kuralında okunduğundan bu dal yalnızca orada çalışır: "en fazla 48 saat" kuralında
+    "2 gün" yazan taslak `passed`, "1 hafta" ya da "1 ay" yazan `failed` alır.
   - **Tek çevirme fonksiyonu:** `check` hesabı, belirsiz değer kontrolü, modelin `value`'suyla kıyas
     ve taslak kontrolü aynı fonksiyonu kullanır; başka çevirme kodu yazılmaz.
   - Değerler çevrildikten sonra karşılaştırılır; aynı olanlar **tek değer** sayılır. Aynı ailedeki
@@ -414,6 +528,20 @@ yoktur.**
     çıkardığı değerle aynı çevirme fonksiyonundan geçirilip karşılaştırılır, farklıysa
     `numeric_mismatch`. `value` yoksa çapraz kontrol yapılmaz. `value` var ama `unit` boşsa kuralın
     birimi varsayılır; tanınmayan ya da başka türden birim `numeric_mismatch`'tir.
+    **Modelin birimi nasıl tanınır:** önce `check.unit` listesiyle tam eşleşme (Türkçe harf
+    büyüklüğü ve dış boşluklar yok sayılır: `Gün`, `tl`). Eşleşme yoksa ve kural süre türündeyse
+    (Adım 19e), tam iki sözcükten ilki okuyucunun köprü sözcüğü `takvim`, ikincisi okuyucunun
+    kapalı süre biçimlerinden biriyse birim o biçiminkidir: `takvim günü`, `TAKVİM GÜNÜ` → gün,
+    `Takvim Ayı` → ay (sözcükler arasındaki boşluk ne olursa olsun). İkinci bir liste yoktur;
+    okuyucunun tabloları kullanılır. Tanınmayanlar (`numeric_mismatch`, gereksiz yönlendirme
+    sürer): `iş günü`, `takvim iş günü`, tek başına ekli biçim (`günlük`, `günü`), `takvim`
+    tek başına, `takvim sene`, `TRY` (metinde okunur, modelin biriminde okunmaz), `yüzde`, yüzde ya
+    da tutar kuralında `takvim günü`. Okuyucuyla aynı olduğu için `takvim günlük`, `takvim aylık`,
+    `takvim yıllar` da gün / ay / yıl sayılır. `saat` (tam eşleşmeyle ya da `takvim saati`)
+    yalnızca saat kuralında birimdir; öteki kurallarda tanınmaz, çünkü okuyucu da saati yalnızca
+    orada okur. Reddedilenler: okuyucunun tamamını modelin birimine uygulamak (mevcut bir testi
+    çevirir, geniş `lira` kökünü miras alır) ve tool şemasını ya da prompt'u değiştirmek (her
+    sağlayıcıya giden isteği değiştirir).
   - Alıntıda aynı türden birden çok farklı değer varsa kod seçim yapmaz: `ambiguous_value`. Bu
     durumda `numeric_mismatch` eklenmez.
   - **Alıntının dışında kalan değerler (yalnızca `compliant`).** Model alıntıyı dar tutup kuralı
@@ -514,6 +642,10 @@ yoktur.**
   yapılır; ödeme onaydan itibaren 40 gün içinde yapılır", "en çok 45 gün" kuralında `[20, 40]`)
   artık `passed` alır ve kuyruğa düşmez; önceki tasarımda ikisi de `failed` idi. Böyle bir taslak
   avukat kabul etmedikçe ya da düzenlemedikçe değişiklik talebine girmez (`src/report.py`).
+  Aynı sebeple parantezde uyuşmayan bir tekrarın iki değeri de kurala uyuyorsa taslak geçer:
+  "en az 30 gün" kuralında "45 (otuz) gün", "en fazla 48 saat" kuralında "48 (yirmi dört) saat"
+  `passed` alır (alıntıdaki `ambiguous_value`'nun taslakta karşılığı yoktur; saat birimiyle
+  görünür oldu, sınır öncekiyle aynıdır).
 
   Taslak için ikinci bir LLM çağrılmaz. Sayısal olmayan kurallarda taslağın kurala uyduğunu kod
   doğrulayamaz; bu bilinen bir sınırdır. Bu yüzden böyle bir taslak her zaman avukat kuyruğuna

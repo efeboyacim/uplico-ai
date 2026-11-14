@@ -62,8 +62,10 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   gün") · her bulunamadı · taslak eksik ya da kurala uymuyor · taslak kodca doğrulanamıyor
   (kuralda sabit eşik yok) ·
   agent devretti ya da sonuç üretemedi · sözleşmede enjeksiyon şüphesi var.
-- **Kenar durumlar:** sayı/birim farklı yazılmış ("otuz (30) gün" tek değerdir; "bir ay" gün eşikli
-  kuralda 28–31 gün aralığıdır ve sonuç kesin değilse kuyruğa düşer).
+- **Kenar durumlar:** sayı/birim farklı yazılmış ("otuz (30) gün" tek değerdir; "2.400.000 TL
+  (iki milyon dört yüz bin Türk lirası)" tek değerdir; "bir ay" gün eşikli kuralda 28–31 gün
+  aralığıdır ve sonuç kesin değilse kuyruğa düşer; "48 saat" yalnızca saat birimli kuralda
+  değerdir).
 
 ### Senaryo 2: Avukat kararı, son karar ve rapor
 - **Tetikleyici:** İnceleme "avukat bekleniyor" durumunda durur.
@@ -265,6 +267,42 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   ayarlanmadı. Groq'ta 2026-11-13'te üçüncü kez görüldü. Anthropic `claude-sonnet-5-5` iki maddeyi
   buldu (başka model, tek koşu; Groq'la karşılaştırılmaz). Madde ilk satırlarının listesiyle ucuz bir önlem denendi ve geri alındı (`plan.md`
   "Adım 19b").
+- **Madde bölme yalnızca iki başlık biçimini tanır (Adım 19e'den sonra kalan):** `Madde N` ve
+  (metinde `Madde N` yoksa) numaralı Markdown başlığı (`## 4. Fesih`). Roma rakamlı (`## IV.`)
+  ya da işaretsiz (`4. Fesih`) başlıklı sözleşme paragraflara bölünür; paragraf kipinde `verify`
+  alıntı dışındaki, kuralı çiğneyen değeri komşu paragrafta göremez ve yanlış bir "uygun" avukata
+  gitmeden geçebilir (koşularak gösterildi; `agent_design.md` §4 "RAG"). Numaralı başlık bölmesinin
+  bir geçişi güvensiz yöndedir (kabul edildi): önünde boş satır olmayan başlık (ya da `İmzalar`
+  satırı) yeni madde açar; Adım 19e'den önce önceki bölümün sonuyla aynı paragrafta kaldığı için
+  oradaki çiğneyen değer `verify`'ın alıntı dışı kontrolünce rastlantıyla görülüyordu, artık
+  görülmez (rastgele 22.489 uygun alıntıda 235 durumda eski kuyruğa soktu, yeni sokmadı; 753
+  durumda tersi). Yeni davranış aynı sözleşmenin `Madde N` başlıklı halindekiyle aynıdır. Başlık
+  düzeyi ilk numaralı başlıktan alınır: girişteki `### 1.` listesi `## N.` başlıklarını bölmez
+  hale getirir, `# 1.` belge başlığı bütün sözleşmeyi tek madde yapar, karışık düzeyde (`## 1.`,
+  `### 2.`, `## 3.`) 2 1'in içinde kalır, `## 1.` ile yeniden başlayan ek yinelenen madde
+  numarası üretir (`Madde` kipinde de). Maddeler yalnızca büyür, ama raporda madde numarası
+  yanlış görünür.
+- **Birim tanıma kapalı listelerledir (Adım 19e'den sonra kalan):** modelin `unit` alanında
+  yalnızca `check.unit` listesi ve `takvim` + süre biçimi tanınır; `iş günü`, `TRY`, `yüzde`,
+  tek başına ekli biçim (`günlük`) tanınmaz ve bulgu gereksiz yere avukata gider (`takvim
+  günlük` gün sayılır). Yazıyla yazılmış tutar yalnızca rakamla yazılmış aynı tutarla parantezli
+  tekrar oluşturuyorsa ve aynı değeri söylüyorsa okunur (`2.400.000 TL (iki milyon dört yüz bin
+  Türk lirası)`, `1.000 (bin) TL`, `bin (1.000) TL`); sözcükle yazılmış tek başına tutar, bitişik
+  yazım, `yalnız …`, kendi birimini taşıyan yazıdan sonra parantezde rakam (`bir milyon iki yüz
+  bin Türk lirası (1.200.000 TL)`) ve "X milyon bin" okunamayan kalır; parantezde birimi
+  yazılmamış çelişen değer (`1.200.000 TL (1.300.000)`) önceden olduğu gibi görülmez; ayraçlı
+  biçimde (`₺500 , (beş yüz)`) yazı başka bir şeye ait olabilir (değer eşit, sonuç güvenli). Saat
+  yalnızca saat birimli kuralda okunur; öteki kurallarda okunamayan kalır; `saatine` /
+  `saatinde` / `saatinden` okunmaz; saat zamanı olabilecek sayı (`08:30`, `08 : 30`, `08h30`,
+  `08 30`, `9,30 saati`) okunamayan kalır, bedeli `1,50 saat` ve `Madde 4: 30 saat`'in de kuyruğa
+  gitmesidir; kalan sınırlar: `17 saati itibarıyla` 17 saat, `8, 30 saat` ve `08. 30 saatte` 30
+  saat okunur, `14 saat veya 12:00` iki değerdir (`ambiguous_value`); `dakika` ve `sene` birim
+  değildir; tenant kural setlerinde saat kuralı yoktur. Taslakta
+  parantezde uyuşmayan süre, iki değeri de kurala uyuyorsa geçer ("48 (yirmi dört) saat", "en
+  fazla 48 saat"; önceden gün için de böyleydi). Ayrıntı: `agent_design.md` §5.
+- **Adım 19e'nin düzeltmeleri gerçek sözleşmeyle ölçülmedi:** beş sınırı gösteren dış sözleşme
+  depoda değildir; düzeltmeler bildirimden yeniden kurulan girdilerle ve eski kodla fark
+  testleriyle doğrulandı, model çağıran eval koşulmadı.
 - **Groq `openai/gpt-oss-120b` (üç tam koşu) ve Anthropic `claude-sonnet-5-5` (bir tam koşu)
   dışındaki her yapılandırma "çalışır, ölçülmedi"dir (`google_genai` tek sözleşmede denendi,
   ölçülmedi):** ölçümler `evals.md` §4'tedir; iki model ayrı okunur. Ollama "ölçülmedi"
@@ -299,7 +337,9 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   kuyruğuna düşer.
 - Her tenant'ın en az bir `lawyer` ve bir `viewer` anahtarı vardır. `lawyer` anahtarını taşıyan kişi
   o şirketin avukatıdır; kayda anahtarın sunucudaki adı yazılır. Anahtarı ele geçiren o rolü kazanır.
-- Sözleşmeler "Madde N" başlıklarıyla yazılmış, 5–30 sayfa arası.
+- Sözleşmeler "Madde N" başlıklarıyla ya da numaralı Markdown başlıklarıyla (`## 4. Fesih`,
+  `## **4.** Fesih`) yazılmış, 5–30 sayfa arası. Başka başlıklı (Roma rakamı, işaretsiz
+  `4. Başlık`) ya da başlıksız sözleşme paragraflara bölünür (§8 "Bilinen sınırlar").
 - Kişi adı maskeleme en iyi çabadır (taraf/imza blokları, aynı satırdaki e-posta, etiketsiz imza
   satırı; §8); bu yolların bulmadığı gövde adları, satıra bölünmüş,
   tireli ya da çift boşluklu IBAN, ayraçsız ya da bölünemez boşlukla gruplanmış öneksiz cep
@@ -402,6 +442,10 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
       ham kalan, yapışık yazılmış geçişin kendisi ve IBAN'dır. Soru: IBAN kalıbının sol sınırı
       harfe bitişik `TR` için gevşetilsin mi (bir sözcüğün içindeki `TR` + 24 hanenin yanlış pozitif
       riski ölçülmeli), yoksa sınır olarak mı kalsın?
+- [ ] **Paragraf kipine düşen sözleşme (Adım 19e'de görüldü, önceden var):** başlığı tanınmayan
+      sözleşmede `verify` komşu paragraftaki kuralı çiğneyen değeri göremez (§8 "Madde bölme").
+      Soru: paragraf kipine düşüş kayda (`clauses_split`) ya da avukata bir işaret olarak yazılsın
+      mı, böyle bir sözleşmedeki "uygun" bulgu kuyruğa mı alınsın, yoksa sınır olarak mı kalsın?
 
 ### Adım 12 gözlemleri (2026-11-12, ilk gerçek model denemesi)
 Tek sözleşme (`tests/fixtures/sample_contract.md`: 15 madde, 7 enjeksiyon işareti), `acme`'nin 5

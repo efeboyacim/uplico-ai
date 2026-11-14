@@ -56,9 +56,10 @@ flowchart LR
    (aşağıda "Kimlik ve rol"); tenant'ın kuralları yüklenir. İncelemeye bir `review_id` (UUID) verilir.
 2. **Hazırlık (graph dışı, `prepare_contract()`), şu sırayla:**
    - **Sakla:** Asıl sözleşme metni değiştirilmeden tenant'ın `app.db`'sine kaydedilir.
-   - **Böl:** Sözleşme maddelere bölünür; her madde asıl metindeki ofsetini taşır. `Madde 1`
-     öncesindeki ve son maddeden sonraki metin de birer maddedir (sınır ve kimlik kuralları:
-     `agent_design.md` §4 "RAG").
+   - **Böl:** Sözleşme maddelere bölünür; her madde asıl metindeki ofsetini taşır. Başlık
+     `Madde N`'dir; metinde hiç yoksa numaralı Markdown başlığı (`## 4. Fesih`); o da yoksa metin
+     paragraflara bölünür. İlk başlıktan önceki ve son maddeden sonraki metin de birer maddedir
+     (sınır ve kimlik kuralları, paragraf kipinin bilinen sınırı: `agent_design.md` §4 "RAG").
    - **Tara:** Enjeksiyon kalıpları ve gizli karakterler, görünmez karakterleri çıkarılmış bir
      kopyada taranır; eşleşme konumları asıl metne eşlenir (`src/text.py`). Şüpheli ifade
      **silinmez**, konumuyla işaretlenir. Modelin göreceği kopyadan yalnızca görünmez karakterler

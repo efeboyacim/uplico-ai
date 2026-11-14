@@ -72,8 +72,13 @@ bitişik yazılmış ad + e-posta (`docs/spec.md` §10). Groq bu kodla koşulmad
 Adım 19d bitti (2026-11-14): bir ad, katı ad dışı bir değerle (e-posta, bitişik / standart IBAN,
 önekli telefon, bitişik TCKN) örtüşürse yol verir; bitişik yazılmış ad + e-posta açığı kapandı,
 17b değişmezi korundu; kalan sınırlar `docs/spec.md` §8 ve §10'da (ada yapışık IBAN açık soru).
-Sıradaki: Adım 19e — gerçek bir sözleşmenin gösterdiği beş kod sınırı (`docs/plan.md`), sonra
-Adım 20 — teslim (kullanıcı onayıyla push). Ayrıntı `docs/plan.md` "Durum".
+Adım 19e bitti (2026-11-14, `step-19e` dalında; `main`'e alma kullanıcı onayını bekliyor): gerçek
+bir sözleşmenin gösterdiği beş kod sınırı — "Madde N" yoksa `## N.` başlıkları madde böler; eval,
+etiketlerdeki madde numaralarını model çağrısından önce denetler; modelin biriminde "takvim" +
+süre biçimi tanınır; bir TL tutarının rakam ve yazıyla aynen tekrarı (biri parantezde) tek değerdir;
+`saat` kural birimidir (yalnızca saat birimli kuralda okunur). Modelle ölçülmedi; kalan sınırlar
+`docs/plan.md` Adım 19e "Gerçekleşen" ve `docs/spec.md` §8'de.
+Sıradaki: Adım 20 — teslim (kullanıcı onayıyla push). Ayrıntı `docs/plan.md` "Durum".
 
 ## Komutlar
 ```bash

@@ -495,8 +495,11 @@
 - **`step-19c` `main`'e alındı** (2026-11-14, kullanıcı onayıyla, `--ff-only`).
 - **Adım 19d bitti (2026-11-14):** ad, katı ad dışı bir değerle örtüşürse yol verir (bitişik
   yazılmış ad + e-posta açığı kapandı). Ayrıntı Adım 19d.
-- **Sıradaki:** Adım 19e (gerçek bir sözleşmenin gösterdiği beş kod sınırı), sonra Adım 20 —
-  teslim (kullanıcı onayıyla push).
+- **Adım 19e bitti (2026-11-14, `step-19e` dalında; `main`'e alma kullanıcı onayını bekliyor):**
+  gerçek bir sözleşmenin gösterdiği beş kod sınırı (numaralı Markdown başlıkları, eval ön
+  kontrolü, modelin "takvim günü" birimi, yazıyla tekrarlanan tutar, saat birimi). Modelle
+  ölçülmedi. Ayrıntı Adım 19e "Gerçekleşen".
+- **Sıradaki:** Adım 20 — teslim (kullanıcı onayıyla push).
 - **Adım 18c'ye başlarken (2026-11-13 oturumunun devri):**
   1. Depo temiz; son commit bu notun commit'i. `origin`'e push yapılmadı (push Adım 20'dir).
   2. Holdout koşusu bitti; eval önbelleği yok. `src/`, `evals/*.py` ve `uv.lock` artık
@@ -2173,7 +2176,7 @@ dosyasına ya da son mesaja; inceleyici boş bulgu listesiyle değil kapsam rapo
 - **Commit:** `docs: let names give way to strict non-name values` ·
   `fix: mask an e-mail glued to a known name`
 
-### [ ] Adım 19e — Gerçek bir sözleşmenin gösterdiği beş kod sınırı
+### [x] Adım 19e — Gerçek bir sözleşmenin gösterdiği beş kod sınırı
 - **Kullanıcının isteği (2026-11-14):** dışarıdan verilen tek sözleşmeyle (Sonnet koşusu;
   `docs/evals.md` §4 "Dışarıdan verilen tek sözleşme") görülen beş sınır çözülür. Tasarım
   kararlarını ana döngü verir, kullanıcı beğenmediğini geri aldırır (2026-11-14). Sözleşme depoda
@@ -2185,7 +2188,8 @@ dosyasına ya da son mesaja; inceleyici boş bulgu listesiyle değil kapsam rapo
   tablosunda değil, o sözleşmenin model çağrılarından hemen sonra çıkar ve mesajı kullanıcıya
   ulaşmaz; (1) "hiçbiri yanlış uygun üretmiyor" doğru değil: başlık bulunamayınca sözleşme
   paragraflara bölünür, "4.1" ve "4.2" ayrı madde olur ve `verify` alıntı dışındaki kuralı çiğneyen
-  değeri komşu paragrafta göremez (koşularak gösterildi) — düzeltme güvenli yöndedir.
+  değeri komşu paragrafta göremez (koşularak gösterildi) — düzeltme bu açığı kapatır. (İnceleme
+  sonrası düzeltme: bölme her girdide güvenli yönde değildir; "Gerçekleşen"deki sapma 1.)
 
 #### Kararlar
 1. **Başlık (sınır 1):** `src/prepare/clauses.py`'ye ikinci bir başlık kalıbı; **yalnızca metinde
@@ -2244,6 +2248,53 @@ Dokümanlar en sonda tek commit'te (kullanıcının 19c'deki talimatı). Tek ba�
   README), bu adımın "Gerçekleşen" kaydı, `CLAUDE.md`.
 - **Yapılmayacaklar:** model çağıran eval koşulmaz (kullanıcıya sorulur); sözleşme depoda olmadığı
   için sınırlar gerçek metinle yeniden ölçülmez — bu, "Gerçekleşen"e yazılır.
+
+#### Gerçekleşen (2026-11-14, `step-19e` dalı)
+- **Commit'ler:** 19e-1 `2a9c684`, 19e-2 `65bc097`, 19e-3 `239d4bb`, 19e-4 `e28e129`, 19e-5
+  `c961315`; inceleme düzeltmeleri `14c8299` (saat zamanı) ve `608f0c9` (test); dokümanlar bu
+  `docs:` commit'i. İki Opus ajanı ayrı dosyalarda paralel uyguladı ve kendi commit'lerini attı;
+  üç Opus inceleyicisi beş commit'i birlikte inceledi. Mevcut hiçbir testin beklentisi değişmedi.
+  Tam takım: 2154 test (`c961315`'te, inceleyici); kapanışta `608f0c9`'da 2207 test geçti.
+- **Fark testleri (uygulayan / bağımsız inceleyici):** madde bölme 200.000 / 220.000 rastgele
+  metin — "Madde N" başlıklı ya da numaralı başlıksız her metin bayt bayt aynı, 10 depo sözleşmesi
+  aynı; modelin birimi 75.000 / 65.000 girdi — taslağın `code_check`'i hiç değişmedi, kuyruktan
+  çıkan her satırda kodun kararı status ile aynı; tutar 64.000 / 62.000 girdi — bütün farklar tutar
+  türünde, taslak farklarının hepsi `failed` → `passed`, uyuşmayan yazıda (24.000 girdi) fark 0,
+  sözcük ayrıştırıcısında 320.000 dizide yanlış okuma 0; saat 66.000 girdi — birimi saat olmayan
+  kurallarda fark 0.
+- **Sapma 1 — başlık bölmesi her girdide güvenli yönde değil (inceleme; kabul edildi, bilinen
+  sınır).** Önünde boş satır olmayan numaralı başlık yeni madde açar; eskiden paragraf kipinde
+  önceki bölümün sonuyla aynı parçada kaldığı için oradaki çiğneyen değer rastlantıyla görülüyor
+  ve bulgu kuyruğa giriyordu (rastgele 22.489 uygun alıntıda 235 durum; ters yönde 753). Aynı
+  sözleşme "Madde N" ile yazıldığında eski kod da kuyruğa sokmuyordu; yeni davranış "Madde"
+  kipiyle aynıdır. Başlık düzeyi kuralının sınırları (numaralı belge başlığı `# 1.` bütün
+  sözleşmeyi tek madde yapar; girişteki `### 1.` listesi düzeyi belirler) `agent_design.md` §4'te.
+  "Rakam gelmeyen nokta" şartı tek başına fazlalıktır (ardından boşluk ya da satır sonu şartı aynı
+  işi görür); kodda bırakıldı.
+- **Sapma 2 — tutar tekrarı karar 4'ün metninden geniş (araştırmanın önerisiyle aynı; kabul
+  edildi).** Yazı önde, rakam parantezde de okunur (`bin (1.000) TL`); her durumda değer eşitliği
+  şarttır. Ayrı ifade biçiminde parantez içinde birim sözcüğü şartı eklendi (`1.000 TL (bin) ila
+  2.000 TL` bağlaç üzerinden okunmasın). **Bağlaç basamaklaması kabul edildi:** yeni okunan
+  tekrar, `ila` / `veya` / `-` ile bağlı birimsiz rakama birim verir (`500 (beş yüz) TL ila 2.000`
+  → 500, 500, 2000 TL); bu, "500 TL ila 2.000"daki mevcut kuralla aynıdır.
+- **Sapma 3 — modelin birimi:** `takvim günlük / aylık / yıllar` da birim sayılır (okuyucu "1
+  takvim günlük"ü aynı okur); sözcükler arasındaki her boşluk türü kabul edilir. Güvensiz sonuç
+  bulunmadı.
+- **Sapma 4 — saat zamanı (inceleme, kritik; `14c8299` ile düzeltildi).** İlk hali yalnızca
+  `08:30` yazımını koruyordu; `08: 30 saati`, `08∶30`, `08h30`, `08 30 saatte` 30 saat, `9,30
+  saati` 9,3 saat okunuyor ve `≤ 48 saat` kuralında yanlış "uygun" kuyruğa girmeden geçiyordu
+  (yalnızca saat birimli kuralda; tenant kurallarında yok). Şimdi iki nokta türleri (boşluklarla),
+  önündeki rakam dizisi ve `S,DD` yazımı okunamayan kalır; bedeli `1,50 saat` ve `Madde 4: 30
+  saat`'in de kuyruğa gitmesi. Fark testi (80.000 girdi): saat dışı kurallarda fark 0; saat
+  kurallarında her fark "okunan değer artık okunamayan" yönünde, kuyruktan çıkan satır 0. Düzeltme
+  ayrı bir bağımsız incelemeden geçmedi. Kalan sınır: `17 saati itibarıyla` 17 saat okunur.
+- **Ölçülmeyen:** sözleşme depoda olmadığı için beş düzeltme gerçek metinle değil, bildirimden
+  yeniden kurulan girdilerle doğrulandı; model çağıran eval koşulmadı. Madde bölme değiştiği için
+  `## N.` başlıklı sözleşmede maddeler büyür (arama sonuçları ve token sayısı değişir); etkisi
+  ancak modelli bir koşuda görülür. Depodaki 9 sözleşmenin hazırlık çıktısı değişmedi.
+- **Açık kalanlar:** paragraf kipi açığı (Roma rakamı, işaretsiz başlık) — `spec.md` §10'da açık
+  soru; parantezde birimi yazılmamış çelişen tutar; `iş günü`, `TRY`, `yüzde` modelin biriminde
+  tanınmaz (gereksiz yönlendirme sürer).
 
 ### [ ] Adım 20 — Teslim
 - **Ne:** Kullanıcının onayıyla `origin`'e push edilir. AI oturumları bu planın dışındadır: ham

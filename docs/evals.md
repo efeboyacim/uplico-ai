@@ -233,6 +233,56 @@
   sonra). Karar ucu kuyruktaki `unverifiable` taslak için `proposal_action` ister
   (`missing_proposal_action`, 422). Arayüzün sebep etiketleri her `ReviewReason` için bir etiket
   taşır.
+- **Numaralı Markdown başlığı (Adım 19e; `tests/test_clauses.py`):** metinde `Madde N` yokken
+  `## 4. Fesih`, `## **4.** Fesih` ve satırında tek başına `## 4.` böler; `clause_no` yazıldığı
+  gibidir (`"01"`); `4.1.` ve `## 4.1.` üst maddenin içinde kalır; giriş, imza, son maddedeki ek,
+  CRLF, yalnız CR ve BOM `Madde N` ile aynı kurallarla çalışır. Paragraflara düşenler
+  (parametreli, 11 girdi): tarih, tutar, 3 basamaktan uzun sayı, `## 4 - X`, `## 4.X`, `#4. X`,
+  işaretsiz `4. Başlık`, `#`'siz `**1.**`, numaralı liste, Roma rakamı. `Madde 1` + `## 2.` karışık
+  metinde yalnızca `Madde` böler; `## 2. Ekler` altındaki `### 1.` listesi bölmez; ilk numaralı
+  başlık `###` ise o düzey böler. Her karakter tam bir kez kapsanır, kimlikler sıralıdır.
+  `verify` ile (parametreli: `termination_notice` 45 / 10 gün, `insurance_minimum` 2.000.000 /
+  500.000 TL): 4.1. / 6.1.'den alıntılı `compliant` bulgu `numeric_mismatch` ile kuyruğa düşer
+  (eski bölücüde paragraflar ayrıldığı için düşmüyordu). Fark testi (commit edilmez): depodaki 10
+  sözleşme olduğu gibi, CRLF ve BOM ile bayt bayt aynı bölünür; tohumlu 200.000 metinde `Madde`
+  başlıklı ve numaralı `#` başlığı olmayan her metin aynıdır.
+- **Modelin birimi (Adım 19e; `tests/test_verify.py`):** gün kuralında `takvim günü`, `Takvim
+  Ayı`, `TAKVİM GÜNÜ`, `takvim  günü` (NBSP ve sekme dahil) tanınır; alıntıyla aynı değerde neden
+  yok, farklı değerde `numeric_mismatch`. `iş günü`, `İş Günü`, `takvim iş günü`, `işgünü`, `takvim
+  sene`, `takvim`, `takvim günü.`, `gün takvim`, `günlük`, `TRY`, `yüzde` ve yüzde / tutar
+  kuralında `takvim günü` → `numeric_mismatch` (mevcut `günlük` testi değişmeden geçer).
+- **Yazıyla tekrarlanan tutar (Adım 19e; `tests/test_verify.py`):** `2.400.000 TL (iki milyon dört
+  yüz bin Türk lirası)`, `1.000 (bin) TL`, `bin (1.000) TL`, `bir milyon iki yüz bin (1.200.000)
+  TL`, `₺1.000 (bin)`, `TL 1.000 (bin)` tek değerdir; başka tutar söyleyen yazı (`2.400.000 TL (iki milyon beş yüz bin Türk lirası)`,
+  `1.000 TL (iki milyon bin TL)`, `500,50 TL (beş yüz TL)`) okunamayan kalır; "en az 1.000.000 TL"
+  kuralında `2.000.000 TL (üç milyon TL)` yazan taslak `failed`. Süre ve yüzde türleri okunamayan
+  kalır; kapanmamış parantez, cümle sınırı, zincirler ve bağlaçlı durum sabitlenir; `500 (beş
+  yüz) TL ila 2.000` → 500, 500, 2.000 TL (sabitlenen kabul). `verify` düzeyinde: `non_compliant`
+  → sebep yok / `passed`; yanlış `compliant` → `numeric_mismatch`; uyuşmayan 6 taslak `failed`.
+  Dilbilgisi: bağımsız bir yazıcıyla tohumlu gidiş-dönüş (≈ 5.100 sayı), yalnızca kanonik biçimin
+  kabulü (1–3 sözcüklük bütün diziler + 60.000 rastgele dizi) ve `extract` gidiş-dönüşü (300 sayı;
+  ±1, ×10, +1000 ve rastgele uyuşmazlıklar okunamayan kalır).
+- **Saat birimi (Adım 19e; `tests/test_verify.py`, `tests/test_store.py`):** birim tabloları her
+  `CheckUnit`'i kapsar ve `align` her birim çiftinde çalışır; dokuz saat biçiminin her biri
+  yalnızca `hours=True` ile okunur, aralıklar iki kipte aynıdır; `saatine` / `saatinde` /
+  `saatinden`, `iş saati`, saat:dakika (13 durum; tohumlu 10.000 `HH:MM` girdisinde hiç saat
+  değeri yok) okunamayan; sayısız saat sözcükleri bir şey üretmez. `≤ 48 saat` kuralında alıntı,
+  alıntı dışı ve taslak durumları (8 taslak); saat kuralında modelin `saat` / `takvim saati`
+  birimi tanınır, gün kuralında tanınmaz; gün kuralında saat ifadesi okunamayan ya da
+  `ambiguous_value` kalır. Uçtan uca: `rules.yaml` → `Store.load_rules` → `verify`
+  (`code_check` `passed` ve `failed`); `check: {op: "<=", value: 48, unit: saat}` yüklenir,
+  `dakika` reddedilir.
+- **Saat zamanı (inceleme düzeltmesi `14c8299`; `tests/test_verify.py`):** parametreli 18 yazım
+  (beş iki nokta türü, iki noktanın iki yanında boşluk ve NBSP, `08h30`, `08H30`, `08 h 30`,
+  `08 30`, `9,30`, `8,30`, `08,30`, `00,00`, `24,59`) saat kuralında ve dışında aynı aralıkla
+  okunamayan; her biri `≤ 48 saat` kuralında alıntıda `numeric_mismatch`, alıntı dışında
+  `ambiguous_value`, taslakta `failed`. Bedeli sabitlenir: `1,50 saat` okunamayan ve
+  `numeric_mismatch`; `25,30 saatte` ve `9,60 saatte` okunur; `9.30 saati`, `17.00 saatte`
+  önceden olduğu gibi okunamayan. Kalan sınırlar sabitlenir: `17 saati itibarıyla` 17 saat; `14
+  saat veya 12:00` iki değer ve `ambiguous_value`. Süreler okunmaya devam eder (10 girdi; `Süre:
+  30 saat`, `1,5 saat`, `2 gün, 12 saat`, `48 ila 72 saat` dahil). Tohumlu 10.000 girdi (her iki
+  nokta türü ve boşluk bileşimi, boşluk, `h` / `H`, virgül; saat biçimleri ve dolgu sözcükleri):
+  hiç saat değeri yok, her girdide okunamayan ifade var.
 - **`submit_finding` yanıtı (`tests/test_tools.py`):** `non_compliant` + taslak yok → yanıt
   `propose_change`'i ve maddeyi (`(c2)`) söyleyen sabit yönlendirmedir (tool'un reddettiği bir
   taslaktan sonra da); diğer durumlarda (`compliant`, `not_found`, taslaktan sonra gelen ya da
@@ -258,6 +308,21 @@
   varsayılan dışı kümede yükleme yapılmaz (`langsmith: "local"`, HTTP isteği yok). Aynı
   `--results-dir`'de iki kümenin önbelleği ayrı dosyadadır: birinin koşusu (başarılı ya da
   `--resume`'lu) ötekinin kayıtlarını silmez, aynı `id`'li kaydı kendi sözleşmesi saymaz.
+- **Beklenen madde numarası ön kontrolü (Adım 19e; `tests/test_eval_run.py`,
+  `tests/test_metrics.py`):** saf `missing_expected_clauses` hepsi varken boş, eksikleri etiket
+  sırasıyla döner; paragraf bölünmesinde hepsi eksiktir; `not_found` beklentisi eksik sayılmaz;
+  numara yazıldığı gibi karşılaştırılır (`"4"` ≠ `"04"`). Koşucu: etiketi bölünmüş maddelerle
+  uyuşmayan sözleşme (sözleşme 02'nin başlıkları işaretsiz `N. ` yapılır) tam kipte, `--prepare-only`,
+  `--resume` ve `--fresh` ile çıkış 1 verir; hiçbir model çağrısı yok (sözleşme 01 de koşmaz),
+  sonuç klasörü, önbellek ve taslak dosyası yok (`_open_cache` ve `TemporaryDirectory` çağrılırsa
+  test düşer); mesaj sözleşme kimliğini, her `kural: numara` çiftini ve "numaralı madde sayısı: 0"ı
+  içerir, sözleşme satırı içermez. `main --prepare-only --dataset-dir` → çıkış 1. `Madde`
+  sözleşmede etiketteki "99" mesajda adıyla geçer. Olmayan sözleşme dosyası → çıkış 1, yol
+  mesajda, model çağrısı ve önbellek yok. Varsayılan küme ve holdout ön kontrolden geçer. Sözleşme
+  01 (`Madde`) + başlıkları `## N.` yapılmış 02 (etiketler aynı), sahte modelle → çıkış 0.
+  `--limit 1` ile etiketi bölünemeyen 02 seçilmez ve denetlenmez: çıkış 0, mesajda 02 yok,
+  yalnızca 01 koşar (`partial`).
+  `search_hit`'in `ValueError`'ı (ön kontrolden sonra ulaşılamaz) testiyle kalır.
 - **PII:** geçerli TCKN maskelenir, checksum'ı tutmayan 11 hane maskelenmez; maskeli metinde ham değer kalmaz.
 - **Boşluklu TCKN, düzensiz IBAN, öneksiz cep (Adım 17b):** dataset'te olmayan yazımlarla da
   maskelenir: TCKN `214 738 739 60`, `2147 3873 960`, `21473 873960`, her hanesi ayrı, bölünemez
@@ -1017,7 +1082,23 @@ Sonuç `evals/results/` altına ve README'ye yazılır.
   `mode: "prepare_only"` yazar. Sağlayıcı anahtarı kullanılmaz ve sohbet modeli kurulmaz
   (başlangıçtaki model kurulum kontrolü yapılmaz; eksik entegrasyon paketi koşuyu durdurmaz), ama
   ayarlar yine aynı yoldan (`load_settings_or_exit()`) yüklenir. Maskeleyici değişikliklerinin
-  önce/sonra ölçümü (Adım 17b) bununla yapılır.
+  önce/sonra ölçümü (Adım 17b) bununla yapılır. Aşağıdaki ön kontrol bu kipte de çalışır:
+  etiketle bölünmüş maddeler uyuşmazsa `--prepare-only` artık çıkış 1 verir ve sonuç yazmaz
+  (Adım 19e'den önce 0 verip sonuç yazıyordu).
+- **Beklenen madde numarası ön kontrolü (Adım 19e):** `run_eval`, seçilen her sözleşmeyi
+  hazırlığın kullandığı `split_clauses` ile böler ve etiketteki her beklenen `clause_no`'nun
+  (yazıldığı gibi; `not_found` beklentisinin numarası yoktur) bölünmüş maddeler arasında olduğunu
+  denetler. Önbellek açılmadan, geçici klasör kurulmadan ve hiçbir model çağrısından önce çalışır;
+  tam kipte, `--prepare-only`, `--resume` ve `--fresh` ile. `--limit` ile seçilmeyen sözleşmeler
+  denetlenmez (etiketi bölünemeyen bir sözleşme dışarıda kalırsa koşu sürer). Uyuşmazlıkta `EvalError`: stderr'de
+  `Eval durdu: <id>: etiketteki madde numarası sözleşmenin bölünmüş maddelerinde yok (<kural>:
+  <no>, …); numaralı madde sayısı: N.`, çıkış 1; hiçbir şey yazılmaz ya da silinmez. Olmayan ya
+  da UTF-8 olmayan sözleşme dosyası da aynı yoldan yolu söyleyen bir `EvalError` olur (önceden
+  adı verilmeyen `FileNotFoundError`). Mesaj sözleşme metni taşımaz. Gerekçe: önceden uyuşmazlık
+  ancak o sözleşmenin bütün model çağrılarından sonra `search_hit`'te `ValueError` olarak
+  çıkıyor (`hata=ValueError`, mesaj kullanıcıya ulaşmıyordu) ve çağrılar boşa gidiyordu. Bedeli
+  sözleşme başına bir okuma ve bir bölme (araştırmada 7 sözleşme için 21,5 ms; burada
+  ölçülmedi).
 - **`--results-dir DIR`:** sonuç dosyasının klasörü (varsayılan `evals/results`). Testler ve
   duman denemeleri geçici bir klasör verir; `evals/results/` altına yalnızca gerçek koşular yazar.
 - **`--dataset-dir DIR`:** veri kümesinin klasörü (varsayılan `evals/dataset`). `labels.json` ve
@@ -1121,7 +1202,8 @@ Sonuç `evals/results/` altına ve README'ye yazılır.
   sızıntısı bekçidir: yapı gereği tutar, §4). `1` yapılandırma hatası ya
   da koşunun kendisi çöktü (sağlayıcı kimlik/yapılandırma hatası ve beklenmeyen kod hataları bulguya
   çevrilmez; stderr'e yalnızca hata sınıfının adı ve sözleşme yazılır, hata metni yazılmaz);
-  kullanılabilir önbellek varken `--resume` ya da `--fresh` verilmemesi ve bozuk önbellek de `1`'dir.
+  kullanılabilir önbellek varken `--resume` ya da `--fresh` verilmemesi, bozuk önbellek ve
+  beklenen madde numarası ön kontrolünün tutmaması da `1`'dir.
   `2` en az bir kural `rate_limited`: tablo basılmaz, sonuç dosyası yazılmaz, stderr'e kaç kuralın
   hangi sözleşmelerde limite takıldığı, kaç sözleşmenin önbelleğe kaydedildiği ve aynı komutun
   `--resume` ile yeniden çalıştırılabileceği yazılır; koşu limite takılan ilk sözleşmeden sonra durur

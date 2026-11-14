@@ -193,8 +193,11 @@ bloklarındaki `python3`'ü `python` yap.**
 `change-me-globex-lawyer`, `change-me-globex-viewer`. Tenant'ı anahtar seçer: globex'in
 kurallarıyla incelemek için 1. adımda `change-me-globex-lawyer` kullan. Başka bir sözleşme için 2.
 adımdaki `tests/fixtures/sample_contract.md` yolunu değiştir: metin UTF-8 düz metin ya da Markdown
-olmalı, maddeler satır başındaki `Madde N` başlıklarıyla ayrılır (örnekler:
-`evals/dataset/contracts/`).
+olmalı, maddeler satır başındaki `Madde N` başlıklarıyla ya da (metinde `Madde N` yoksa)
+numaralı Markdown başlıklarıyla (`## 4. Fesih`) ayrılır; başka başlıklı metin paragraflara bölünür
+(örnekler: `evals/dataset/contracts/`). Kurallar `data/tenants/<tenant>/rules.yaml`'dadır; sabit
+eşikli kuralın `check.unit`'i `gün`, `hafta`, `ay`, `yıl`, `saat`, `%` ya da `TL`'dir (ör.
+`check: {op: "<=", value: 48, unit: saat}`; saat değeri yalnızca saat birimli kuralda okunur).
 
 **1. Avukat anahtarını değişkene koy.** Değer `.env`'deki `TENANT_API_KEYS` içinde
 `"tenant_id": "acme", "role": "lawyer"` kaydının anahtarıdır; `.env.example`'dan değiştirmeden
@@ -798,6 +801,28 @@ Tam tablo: `docs/architecture.md` §6 "Veri nereye gidiyor".
   sayılır (`(0347) 3284041 TL`). Telafi: "uygun" bulgunun maddesinde TCKN ya da telefon yer
   tutucusu varsa bulgu avukata gider (`masked_value_in_clause`); değer başka maddedeyse ya da
   bulgu "uygun değil" ise bu telafi çalışmaz.
+- **Madde bölme iki başlık biçimini tanır.** `Madde N` ve (metinde `Madde N` yoksa) numaralı
+  Markdown başlığı (`## 4. Fesih`, Adım 19e). Roma rakamlı (`## IV.`) ya da işaretsiz
+  (`4. Fesih`) başlıklı sözleşme paragraflara bölünür; o zaman "4.1." ve "4.2." ayrı parçadır ve
+  `verify` alıntı dışındaki, kuralı çiğneyen değeri komşu paragrafta göremez: yanlış bir "uygun"
+  avukata gitmeden geçebilir (koşularak gösterildi). Numaralı başlık bölmesinin bir geçişi de
+  güvensiz yöndedir (kabul edildi): önünde boş satır olmayan başlık yeni madde açar ve Adım
+  19e'den önce aynı paragrafta kaldığı için rastlantıyla görülen, önceki bölümdeki çiğneyen değer
+  artık görülmez (`Madde N` başlıklı aynı sözleşmedeki davranışla aynı). Başlık düzeyi ilk
+  numaralı başlıktan alınır: `# 1.` belge başlığı ya da girişteki `### 1.` listesi maddeleri
+  büyütür ve raporda madde numarasını yanlış gösterir. Ayrıntı: `docs/agent_design.md` §4 "RAG".
+- **Birimler kapalı listedir (Adım 19e'den sonra kalan).** Modelin `unit` alanında `takvim günü`
+  tanınır, `iş günü`, `TRY`, `yüzde` ve tek başına `günlük` tanınmaz (gereksiz yönlendirme).
+  Yazıyla yazılmış tutar yalnızca rakamla yazılmış aynı tutarla parantezli tekrar oluşturuyorsa
+  ve aynı değeri söylüyorsa okunur (`2.400.000 TL (iki milyon dört yüz bin Türk lirası)`,
+  `bin (1.000) TL`); sözcükle yazılmış tek başına tutar ve `bir milyon … Türk lirası (1.200.000
+  TL)` yazısı okunmaz, parantezde birimi yazılmamış çelişen değer (`1.200.000 TL (1.300.000)`)
+  görülmez. Saat yalnızca saat birimli kuralda okunur; `saatinde` biçimleri, `dakika` ve `sene`
+  okunmaz; saat zamanı olabilecek sayı (`08:30`, `08 30`, `08h30`, `9,30 saati`) okunamayan kalır
+  (bedeli: `1,50 saat` ve `Madde 4: 30 saat` de kuyruğa gider); `17 saati itibarıyla` 17 saat,
+  `8, 30 saat` 30 saat okunur; taslakta "48 (yirmi dört) saat" gibi uyuşmayan tekrar, iki değer
+  de kurala uyuyorsa geçer. Bu düzeltmeler gerçek sözleşmeyle değil, bildirimden yeniden kurulan girdilerle
+  doğrulandı; model çağıran eval koşulmadı. Ayrıntı: `docs/agent_design.md` §5.
 - **Madde numarası başlıktan maskelemeden önce okunur.** `Madde 12345678901` gibi bir başlık sayıyı
   eval satırına maskesiz taşır (veri kümesinde numaralar 1–14).
 - **Küçük örneklem.** 35 karar (bir satır 2,9 puan); Groq'ta üç koşu (ikisi aynı gün), Anthropic
@@ -921,8 +946,8 @@ LLM_API_KEY=<Gemini API anahtarı>
 - **Embedding ile arama (BM25 + vektör).** İlk eklenecek şey budur; sözleşme 4'teki iki kaçış bu
   sınırdan geliyor (Groq'ta üç kez; model "fesih", "gizlilik" kökünü değiştirerek arıyor, madde
   "Sona Ermesi", "Sır Saklama" diyor). Uzun sözleşmede tek başına yetmez: kural başına tek madde ve
-  tek alıntı, ilk 5 madde sınırı, kural başına 8 model çağrısı ve `Madde N` kalıbına uymayan iç
-  içe numaralar da değişmeli.
+  tek alıntı, ilk 5 madde sınırı, kural başına 8 model çağrısı ve iki başlık kalıbına (`Madde N`,
+  `## N.`) uymayan başlıkların paragraflara düşmesi de değişmeli.
 - **Ucuz alternatif denendi ve geri alındı (madde listesi, 2026-11-13/14).** Fikir: her kuralın
   ilk `search_contract` sonucu bütün maddelerin ilk satırını da listeler (80 karakter, en fazla 60
   madde), başka sözcüklerle yazılmış madde de görünür. Groq'ta sözleşme 4 tek başına, erken bir
