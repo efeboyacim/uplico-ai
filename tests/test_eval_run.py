@@ -1511,3 +1511,97 @@ def test_run_dataset_fresh_deletes_only_its_own_cache(
     assert code == EXIT_RATE_LIMITED
     assert not _dataset_cache(results_dir, dataset).exists()
     assert _cache_file(results_dir).read_bytes() == default_cache
+
+
+# --- keep-drafts (step 19c-4) ---
+
+_DRAFT: dict[tuple[str, str], Behaviour] = {
+    ("contract-01", "liability_cap"): _wrong_noncompliant_with_draft
+}
+
+
+def _draft_lines(path: Path) -> list[dict[str, Any]]:
+    raw = path.read_bytes()
+    assert b"\r" not in raw
+    return [json.loads(line) for line in raw.decode("utf-8").splitlines()]
+
+
+def test_run_without_keep_drafts_writes_no_draft_file(
+    data_dir: Path, results_dir: Path, tmp_path: Path
+) -> None:
+    model = _model(data_dir, 1, _DRAFT)
+    _run(data_dir, results_dir, model, limit=1)
+    assert not (tmp_path / "drafts").exists()
+    assert not list(tmp_path.rglob("*.jsonl"))
+
+
+def test_run_keep_drafts_writes_one_line_per_draft_with_fixed_fields(
+    data_dir: Path, results_dir: Path, tmp_path: Path
+) -> None:
+    drafts = tmp_path / "drafts" / "run.jsonl"  # the folder does not exist yet
+    _run(data_dir, results_dir, _model(data_dir, 1, _DRAFT), limit=1, keep_drafts=drafts)
+
+    lines = _draft_lines(drafts)
+    assert len(lines) == 1  # the findings without a draft leave no line
+    assert list(lines[0]) == ["contract_id", "rule_id", "clause_id", "proposed_text", "code_check"]
+    assert lines[0]["contract_id"] == "contract-01"
+    assert lines[0]["rule_id"] == "liability_cap"
+    assert lines[0]["clause_id"]
+    assert lines[0]["proposed_text"] == "Yeni metin."
+    assert lines[0]["code_check"] == "unverifiable"
+
+
+def test_run_keep_drafts_appends_to_existing_file(
+    data_dir: Path, results_dir: Path, tmp_path: Path
+) -> None:
+    drafts = tmp_path / "run.jsonl"
+    _run(data_dir, results_dir, _model(data_dir, 1, _DRAFT), limit=1, keep_drafts=drafts)
+    first = drafts.read_bytes()
+    _run(data_dir, results_dir, _model(data_dir, 1, _DRAFT), limit=1, keep_drafts=drafts)
+
+    second = drafts.read_bytes()
+    assert second.startswith(first)
+    assert len(_draft_lines(drafts)) == 2
+
+
+def test_run_resumed_contract_adds_no_draft_line(
+    data_dir: Path, results_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    drafts = tmp_path / "run.jsonl"
+    limited = _rate_limited_at(data_dir, 1, _DRAFT)
+    assert _run(data_dir, results_dir, limited, limit=2, keep_drafts=drafts) == EXIT_RATE_LIMITED
+    before = drafts.read_bytes()
+    assert len(_draft_lines(drafts)) == 1
+
+    model = _model(data_dir, 2, _DRAFT, start=1)
+    _run(data_dir, results_dir, model, limit=2, resume=True, keep_drafts=drafts)
+    capsys.readouterr()
+    assert drafts.read_bytes() == before  # contract-01 came from the cache; contract-02 has none
+
+
+@pytest.mark.parametrize("relative", ["", "x.jsonl", "sub/x.jsonl"])
+def test_main_keep_drafts_inside_results_dir_exits_1_and_writes_nothing(
+    results_dir: Path, relative: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    target = results_dir / relative if relative else results_dir
+    with pytest.raises(SystemExit) as info:
+        main(["--results-dir", str(results_dir), "--keep-drafts", str(target), "--limit", "1"])
+    assert info.value.code == EXIT_ERROR
+    assert "--keep-drafts" in capsys.readouterr().err
+    assert not results_dir.exists() or not list(results_dir.rglob("*"))
+
+
+def test_run_keep_drafts_leaves_result_file_and_cache_without_draft_text(
+    data_dir: Path, results_dir: Path, tmp_path: Path
+) -> None:
+    drafts = tmp_path / "run.jsonl"
+    limited = _rate_limited_at(data_dir, 1, _DRAFT)
+    assert _run(data_dir, results_dir, limited, limit=2, keep_drafts=drafts) == EXIT_RATE_LIMITED
+    assert "Yeni metin." in drafts.read_text(encoding="utf-8")
+    assert "Yeni metin." not in _cache_file(results_dir).read_text(encoding="utf-8")
+
+    model = _model(data_dir, 2, _DRAFT, start=1)
+    assert _run(data_dir, results_dir, model, limit=2, resume=True, keep_drafts=drafts) in (0, 3)
+    assert _result_files(results_dir)
+    for path in results_dir.rglob("*.json"):
+        assert "Yeni metin." not in path.read_text(encoding="utf-8"), path

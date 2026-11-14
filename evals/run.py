@@ -1,5 +1,5 @@
 """Eval runner: `python -m evals.run [--limit N] [--prepare-only] [--results-dir DIR]
-[--resume | --fresh] [--dataset-dir DIR] [--commit HASH]`.
+[--resume | --fresh] [--dataset-dir DIR] [--commit HASH] [--keep-drafts FILE]`.
 
 For every contract of `evals/dataset/labels.json` (or `--dataset-dir`'s; in file order,
 sequentially) the runner
@@ -262,6 +262,34 @@ def _close_everything(reviews: Sequence[tuple[str, str]]) -> None:
 # --- One contract ---------------------------------------------------------------------------------
 
 
+def _append_drafts(path: Path, contract_id: str, verified: Sequence[Finding]) -> None:
+    """`--keep-drafts`: one JSONL line per verified finding that has a draft, appended to `path`.
+
+    The text is the masked draft of the verified finding (what the code check looked at); it is
+    never unmasked. The result file and the cache do not carry it.
+    """
+    lines = [
+        json.dumps(
+            {
+                "contract_id": contract_id,
+                "rule_id": finding.rule_id,
+                "clause_id": finding.proposal.clause_id,
+                "proposed_text": finding.proposal.proposed_text,
+                "code_check": finding.proposal.code_check,
+            },
+            ensure_ascii=False,
+        )
+        + "\n"
+        for finding in verified
+        if finding.proposal is not None
+    ]
+    if not lines:
+        return
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8", newline="") as handle:
+        handle.write("".join(lines))
+
+
 def _run_contract(
     settings: Settings,
     label: Label,
@@ -271,6 +299,7 @@ def _run_contract(
     model: BaseChatModel | None,
     reviews: list[tuple[str, str]],
     now: Callable[[], datetime],
+    keep_drafts: Path | None = None,
 ) -> tuple[_ContractResult | None, list[str]]:
     """Prepare (and unless prepare-only, review) one contract of the dataset in `dataset_dir`.
 
@@ -318,6 +347,8 @@ def _run_contract(
     if [f.model_dump(mode="json") for f in after] != out["verified"]:
         raise EvalError("Kodla yeniden hesaplanan doğrulama graph'takiyle aynı değil.")
 
+    if keep_drafts is not None:
+        _append_drafts(keep_drafts, label.id, after)
     audit = store.list_audit(review_id)
     before_rows, after_rows = build_rule_rows(
         label, rules, prepared.clauses, raw, before, after, audit
@@ -588,6 +619,7 @@ def run_eval(
     repo_root: Path = REPO_ROOT,
     dataset_dir: Path | None = None,
     commit: str | None = None,
+    keep_drafts: Path | None = None,
 ) -> int:
     """Run the eval; returns 0, 2 (rate limited) or 3 (a hard threshold failed).
 
@@ -654,6 +686,7 @@ def run_eval(
                         model=model,
                         reviews=reviews,
                         now=clock,
+                        keep_drafts=keep_drafts,
                     )
                 except Exception as exc:
                     raise ContractRunError(label.id, exc) from exc
@@ -776,6 +809,7 @@ def run_or_report(
     repo_root: Path = REPO_ROOT,
     dataset_dir: Path | None = None,
     commit: str | None = None,
+    keep_drafts: Path | None = None,
 ) -> int:
     """`run_eval`, with a crash reported on stderr (class name and contract only) as exit 1."""
     try:
@@ -792,6 +826,7 @@ def run_or_report(
             repo_root=repo_root,
             dataset_dir=dataset_dir,
             commit=commit,
+            keep_drafts=keep_drafts,
         )
     except ContractRunError as exc:
         kind = "sağlayıcı kimlik/yapılandırma hatası" if exc.provider_config else "koşu hatası"
@@ -877,6 +912,13 @@ def parse_args(argv: Sequence[str] | None) -> tuple[argparse.Namespace, int]:
         default=DEFAULT_RESULTS_DIR,
         help="Sonuç dosyasının yazılacağı klasör (varsayılan: evals/results).",
     )
+    parser.add_argument(
+        "--keep-drafts",
+        type=Path,
+        default=None,
+        help="Doğrulanmış (maskeli) taslak metinlerini bu JSONL dosyasına ekle; yol "
+        "--results-dir içinde olamaz.",
+    )
     cache = parser.add_mutually_exclusive_group()
     cache.add_argument(
         "--resume",
@@ -891,6 +933,11 @@ def parse_args(argv: Sequence[str] | None) -> tuple[argparse.Namespace, int]:
     args = parser.parse_args(argv)
     if args.prepare_only and (args.resume or args.fresh):
         parser.error("--prepare-only önbellek kullanmaz; --resume ya da --fresh ile verilemez.")
+    if args.keep_drafts is not None:
+        drafts = args.keep_drafts.resolve()
+        results = args.results_dir.resolve()
+        if drafts == results or results in drafts.parents:
+            parser.error(f"--keep-drafts yolu --results-dir içinde olamaz: {args.keep_drafts}")
     if args.dataset_dir is not None and not args.dataset_dir.is_dir():
         parser.error(f"--dataset-dir klasörü bulunamadı: {args.dataset_dir}")
     try:
@@ -922,6 +969,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         now=lambda: datetime.now(UTC),
         dataset_dir=args.dataset_dir,
         commit=args.commit,
+        keep_drafts=args.keep_drafts,
     )
 
 
