@@ -1,3 +1,4 @@
+import itertools
 import random
 import re
 from collections import Counter
@@ -1090,6 +1091,306 @@ def test_extract_inflected_word_next_to_restatement_unreadable(
 )
 def test_verify_restatement_conflict_ambiguous(quote: str, rule: Rule) -> None:
     assert _reasons(_finding(quote), rule) == ["ambiguous_value"]
+
+
+# --- An amount restated in words in parentheses ---------------------------------------------------
+
+_WORD_ONES = ["", "bir", "iki", "üç", "dört", "beş", "altı", "yedi", "sekiz", "dokuz"]
+_WORD_TENS = ["", "on", "yirmi", "otuz", "kırk", "elli", "altmış", "yetmiş", "seksen", "doksan"]
+
+
+def _turkish_words(n: int) -> str:
+    """Independent reference writer: 1 <= n < 10**12 in canonical Turkish words."""
+    if n >= 10**9:
+        head, rest = divmod(n, 10**9)
+        return " ".join(
+            filter(None, [_turkish_words(head), "milyar", _turkish_words_or_empty(rest)])
+        )
+    if n >= 10**6:
+        head, rest = divmod(n, 10**6)
+        return " ".join(
+            filter(None, [_turkish_words(head), "milyon", _turkish_words_or_empty(rest)])
+        )
+    if n >= 1000:
+        head, rest = divmod(n, 1000)
+        thousands = "bin" if head == 1 else f"{_turkish_words(head)} bin"
+        return " ".join(filter(None, [thousands, _turkish_words_or_empty(rest)]))
+    hundreds, rest = divmod(n, 100)
+    tens, ones = divmod(rest, 10)
+    out = []
+    if hundreds:
+        out.append("yüz" if hundreds == 1 else f"{_WORD_ONES[hundreds]} yüz")
+    out += [_WORD_TENS[tens], _WORD_ONES[ones]]
+    return " ".join(w for w in out if w)
+
+
+def _turkish_words_or_empty(n: int) -> str:
+    return _turkish_words(n) if n else ""
+
+
+def _tl_digits(n: int) -> str:
+    return f"{n:,}".replace(",", ".")
+
+
+AT_MOST_1_2M_TL = _rule("<=", 1_200_000, "TL")
+
+
+@pytest.mark.parametrize(
+    ("text", "value"),
+    [
+        ("2.400.000 TL (iki milyon dört yüz bin Türk lirası)", 2_400_000),
+        ("1.200.000 TL (bir milyon iki yüz bin TL)", 1_200_000),
+        ("1.200.000 TL (bir milyon iki yüz bin ₺)", 1_200_000),
+        ("1.200.000 TL (bir milyon iki yüz bin lira)", 1_200_000),
+        ("1.200.000 (bir milyon iki yüz bin) TL", 1_200_000),
+        ("bir milyon iki yüz bin (1.200.000) TL", 1_200_000),
+        ("₺1.200.000 (bir milyon iki yüz bin)", 1_200_000),
+        ("TL 1.200.000 (bir milyon iki yüz bin)", 1_200_000),
+        ("₺1.200.000 (bir milyon iki yüz bin TL)", 1_200_000),
+        ("1.200.000,00 TL (bir milyon iki yüz bin TL)", 1_200_000),
+        ("500 TL (beş yüz Türk lirası)", 500),
+        ("1.000 (bin) TL", 1000),
+        ("₺1.000 (bin)", 1000),
+        ("1.000 TL (bin TL)", 1000),
+        ("1.001 TL (bin bir TL)", 1001),
+        ("100.000 TL (yüz bin TL)", 100_000),
+        ("101.000 TL (yüz bir bin TL)", 101_000),
+        ("1.500 TL (bin beş yüz TL)", 1500),
+        ("1.000.000 TL (bir milyon TL)", 1_000_000),
+        ("5.000.000.000 TL (beş milyar TL)", 5_000_000_000),
+        ("2.400.000 TL (İKİ MİLYON DÖRT YÜZ BİN TÜRK LİRASI)", 2_400_000),
+    ],
+)
+def test_extract_amount_restated_in_words_single_value(text: str, value: float) -> None:
+    result = extract(f"Bedel {text} olarak ödenir.", "amount")
+    assert result == Extraction((Quantity(value, "TL"), Quantity(value, "TL")), ())
+    assert verify_module._single(result)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # Words that say another amount.
+        (
+            "2.400.000 TL (iki milyon beş yüz bin Türk lirası)",
+            Extraction((Quantity(2_400_000, "TL"),), ("iki milyon beş yüz bin Türk lirası",)),
+        ),
+        (
+            "1.200.000 TL (bir milyon üç yüz bin TL)",
+            Extraction((Quantity(1_200_000, "TL"),), ("bir milyon üç yüz bin TL",)),
+        ),
+        (
+            "1.200.001 (bir milyon iki yüz bin) TL",
+            Extraction((), ("1.200.001 (bir milyon iki yüz bin) TL",)),
+        ),
+        (
+            "₺1.199.999 (bir milyon iki yüz bin)",
+            Extraction((), ("₺1.199.999 (bir milyon iki yüz bin)",)),
+        ),
+        ("1.100 TL (yüz bin TL)", Extraction((Quantity(1100, "TL"),), ("yüz bin TL",))),
+        ("500,50 TL (beş yüz TL)", Extraction((Quantity(500.5, "TL"),), ("beş yüz TL",))),
+        # "bin TL" alone in the parentheses would say 1000: the words are the whole group or none.
+        ("1.000 TL (iki milyon bin TL)", Extraction((Quantity(1000, "TL"),), ("bin TL",))),
+        ("2.001.000 TL (iki milyon bin TL)", Extraction((Quantity(2_001_000, "TL"),), ("bin TL",))),
+        # Not canonical, not the grammar's.
+        ("1.000 TL (bir bin TL)", Extraction((Quantity(1000, "TL"),), ("bir bin TL",))),
+        ("500 TL (beşyüz TL)", Extraction((Quantity(500, "TL"),), ("beşyüz TL",))),
+        (
+            "2.400.000 TL (ikimilyondörtyüzbin TL)",
+            Extraction((Quantity(2_400_000, "TL"),), ("ikimilyondörtyüzbin TL",)),
+        ),
+        (
+            "1.000.000.000.000 TL (bir trilyon TL)",
+            Extraction((Quantity(10**12, "TL"),), ("bir trilyon TL",)),
+        ),
+        # Not right next to the digits, or not about TL.
+        (
+            "2.400.000 TL, (iki milyon dört yüz bin TL)",
+            Extraction((Quantity(2_400_000, "TL"),), ("iki milyon dört yüz bin TL",)),
+        ),
+        (
+            "2.400.000 USD (iki milyon dört yüz bin TL)",
+            Extraction((), ("2.400.000 USD", "iki milyon dört yüz bin TL")),
+        ),
+        (
+            "1,2 milyon TL (bir milyon iki yüz bin TL)",
+            Extraction((), ("1,2 milyon TL", "bir milyon iki yüz bin TL")),
+        ),
+        (
+            "bir milyon iki yüz bin TL (1.200.000 TL)",
+            Extraction((Quantity(1_200_000, "TL"),), ("bir milyon iki yüz bin TL",)),
+        ),
+        # A scale word then "bin" is two number tokens ("milyar" ends the first): the parentheses
+        # hold no single amount, as before (known limit, on the safe side).
+        (
+            "1.000.001.000 TL (bir milyar bin TL)",
+            Extraction((Quantity(1_000_001_000, "TL"),), ("bin TL",)),
+        ),
+        # An amount in words alone is still never read.
+        ("beş yüz TL", Extraction((), ("beş yüz TL",))),
+        ("yalnız iki milyon dört yüz bin TL", Extraction((), ("iki milyon dört yüz bin TL",))),
+    ],
+)
+def test_extract_amount_words_not_restating_digits_unreadable(
+    text: str, expected: Extraction
+) -> None:
+    assert extract(f"Bedel {text} olarak.", "amount") == expected
+
+
+@pytest.mark.parametrize(
+    ("text", "kind"),
+    [
+        ("bin (1000) gün", "duration"),
+        ("1000 (bin) gün", "duration"),
+        ("2.400.000 (iki milyon dört yüz bin) gün", "duration"),
+        ("%1.000 (bin)", "percent"),
+    ],
+)
+def test_extract_restated_words_other_kinds_unreadable(text: str, kind: Kind) -> None:
+    result = extract(f"Süre {text} olarak.", kind)
+    assert result.unreadable
+    assert not verify_module._single(result)
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        # A parenthesis that never closes: the words are no restatement.
+        (
+            "2.400.000 TL (iki milyon dört yüz bin TL",
+            Extraction((Quantity(2_400_000, "TL"),), ("iki milyon dört yüz bin TL",)),
+        ),
+        # A sentence boundary inside the parentheses: the unit after it belongs to no number.
+        (
+            "2.400.000 TL (iki milyon dört yüz bin. Türk lirası)",
+            Extraction((Quantity(2_400_000, "TL"),), ()),
+        ),
+        # A chain: only the parentheses right after the read one-number expression restate it.
+        (
+            "1.000 TL (bin TL) (bin TL)",
+            Extraction((Quantity(1000, "TL"), Quantity(1000, "TL")), ("bin TL",)),
+        ),
+        # A two-number expression is no one-number amount to restate.
+        (
+            "₺1.000 (5.000) (bin TL)",
+            Extraction((Quantity(1000, "TL"), Quantity(5000, "TL")), ("bin TL",)),
+        ),
+        # No unit inside the parentheses: "bin" takes its unit from the connector; no restatement.
+        (
+            "1.000 TL (bin) ila 2.000 TL",
+            Extraction((Quantity(1000, "TL"), Quantity(2000, "TL")), ("bin",)),
+        ),
+    ],
+)
+def test_extract_amount_words_restatement_edges(text: str, expected: Extraction) -> None:
+    assert extract(text, "amount") == expected
+
+
+def test_extract_amount_restatement_gives_unit_to_linked_neighbour() -> None:
+    # The restatement is read, so the connector rule gives its unit to the unit-less 2.000, as it
+    # does after "500 TL ila 2.000"; before, the whole expression was unreadable and 2.000 had no
+    # unit (decided in plan 19e: the cascade is accepted).
+    assert extract("500 (beş yüz) TL ila 2.000", "amount") == Extraction(
+        (Quantity(500, "TL"), Quantity(500, "TL"), Quantity(2000, "TL")), ()
+    )
+    assert extract("500 TL ila 2.000", "amount").values == (
+        Quantity(500, "TL"),
+        Quantity(2000, "TL"),
+    )
+
+
+def test_verify_amount_restated_in_words_non_compliant_no_review() -> None:
+    clause = "Toplam sorumluluk 2.400.000 TL (iki milyon dört yüz bin Türk lirası) ile sınırlıdır."
+    draft = "Toplam sorumluluk 1.200.000 TL (bir milyon iki yüz bin Türk lirası) ile sınırlıdır."
+    finding = _finding(clause, status="non_compliant", proposal=_proposal(draft))
+    result = _run(finding, AT_MOST_1_2M_TL)
+    assert result.review_reasons == []
+    assert result.proposal is not None
+    assert result.proposal.code_check == "passed"
+
+
+def test_verify_amount_restated_in_words_wrong_compliant_numeric_mismatch() -> None:
+    quote = "Toplam sorumluluk 2.400.000 TL (iki milyon dört yüz bin Türk lirası) ile sınırlıdır."
+    assert _reasons(_finding(quote), AT_MOST_1_2M_TL) == ["numeric_mismatch"]
+
+
+@pytest.mark.parametrize(
+    ("draft", "rule"),
+    [
+        (
+            "Sorumluluk 1.200.000 TL (bir milyon üç yüz bin Türk lirası) ile sınırlıdır.",
+            AT_MOST_1_2M_TL,
+        ),
+        (
+            "Sorumluluk 1.200.000 TL (bir milyon yüz bin Türk lirası) ile sınırlıdır.",
+            AT_MOST_1_2M_TL,
+        ),
+        (
+            "Sorumluluk 1.300.000 TL (bir milyon üç yüz bin Türk lirası) ile sınırlıdır.",
+            AT_MOST_1_2M_TL,
+        ),
+        ("Sorumluluk 1.000 TL (iki milyon bin TL) ile sınırlıdır.", AT_MOST_1_2M_TL),
+        ("Teminat 2.000.000 TL (üç milyon TL) olarak verilir.", _rule(">=", 1_000_000, "TL")),
+        ("Teminat 500,50 TL (beş yüz TL) olarak verilir.", _rule("<=", 1000, "TL")),
+    ],
+)
+def test_verify_proposal_amount_words_differ_failed(draft: str, rule: Rule) -> None:
+    finding = _finding("x", status="non_compliant", proposal=_proposal(draft))
+    result = _run(finding, rule, "x")
+    assert result.proposal is not None
+    assert result.proposal.code_check == "failed"
+    assert "proposal_noncompliant" in result.review_reasons
+
+
+def _amount_word_sequences(rng: random.Random, count: int) -> list[str]:
+    vocabulary = [*_WORD_ONES[1:], *_WORD_TENS[1:], "yüz", "bin", "milyon", "milyar", "trilyon"]
+    return [
+        " ".join(rng.choice(vocabulary) for _ in range(rng.randint(1, 9))) for _ in range(count)
+    ]
+
+
+def test_amount_words_reads_every_canonical_amount_seeded() -> None:
+    rng = random.Random(19_004)
+    numbers = [rng.randint(1, 10**12 - 1) for _ in range(4000)]
+    numbers += [rng.randint(1, 10**k) for k in range(1, 12) for _ in range(100)]
+    numbers += [1, 10, 100, 1000, 1001, 100_000, 1_000_000, 1_001_000, 10**9, 10**12 - 1]
+    for n in numbers:
+        assert verify_module._amount_words(_turkish_words(n)) == n, n
+
+
+def test_amount_words_accepts_only_canonical_sequences_seeded() -> None:
+    # Every word sequence the grammar reads is the reference writer's spelling of what it read.
+    rng = random.Random(19_041)
+    vocabulary = [*_WORD_ONES[1:], *_WORD_TENS[1:], "yüz", "bin", "milyon", "milyar", "trilyon"]
+    short = [
+        " ".join(seq) for size in (1, 2, 3) for seq in itertools.product(vocabulary, repeat=size)
+    ]
+    accepted = 0
+    for text in short + _amount_word_sequences(rng, 60_000):
+        value = verify_module._amount_words(text)
+        if value is not None:
+            accepted += 1
+            assert value == int(value) and 1 <= value < 10**12, text
+            assert _turkish_words(int(value)) == text, text
+    assert accepted > 1000
+
+
+def test_extract_amount_restatement_round_trip_seeded() -> None:
+    rng = random.Random(19_042)
+    for _ in range(300):
+        n = rng.randint(1, 10**12 - 1)
+        same = f"Bedel {_tl_digits(n)} TL ({_turkish_words(n)} Türk lirası) olarak."
+        extraction = extract(same, "amount")
+        # "X milyon bin ..." is two number tokens, so it is no restatement (left unreadable).
+        if " milyon bin" not in _turkish_words(n) and " milyar bin" not in _turkish_words(n):
+            assert extraction == Extraction((Quantity(n, "TL"), Quantity(n, "TL")), ()), same
+        for other in {n + 1, n - 1, n * 10, n + 1000, rng.randint(1, 10**12 - 1)} - {n}:
+            if not 1 <= other < 10**12:
+                continue
+            text = f"Bedel {_tl_digits(n)} TL ({_turkish_words(other)} Türk lirası) olarak."
+            result = extract(text, "amount")
+            assert result.values == (Quantity(n, "TL"),), text
+            assert result.unreadable, text
 
 
 # --- A quote match may not cut a value expression -------------------------------------------------

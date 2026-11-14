@@ -20,8 +20,11 @@ Design (`docs/agent_design.md` §5 "Doğrulama katmanı"):
   A word that starts with a number word but is not one ("beşer", "üçüncü"), standing where the
   number would be, is an unreadable expression too.
 - What continues a number (a multiplier or fraction word, a slash, a space-grouped digit run) is
-  folded into the number's token when the text is tokenized, and `_readable` - the one gate every
-  value passes - never accepts such a token. No reading path can read part of a number.
+  folded into the number's token when the text is tokenized, and `_Reader._value` - the one gate
+  every value passes - never reads such a token on its own. No reading path can read part of a
+  number. Its one exception reads a whole token: a TL amount in canonical words ("iki milyon dört
+  yüz bin") that restates in parentheses the same amount in digits next to it gets the digits'
+  value; words that say another amount stay unreadable.
 - A sign or prefix belongs only to the number next to it, with at most a space between.
 - A quote match may not cut a word, a number or a value expression of any kind: an occurrence
   that does is skipped.
@@ -631,14 +634,65 @@ def _group_close(tokens: Sequence[_Token], j: int) -> int | None:
 
 
 def _readable(tok: _Token, kind: Kind) -> bool:
-    """The one gate a number passes to become a value (`_Reader._record`).
+    """A number read on its own (`_Reader._value`).
 
     A read number is the whole number written: one that continues into a multiplier, a fraction
-    or another digit group is never read. Amounts are never read from words (agent_design.md §5).
+    or another digit group is never read. Amounts are never read from words (agent_design.md §5);
+    the one exception, an amount in words that restates the digits next to it, is not read here
+    but checked against those digits in `_Reader._value`.
     """
     if tok.value is None or tok.continued:
         return False
     return not (kind == "amount" and tok.spelled)
+
+
+# --- An amount restated in words ------------------------------------------------------------------
+_SCALES: tuple[tuple[str, int], ...] = (("milyar", 10**9), ("milyon", 10**6), ("bin", 10**3))
+
+
+def _amount_group(words: Sequence[str], k: int) -> tuple[int, int]:
+    """Read 0-999 at `k` in canonical words ([yüz | iki..dokuz yüz] [on..doksan] [bir..dokuz]);
+    returns the value and the next index. "bir yüz" is not canonical: "bir" alone is read."""
+    total = 0
+    if k < len(words) and words[k] == _HUNDRED:
+        total, k = 100, k + 1
+    elif (
+        k + 1 < len(words) and words[k] in _ONES and words[k] != "bir" and words[k + 1] == _HUNDRED
+    ):
+        total, k = _ONES[words[k]] * 100, k + 2
+    if k < len(words) and words[k] in _TENS:
+        total, k = total + _TENS[words[k]], k + 1
+    if k < len(words) and words[k] in _ONES:
+        total, k = total + _ONES[words[k]], k + 1
+    return total, k
+
+
+def _amount_words(text: str) -> float | None:
+    """An amount written in canonical Turkish words, 1 to 999 999 999 999; None otherwise.
+
+    `text` is a number token's lower-cased text, words separated by one space. The grammar is
+    [group milyar] [group milyon] [(group | nothing) bin] [group]: each scale at most once, the
+    larger first; "milyon" and "milyar" need a group before them, "bin" stands alone for 1000 and
+    never takes "bir" ("bir bin" is not read). A digit, any other word ("trilyon", "buçuk"), a
+    scale out of order or a word glued to another ("beşyüz") is not read.
+    """
+    words = text.split(" ")
+    k, total = 0, 0
+    for scale, multiplier in _SCALES:
+        group, after = _amount_group(words, k)
+        if after < len(words) and words[after] == scale:
+            if scale == "bin":
+                if words[k:after] == ["bir"]:
+                    return None
+                group = group or 1
+            elif group == 0:
+                return None
+            total, k = total + group * multiplier, after + 1
+    group, k = _amount_group(words, k)
+    total += group
+    if k != len(words) or total == 0:
+        return None
+    return float(total)
 
 
 class _Reader:
@@ -653,6 +707,9 @@ class _Reader:
         # Unit of each read expression, by the index of its first and of its last token.
         self.unit_from: dict[int, CheckUnit] = {}
         self.unit_until: dict[int, CheckUnit] = {}
+        # Value of each read one-number expression, by the index of its last token: an amount in
+        # words in the parentheses right after it is checked against it (`_value`).
+        self.value_until: dict[int, float] = {}
 
     def _record(
         self, members: Sequence[int], unit: CheckUnit | None, first: int, last: int
@@ -663,15 +720,78 @@ class _Reader:
         toks = self.tokens
         # A separator ending the last token is sentence punctuation ("%15."), not the expression.
         self.spans.append((toks[first].start, toks[last].end - toks[last].trailing))
-        if unit is not None and all(_readable(toks[m], self.kind) for m in members):
+        values: list[float] = []
+        if unit is not None:
             for m in members:
-                value = toks[m].value
-                assert value is not None
+                value = self._value(m, members, unit, first, last)
+                if value is None:
+                    break
+                values.append(value)
+        if unit is not None and len(values) == len(members):
+            for m, value in zip(members, values, strict=True):
                 self.read[m] = Quantity(value, unit)
             self.unit_from[first] = unit
             self.unit_until[last] = unit
+            if len(members) == 1:
+                self.value_until[last] = values[0]
         else:
             self.unreadable[first] = self.norm[toks[first].start : toks[last].end]
+
+    def _value(
+        self, m: int, members: Sequence[int], unit: CheckUnit, first: int, last: int
+    ) -> float | None:
+        """The one gate a number passes to become a value: member `m` of an expression with
+        `unit` that spans tokens `first`..`last`. None leaves the expression unreadable.
+
+        A number `_readable` accepts gives its own value. Otherwise the only value is that of a TL
+        amount written in canonical words (`_amount_words`) which restates, in parentheses, the
+        same amount written in digits right next to it; the value is the digits' value:
+
+        - one expression of two numbers, the other one in digits and read: "1.000 (bin) TL",
+          "bin (1.000) TL", "₺1.000 (bin)", "TL 1.000 (bin)". The group is the one the reader
+          already takes as a restatement of digits ("₺1.000 (5.000)"), so what it allows
+          between the number and "(" is allowed here too;
+        - an expression of its own that is the whole group: "(" right after a read one-number TL
+          expression, with at most a space between, the words, a unit word, then ")" -
+          "2.400.000 TL (iki milyon dört yüz bin Türk lirası)", "₺1.200.000 (bir milyon iki yüz
+          bin TL)". Not "2.400.000 TL, (...)", not "1.000 TL (iki milyon bin TL)" ("bin TL" is
+          not the whole group), not "1.000 TL (bin) ila 2.000 TL" (no unit word inside).
+
+        Words that say another amount, that the grammar does not read, or that stand anywhere
+        else are no value: the expression stays unreadable, as before.
+        """
+        toks = self.tokens
+        tok = toks[m]
+        if _readable(tok, self.kind):
+            return tok.value
+        if self.kind != "amount" or unit != "TL" or tok.kind != "number":
+            return None
+        words = _amount_words(tok.text)
+        if words is None:
+            return None
+        others = [k for k in members if k != m]
+        if others:
+            digits = toks[others[0]]
+            same = (
+                len(others) == 1
+                and not digits.spelled
+                and _readable(digits, self.kind)
+                and digits.value == words
+            )
+            return words if same else None
+        opened = m >= 2 and toks[m - 1].kind == "symbol" and toks[m - 1].text == "("
+        closed = (
+            last + 1 < len(toks) and toks[last + 1].kind == "symbol" and toks[last + 1].text == ")"
+        )
+        restates = (
+            m == first
+            and last > m
+            and opened
+            and toks[m - 1].joined_left
+            and closed
+            and self.value_until.get(m - 2) == words
+        )
+        return words if restates else None
 
     def _drop(self, members: Sequence[int], first: int, last: int) -> None:
         """An expression whose unit word lies across a sentence boundary ("Fiyat 5. Ayrıca"): no
