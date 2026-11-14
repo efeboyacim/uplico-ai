@@ -15,7 +15,7 @@ from src.models import AuditEvent, Clause, InjectionFlag, RawClause
 from src.prepare.clauses import split_clauses
 from src.prepare.index import ClauseIndex, drop_index, put_index
 from src.prepare.injection import scan_injection
-from src.prepare.pii import KINDS, PLACEHOLDER, mask
+from src.prepare.pii import KINDS, PLACEHOLDER, mask, unlabelled_names
 from src.store import Store
 from src.text import is_invisible, strip_invisible
 
@@ -174,10 +174,15 @@ def prepare_contract(store: Store, text: str, *, provider: str, model: str) -> P
         # mapping is built from the whole text first. Masking runs on the invisible-stripped copy
         # so a zero-width character inside a number does not hide it. The mapping returned by each
         # call is threaded into the next one: a value found only at clause level is kept too.
-        _, mapping = mask(strip_invisible(text), {})
+        # Names found only by the e-mail and signature paths are told to every clause call: a
+        # clause alone does not show how a name was found, and such a name gives way to an
+        # overlapping e-mail or number there too (see `mask`).
+        source = strip_invisible(text)
+        _, mapping = mask(source, {})
+        unlabelled = unlabelled_names(source)
         clauses: list[Clause] = []
         for raw in raw_clauses:
-            masked_text, mapping = mask(strip_invisible(raw.text), mapping)
+            masked_text, mapping = mask(strip_invisible(raw.text), mapping, unlabelled)
             clauses.append(
                 Clause(
                     clause_id=raw.clause_id,

@@ -7,6 +7,7 @@ rules need them. Masking is pure: no I/O, no logging, and no raw value in an exc
 import bisect
 import re
 import unicodedata
+from collections import Counter
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from itertools import pairwise
@@ -319,11 +320,13 @@ _JOINERS = "-'\u2019\u2010\u2011"
 _MAX_JOINS = 3
 
 
-def _joined_end(text: str, end: int) -> int:
+def _joined_end(text: str, end: int, limit: int | None = None) -> int:
     """End of the name word that starts before `end`, following joiners (see `_JOINERS`).
 
     The joiner separates two things, and the word ends before it, when the part after it is a
-    title word, a form word or a label, or starts a company name ("Yılmaz-ABC A.Ş.").
+    title word, a form word or a label, or starts a company name ("Yılmaz-ABC A.Ş."). With
+    `limit`, the company check after a joiner looks at most `limit` words ahead (see
+    `_scan_run`).
     """
     n = len(text)
     for _ in range(_MAX_JOINS):
@@ -335,17 +338,23 @@ def _joined_end(text: str, end: int) -> int:
         folded = _fold(part.group())
         if folded in _TITLE_HEADS or folded in _TITLE_MODIFIERS:
             break
-        rest = _scan_run(text, end + 1, join=False)
+        rest = _scan_run(text, end + 1, join=False, limit=limit)
         if not rest:
             break  # a form word, a label or a word followed by ":"
-        if _COMPANY_MARKER.search(text[end + 1 : _guard_end(text, rest[-1].end, join=False)]):
+        guard_end = _guard_end(text, rest[-1].end, join=False, limit=limit)
+        if _COMPANY_MARKER.search(text[end + 1 : guard_end]):
             break
         end = part.end()
     return end
 
 
-def _scan_run(text: str, pos: int, join: bool = True) -> list[_Token]:
-    """Consecutive capitalised name words from `pos` on the same line (see the name rule)."""
+def _scan_run(text: str, pos: int, join: bool = True, limit: int | None = None) -> list[_Token]:
+    """Consecutive capitalised name words from `pos` on the same line (see the name rule).
+
+    With `limit`, at most `limit` words are read, and a joined word looks at most `limit` words
+    ahead; the step 19c discovery paths use it so that a long line is not walked again for
+    every candidate on it. The label path reads without a limit.
+    """
     tokens: list[_Token] = []
     n = len(text)
     while True:
@@ -368,7 +377,7 @@ def _scan_run(text: str, pos: int, join: bool = True) -> list[_Token]:
             elif end + 1 < n and text[end + 1].isalpha():
                 return tokens  # a dotted abbreviation such as "T.C." is not a letters-only token
         elif join:
-            end = _joined_end(text, end)
+            end = _joined_end(text, end, limit)
             word = text[start:end]
         if end < n and text[end].isdigit():
             return tokens  # the token contains a digit
@@ -382,6 +391,8 @@ def _scan_run(text: str, pos: int, join: bool = True) -> list[_Token]:
         tokens.append(_Token(start, end, word))
         if end < n and text[end] not in _HSPACE_CHARS:
             return tokens  # punctuation or a line break right after the token
+        if limit is not None and len(tokens) >= limit:
+            return tokens
         pos = end
 
 
@@ -405,15 +416,20 @@ def _next_chunk_end(text: str, pos: int) -> int:
 _AND = re.compile(_HSPACE + "+(?:" + _loose("ve") + _NO_LETTER_AFTER + "|&)" + _HSPACE + "+")
 
 
-def _guard_end(text: str, end: int, join: bool = True) -> int:
+def _guard_end(text: str, end: int, join: bool = True, limit: int | None = None) -> int:
     """End of the text checked for a company marker: the run, any "ve ..." continuation of it
-    ("X Sanayi ve Ticaret A.Ş.") and the token directly after."""
-    while True:
+    ("X Sanayi ve Ticaret A.Ş.") and the token directly after. With `limit`, the continuations
+    add at most `limit` words in all."""
+    budget = limit
+    while budget is None or budget > 0:
         joined = _AND.match(text, end)
-        more = _scan_run(text, joined.end(), join) if joined else []
+        more = _scan_run(text, joined.end(), join, budget) if joined else []
         if not more:
-            return _next_chunk_end(text, end)
+            break
         end = more[-1].end
+        if budget is not None:
+            budget -= len(more)
+    return _next_chunk_end(text, end)
 
 
 def _is_head(token: _Token) -> bool:
@@ -458,9 +474,8 @@ def _names_from_emails(text: str) -> Iterator[str]:
     form (`_fold`: any case, with or without Turkish diacritics; "ucar" finds "Uçar", "tore"
     finds "Töre") and with the name boundaries of `_BOUNDARIES`. A hit is a name when every word
     starts with a capital letter, no word is a unit word or a title head, the words are not only
-    title modifiers ("Satın Alma") and no company marker follows (in the
-    hit, the name words after it, a "ve ..." continuation or the token after them). The name is
-    then masked everywhere like any discovered name; a suffix after it ("Soylu'ya") stays
+    title modifiers ("Satın Alma") and no company marker follows (`_company_after`). The name
+    is then masked everywhere like any discovered name; a suffix after it ("Soylu'ya") stays
     outside. Each line with an e-mail is read once, whatever the number of addresses on it.
     """
     targets: dict[int, set[tuple[str, ...]]] = {}  # line start -> folded local parts
@@ -477,6 +492,7 @@ def _names_from_emails(text: str) -> Iterator[str]:
             tuple(part.lower() for part in _EMAIL_NAME_SPLIT.split(local))
         )
     before, after = _BOUNDARY_PATTERNS["KISI"]
+    found: set[str] = set()
     for line_start, wanted in targets.items():
         line_end = text.find("\n", line_start)
         if line_end < 0:
@@ -503,14 +519,30 @@ def _names_from_emails(text: str) -> Iterator[str]:
                     continue  # a unit or a title mailbox ("hukuk.muduru@" -> "Hukuk Müdürü")
                 if all(w in _TITLE_MODIFIERS for w in folded):
                     continue  # a body or unit such as "Satın Alma"
-                # The guard covers the name words that go on after the hit, as for a labelled
-                # run: "Ahmet Yılmaz İnşaat A.Ş." is a company even when only "ahmet.yilmaz@"
-                # spells it.
-                more = _scan_run(text, end)
-                guard_end = _guard_end(text, more[-1].end if more else end)
-                if _COMPANY_MARKER.search(text[start:guard_end]):
+                name = text[start:end]
+                if name in found:
+                    continue  # already a name: masked everywhere, no need to check again
+                if _company_after(text, start, end):
                     continue
-                yield text[start:end]
+                found.add(name)
+                yield name
+
+
+# How far the company check of the two step 19c paths looks past a candidate, in name words
+# (the "ve ..." continuations included). The label path looks without a limit; a bound keeps a
+# line with many candidates linear ("Ali Veli Ali Veli ..." next to "ali.veli@").
+_GUARD_WORDS = 12
+
+
+def _company_after(text: str, start: int, end: int) -> bool:
+    """A company marker in `text[start:end]`, in the next `_GUARD_WORDS` capitalised words and
+    "ve ..." continuations, or in the token directly after them ("Ahmet Yılmaz İnşaat A.Ş." is a
+    company even when only "ahmet.yilmaz@" spells "Ahmet Yılmaz"). A marker further than
+    `_GUARD_WORDS` words away is not seen."""
+    more = _scan_run(text, end, limit=_GUARD_WORDS)
+    stop = more[-1].end if more else end
+    guard_end = _guard_end(text, stop, limit=_GUARD_WORDS - len(more))
+    return _COMPANY_MARKER.search(text[start:guard_end]) is not None
 
 
 # Unlabelled signature line: the next line starts, after any indent, with the form word "İmza"
@@ -522,6 +554,55 @@ _SIGNATURE_NEXT = re.compile(r"(?m)^" + _HSPACE + "*" + _loose("İmza") + _NO_LE
 _SIGNATURE_FORM_WORDS = frozenset(_fold(w) for w in ("Kaşesi", "Mührü", "Adına"))
 # A label word written without its ":" ("Ad Soyad\nİmza:") is a caption, not a name.
 _SIGNATURE_CAPTIONS = frozenset(" ".join(_fold(w) for w in c.split()) for c in _COLON_LABEL_WORDS)
+# Party roles: a signature caption such as "HİZMET SAĞLAYICI", "Tedarikçi Firma" or "Onaylayan
+# Taraf" names a side of the contract, not a person. One such word anywhere in the line is
+# enough. "Kiracı" is left out: it is also a surname, and with "Firma" / "Yetkili" next to it
+# the caption is caught anyway.
+_ROLE_WORDS = frozenset(
+    _fold(w)
+    for w in (
+        "Alıcı",
+        "Satıcı",
+        "Tedarikçi",
+        "Yüklenici",
+        "İşveren",
+        "İşçi",
+        "Sahibi",
+        "Sağlayıcı",
+        "Kiralayan",
+        "Müşteri",
+        "Firma",
+        "Şirket",
+        "Taraf",
+        "Unvanı",
+        "Ünvanı",
+        "Onaylayan",
+        "Hazırlayan",
+        "Yetkili",
+        "Temsilci",
+        "Vekil",
+        "Kefil",
+        "Bayi",
+        "Distribütör",
+        "Acente",
+        "İdare",
+        "Kurum",
+    )
+)
+# Two-word roles: "Alan" and "Veren" alone are surnames, so only the pair counts.
+_ROLE_PAIRS = frozenset(
+    (_fold(a), _fold(b))
+    for a, b in (("Hizmet", "Alan"), ("Hizmet", "Veren"), ("Kiraya", "Veren"), ("İş", "Veren"))
+)
+# A candidate written this many times elsewhere in the text is a defined term of the contract
+# ("İş Sahibi ... İş Sahibi ..."), not a person.
+_DEFINED_TERM_USES = 3
+
+
+def _is_role(folded: list[str]) -> bool:
+    return any(w in _ROLE_WORDS for w in folded) or any(
+        pair in _ROLE_PAIRS for pair in pairwise(folded)
+    )
 
 
 def _names_from_signature_lines(text: str) -> Iterator[str]:
@@ -529,9 +610,12 @@ def _names_from_signature_lines(text: str) -> Iterator[str]:
 
     The whole line, after any indent, is one name run (`_scan_run`) of 2-4 words with no title
     head, not only title modifiers, no signature form word ("Kaşesi", "Mührü", "Adına"), no unit
-    word, not a label written without its ":" ("Ad Soyad") and no company marker. A blank line
-    between the name and "İmza" is not bridged.
+    word, no party role (`_ROLE_WORDS`, `_ROLE_PAIRS`), not a label written without its ":"
+    ("Ad Soyad") and no company marker (`_company_after`). A candidate written at least
+    `_DEFINED_TERM_USES` more times in `text` (any case, any whitespace between its words) is a
+    defined term and not a name. A blank line between the name and "İmza" is not bridged.
     """
+    candidates: list[str] = []
     for signature in _SIGNATURE_NEXT.finditer(text):
         line_end = signature.start() - 1  # the line break that ends the line above
         if line_end < 0:
@@ -539,7 +623,7 @@ def _names_from_signature_lines(text: str) -> Iterator[str]:
         start = text.rfind("\n", 0, line_end) + 1
         while start < line_end and text[start] in _HSPACE_CHARS:
             start += 1
-        run = _scan_run(text, start)
+        run = _scan_run(text, start, limit=5)  # five words: the line is too long either way
         if not 2 <= len(run) <= 4:
             continue
         if text[run[-1].end : line_end].strip(_HSPACE_CHARS + "\r"):
@@ -553,16 +637,19 @@ def _names_from_signature_lines(text: str) -> Iterator[str]:
             continue  # a body or unit such as "Satın Alma"
         if " ".join(folded) in _SIGNATURE_CAPTIONS:
             continue  # "Ad Soyad" without its ":"
-        if _COMPANY_MARKER.search(text[run[0].start : _guard_end(text, run[-1].end)]):
+        if _is_role(folded):
+            continue  # "HİZMET SAĞLAYICI", "Hizmet Alan"
+        if _company_after(text, run[0].start, run[-1].end):
             continue
-        yield text[run[0].start : run[-1].end]
-
-
-def _discover_names(text: str) -> Iterator[str]:
-    """Names next to a label, then names linked to an e-mail and unlabelled signature lines."""
-    yield from _names_from_labels(text)
-    yield from _names_from_emails(text)
-    yield from _names_from_signature_lines(text)
+        candidates.append(text[run[0].start : run[-1].end])
+    if not candidates:
+        return
+    uses = Counter(
+        _name_key(value) for value, _, _ in _name_spans(text, map(_name_key, candidates))
+    )
+    for candidate in candidates:
+        if uses[_name_key(candidate)] - 1 < _DEFINED_TERM_USES:  # its own line counts once
+            yield candidate
 
 
 def _names_from_labels(text: str) -> Iterator[str]:
@@ -663,7 +750,7 @@ def _discover(text: str) -> Iterator[tuple[str, str]]:
         for m in _PHONE_BARE.finditer(_blank_values(text, found)):
             found.append(("TELEFON", m.group()))
     yield from found
-    for name in _discover_names(text):
+    for name in _names_from_labels(text):
         yield "KISI", name
 
 
@@ -726,15 +813,24 @@ def _greedy(spans: Iterable[_Span], blocked: list[_Span]) -> list[_Span]:
     return kept
 
 
-def _resolve(spans: list[_Span], weak: set[str], last: frozenset[str] = frozenset()) -> list[_Span]:
+def _resolve(
+    spans: list[_Span],
+    weak: set[str],
+    last: frozenset[str] = frozenset(),
+    unlabelled: frozenset[str] = frozenset(),
+) -> list[_Span]:
     """Strict spans first; a weak span (see `_is_weak`) only takes text that no kept strict span
     covers; a span of `last` (see `_in_parentheses`) only takes text that no kept span of the
-    two rounds before covers."""
-    strong = _greedy((s for s in spans if s[2] not in weak and s[2] not in last), [])
+    two rounds before covers; a span of `unlabelled` (a name only the e-mail or signature path
+    found, see `mask`) only takes text that no kept span of the three rounds before covers."""
+    later = last | unlabelled
+    strong = _greedy((s for s in spans if s[2] not in weak and s[2] not in later), [])
     kept = sorted(strong + _greedy((s for s in spans if s[2] in weak), strong))
-    if not last:
-        return kept
-    return sorted(kept + _greedy((s for s in spans if s[2] in last), kept))
+    if last:
+        kept = sorted(kept + _greedy((s for s in spans if s[2] in last), kept))
+    if unlabelled:
+        kept = sorted(kept + _greedy((s for s in spans if s[2] in unlabelled), kept))
+    return kept
 
 
 _BOUNDARY_PATTERNS = {
@@ -803,13 +899,49 @@ def _name_key(value: str) -> str:
     return _fold_case(" ".join(value.split()))
 
 
-def mask(text: str, mapping: Mapping[str, str]) -> tuple[MaskedText, dict[str, str]]:
+def _name_spans(scan: str, keys: Iterable[str]) -> Iterator[tuple[str, int, int]]:
+    """(spelling, start, end) of every occurrence in `scan` of a name key (see `_name_key`):
+    any letter case, any whitespace between the words, with the name boundaries."""
+    wanted = set(keys)
+    wanted.discard("")
+    if not wanted:
+        return
+    collapsed = normalize(scan, ("collapse_whitespace",))
+    before, after = _BOUNDARY_PATTERNS["KISI"]
+    for key_start, key_end, _ in _occurrences(_fold_case(collapsed.text), wanted):
+        start, end = collapsed.span(key_start, key_end)
+        if before.match(scan, start) and after.match(scan, end):
+            yield scan[start:end], start, end
+
+
+def unlabelled_names(text: str) -> frozenset[str]:
+    """Names that only the e-mail and signature paths find in `text`, the label path not.
+
+    `prepare_contract` takes them from the whole contract and passes them to `mask` for every
+    clause, where the clause alone may not show how a name was found.
+    """
+    scan = _blank_placeholders(text)
+    labelled = {_name_key(name) for name in _names_from_labels(scan)}
+    found = list(_names_from_emails(scan)) + list(_names_from_signature_lines(scan))
+    return frozenset(name for name in found if _name_key(name) not in labelled)
+
+
+def mask(
+    text: str, mapping: Mapping[str, str], unlabelled: Iterable[str] = ()
+) -> tuple[MaskedText, dict[str, str]]:
     """Replace PII in `text` with placeholders.
 
     Returns the masked text and a new mapping: every entry of `mapping` plus one per new value,
     numbered per kind after the highest existing number, in order of first appearance. The same
     value (exact spelling) always gets the same placeholder. Placeholders already in `text` are
     left untouched, so masking masked text with the returned mapping changes nothing.
+
+    A name only the e-mail or signature path finds (step 19c) gives way: where one of its
+    occurrences overlaps any other value (an e-mail in "Elif Soylu-elif@ornek.com", a number,
+    a labelled name), that occurrence is left as it is and the other value is masked as without
+    the name; its other occurrences are masked. Such a name is one these paths find in `text`
+    and the label path does not, unless `mapping` already holds it (then it is masked as
+    `mapping` says, as before step 19c), or one listed in `unlabelled` (see `unlabelled_names`).
     """
     counters = {kind: n + 1 for kind, n in _validate(mapping).items()}
     result: dict[str, str] = dict(mapping)
@@ -821,12 +953,23 @@ def mask(text: str, mapping: Mapping[str, str]) -> tuple[MaskedText, dict[str, s
             kind_of[value] = placeholder[1 : placeholder.rindex("_")]
 
     scan = _blank_placeholders(text)
+    known_keys = {_name_key(value) for value, kind in kind_of.items() if kind == "KISI"}
+    labelled_keys: set[str] = set()
     for kind, value in _discover(scan):
         kind_of.setdefault(value, kind)
+        if kind == "KISI":
+            labelled_keys.add(_name_key(value))
     # Outside `_discover`: what it finds, and what it blanks for its later passes, stays exactly
     # what it was before this spelling existed.
     for m in _PHONE_PARENS.finditer(scan):
         kind_of.setdefault(m.group(1), "TELEFON")
+    # The two step 19c paths: their names give way to every value found without them.
+    yielding_keys = {_name_key(name) for name in unlabelled}
+    for name in (*_names_from_emails(scan), *_names_from_signature_lines(scan)):
+        kind_of.setdefault(name, "KISI")
+        if _name_key(name) not in known_keys:
+            yielding_keys.add(_name_key(name))
+    yielding_keys -= labelled_keys
 
     spans: list[tuple[int, int, str]] = []
     exact = [value for value, kind in kind_of.items() if kind != "KISI"]
@@ -838,16 +981,13 @@ def mask(text: str, mapping: Mapping[str, str]) -> tuple[MaskedText, dict[str, s
     # Known names are searched whatever their letter case and the whitespace between their words;
     # every distinct spelling found is its own value, so unmasking restores the text exactly.
     name_keys = {_name_key(value) for value, kind in kind_of.items() if kind == "KISI"}
-    name_keys.discard("")
-    if name_keys:
-        collapsed = normalize(scan, ("collapse_whitespace",))
-        before, after = _BOUNDARY_PATTERNS["KISI"]
-        for key_start, key_end, _ in _occurrences(_fold_case(collapsed.text), name_keys):
-            start, end = collapsed.span(key_start, key_end)
-            if before.match(scan, start) and after.match(scan, end):
-                spelling = text[start:end]
-                kind_of.setdefault(spelling, "KISI")
-                spans.append((start, end, spelling))
+    yielding: set[str] = set()
+    for _, start, end in _name_spans(scan, name_keys):
+        spelling = text[start:end]
+        kind_of.setdefault(spelling, "KISI")
+        spans.append((start, end, spelling))
+        if _name_key(spelling) in yielding_keys:
+            yielding.add(spelling)
 
     weak = {value for value, kind in kind_of.items() if _is_weak(kind, value)}
     # A value with "(" is told apart by its spelling, in this call and in every later call that
@@ -857,7 +997,7 @@ def mask(text: str, mapping: Mapping[str, str]) -> tuple[MaskedText, dict[str, s
     last = frozenset(value for value, kind in kind_of.items() if _in_parentheses(kind, value))
     parts: list[str] = []
     position = 0
-    for start, end, value in _resolve(spans, weak, last):
+    for start, end, value in _resolve(spans, weak, last, frozenset(yielding)):
         assigned = placeholder_of.get(value)
         if assigned is None:
             kind = kind_of[value]

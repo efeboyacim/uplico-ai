@@ -967,6 +967,144 @@ def test_mask_two_word_company_on_signature_line_masked_documented_limit() -> No
 
 
 @pytest.mark.parametrize(
+    "caption",
+    [
+        "İŞ SAHİBİ",
+        "HİZMET SAĞLAYICI",
+        "Hizmet Alan",
+        "Hizmet Veren",
+        "Kiraya Veren",
+        "TEDARİKÇİ FİRMA",
+        "Satıcı Firma",
+        "Alıcı Firma",
+        "ALT YÜKLENİCİ",
+        "Onaylayan Taraf",
+        "Tedarikçi Ünvanı",
+        "Müşteri Temsilci",
+    ],
+)
+def test_mask_party_role_caption_on_signature_line_nothing_masked(caption: str) -> None:
+    text = f"Madde 2. Teslim 30 gün içinde yapılır.\n\n{caption}\nİmza / Kaşe:"
+    assert mask(text, {}) == (text, {})
+
+
+@pytest.mark.parametrize("surname", ["Alan", "Veren"])
+def test_mask_role_pair_word_alone_is_a_surname_masked(surname: str) -> None:
+    masked, mapping = mask(f"Kemal {surname}\nİmza:", {})
+    assert masked == "[KISI_1]\nİmza:"
+    assert mapping == {"[KISI_1]": f"Kemal {surname}"}
+
+
+@pytest.mark.parametrize(("uses", "masked_name"), [(2, True), (3, False)])
+def test_mask_signature_caption_used_three_times_elsewhere_is_defined_term(
+    uses: int, masked_name: bool
+) -> None:
+    # Any case and any whitespace between the words count as a use; the signature line itself
+    # does not.
+    sentences = [
+        "Kalite Kontrol raporu verir.",
+        "KALİTE\nKONTROL onaylar.",
+        "Kalite  Kontrol imzalar.",
+    ]
+    text = " ".join(sentences[:uses]) + "\n\nKalite Kontrol\nİmza:"
+    masked, mapping = mask(text, {})
+    assert ("Kalite Kontrol" in mapping.values()) is masked_name
+    if not masked_name:
+        assert (masked, mapping) == (text, {})
+
+
+def test_mask_defined_term_signature_line_masked_alone_in_signature_part() -> None:
+    # The prepare call chain: the whole text sees the uses and finds no name; the signature part
+    # alone is masked on its own and the caption becomes a name there only. The body stays raw,
+    # and the mapping holds one placeholder that unmasks the part exactly.
+    body = "Kalite Kontrol raporu verir. Kalite Kontrol onaylar. Kalite Kontrol imzalar.\n\n"
+    part = "Kalite Kontrol\nİmza:"
+    _, mapping = mask(body + part, {})
+    assert mapping == {}
+    masked_body, mapping = mask(body, mapping, pii.unlabelled_names(body + part))
+    masked_part, mapping = mask(part, mapping, pii.unlabelled_names(body + part))
+    assert masked_body == body
+    assert masked_part == "[KISI_1]\nİmza:"
+    assert mapping == {"[KISI_1]": "Kalite Kontrol"}
+    assert unmask(masked_part, mapping) == part
+
+
+# --- An unlabelled name gives way to every other value (step 19c) -------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (
+            "İletişim: Elif Soylu (elif.soylu@ornek.com).\nYedek adres: Elif Soylu-elif@ornek.com",
+            "İletişim: [KISI_1] ([EPOSTA_1]).\nYedek adres: Elif [EPOSTA_2]",
+        ),
+        (
+            "Elif Soylu (elif.soylu@ornek.com)\nElif Soylu.yedek@ornek.com",
+            "[KISI_1] ([EPOSTA_1])\nElif [EPOSTA_2]",
+        ),
+        (
+            "Kemal Ozturk\nİmza:\nKemal Ozturk_kemal@ornek.com",
+            "[KISI_1]\nİmza:\nKemal [EPOSTA_1]",
+        ),
+        (
+            "Kemal Ozturk\nİmza:\nKemal Ozturk+kemal@ornek.com, Kemal Ozturk",
+            "[KISI_1]\nİmza:\nKemal [EPOSTA_1], [KISI_1]",
+        ),
+    ],
+    ids=["email-path-hyphen", "email-path-dot", "signature-path-underscore", "plus-and-free"],
+)
+def test_mask_unlabelled_name_glued_to_email_email_keeps_its_place(
+    text: str, expected: str
+) -> None:
+    masked, mapping = mask(text, {})
+    assert masked == expected
+    assert unmask(masked, mapping) == text
+
+
+def test_mask_labelled_name_glued_to_email_name_wins_as_before_documented_limit() -> None:
+    # Unchanged since before step 19c (agent_design.md "PII maskeleme"): a labelled name is
+    # strict and wins, so the e-mail's tail stays raw.
+    text = "Yetkili: Elif Soylu\nYedek adres: Elif Soylu-elif@ornek.com"
+    masked, mapping = mask(text, {})
+    assert masked == "Yetkili: [KISI_1]\nYedek adres: [KISI_1]-elif@ornek.com"
+    assert mapping == {"[KISI_1]": "Elif Soylu"}
+
+
+def test_mask_unlabelled_name_from_mapping_gives_way_only_when_listed() -> None:
+    # The clause call of `prepare_contract`: the name comes from the mapping of the whole text.
+    whole = "Kemal Ozturk\nİmza:\nYedek: Kemal Ozturk_kemal@ornek.com"
+    _, mapping = mask(whole, {})
+    assert mapping == {"[KISI_1]": "Kemal Ozturk", "[EPOSTA_1]": "Ozturk_kemal@ornek.com"}
+    clause = "Yedek: Kemal Ozturk_kemal@ornek.com"
+    listed, _ = mask(clause, mapping, pii.unlabelled_names(whole))
+    assert listed == "Yedek: Kemal [EPOSTA_1]"
+    assert pii.unlabelled_names(whole) == frozenset({"Kemal Ozturk"})
+    # Without the list a name in the mapping is masked as before step 19c.
+    assert mask(clause, mapping)[0] == "Yedek: [KISI_1]_kemal@ornek.com"
+
+
+def test_mask_unlabelled_names_excludes_names_the_label_path_finds() -> None:
+    text = "Yetkili: Elif Soylu\nElif Soylu (elif.soylu@ornek.com)\nKemal Uçar\nİmza:"
+    assert pii.unlabelled_names(text) == frozenset({"Kemal Uçar"})
+
+
+@pytest.mark.parametrize(
+    ("company", "masked_name"),
+    [
+        ("Ahmet Yılmaz Gıda İnşaat Turizm Sanayi ve Ticaret Limited Şirketi", False),
+        ("Ahmet Yılmaz " + "Ab " * 14 + "A.Ş.", True),
+    ],
+    ids=["marker-within-12-words", "marker-past-12-words-documented-limit"],
+)
+def test_mask_email_name_company_check_looks_twelve_words_ahead(
+    company: str, masked_name: bool
+) -> None:
+    _, mapping = mask(f"{company} (ahmet.yilmaz@ornek.com)", {})
+    assert ("Ahmet Yılmaz" in mapping.values()) is masked_name
+
+
+@pytest.mark.parametrize(
     "iban",
     [IBAN_SPACED, IBAN_SPACED.replace(" ", "\u00a0"), "TR33 0006 1005 1978 6457 841326"],
 )
@@ -1740,7 +1878,9 @@ def test_mask_email_and_signature_names_never_take_place_of_old_value(
     # raw value) is masked identically with them on, or lies inside a new name; numbers, e-mails
     # and IBANs are masked byte for byte the same.
     rng = random.Random(1903)
-    joints = (" ", ", ", "\n", "\n", "\n\n", " (", ") ", "'a ", "")
+    # "-", ".", "_", "+" and "%" glue a name to an e-mail's local part ("Elif Soylu-elif@..."):
+    # the e-mail must keep its place against a newly discovered name.
+    joints = (" ", ", ", "\n", "\n", "\n\n", " (", ") ", "'a ", "", "-", ".", "_", "+", "%")
     by_email = by_signature = 0
     for _ in range(3_000):
         parts = [_gen_name_token(rng) for _ in range(rng.randint(2, 7))]

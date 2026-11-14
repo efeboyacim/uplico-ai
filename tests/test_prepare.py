@@ -391,6 +391,24 @@ def test_prepare_name_used_before_its_signature_block_masked_everywhere(data_dir
     _assert_no_raw(texts, ("Mehmet", "Demir"))
 
 
+def test_prepare_unlabelled_name_gives_way_to_email_in_other_clause(data_dir: Path) -> None:
+    # The name is found only on the unlabelled signature line; in clause 1 it is glued to an
+    # e-mail. The clause call gets the name from the mapping, and the whole-text list tells it
+    # that the name gives way: the e-mail stays masked as before step 19c.
+    store = Store(data_dir, "acme")
+    text = (
+        "## Madde 1 - Bildirim\n\nYedek adres: Kemal Ozturk_kemal@ornek.com\n\n"
+        "## İmzalar\n\nKemal Ozturk\nİmza:\n"
+    )
+    prepared = _prepare(store, text)
+    assert prepared.clauses[0].text.endswith("Yedek adres: Kemal [EPOSTA_1]")
+    assert prepared.clauses[1].text.endswith("[KISI_1]\nİmza:")
+    assert store.get_pii_map(prepared.review_id) == {
+        "[KISI_1]": "Kemal Ozturk",
+        "[EPOSTA_1]": "Ozturk_kemal@ornek.com",
+    }
+
+
 # Injection phrases are pieces of the masked clause
 
 _PARTIES = "1. Taraflar\n\nAd Soyad: Ahmet Yılmaz\n\n"
