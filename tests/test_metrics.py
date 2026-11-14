@@ -27,6 +27,7 @@ from evals.metrics import (
     estimate_cost,
     evaluate_thresholds,
     format_ratio,
+    missing_expected_clauses,
     mode_metrics,
     mode_metrics_json,
     parse_labels,
@@ -453,6 +454,40 @@ def test_render_table_proposal_note_beside_draft_rate() -> None:
 def test_search_hit_expected_clause_missing_from_clauses_raises() -> None:
     with pytest.raises(ValueError):
         search_hit("notice", "99", _CLAUSES, [])
+
+
+_EXPECTED = (
+    ExpectedRule("notice", "compliant", "8"),
+    ExpectedRule("penalty", "non_compliant", "4"),
+    ExpectedRule("law", "not_found", None),
+    ExpectedRule("cap", "compliant", "10"),
+)
+
+
+def test_missing_expected_clauses_all_present_is_empty() -> None:
+    label = _label(expected=_EXPECTED)
+    assert missing_expected_clauses(label, [None, "4", "8", "10", None]) == []
+
+
+def test_missing_expected_clauses_lists_absent_numbers_in_label_order() -> None:
+    label = _label(expected=_EXPECTED)
+    assert missing_expected_clauses(label, ["8", "9"]) == [("penalty", "4"), ("cap", "10")]
+
+
+def test_missing_expected_clauses_paragraph_split_misses_every_number() -> None:
+    label = _label(expected=_EXPECTED)
+    missing = missing_expected_clauses(label, [None, None, None])
+    assert missing == [("notice", "8"), ("penalty", "4"), ("cap", "10")]
+
+
+def test_missing_expected_clauses_not_found_label_never_missing() -> None:
+    label = _label(expected=(ExpectedRule("law", "not_found", None),))
+    assert missing_expected_clauses(label, []) == []
+
+
+def test_missing_expected_clauses_compares_numbers_as_written() -> None:
+    label = _label(expected=(ExpectedRule("notice", "compliant", "4"),))
+    assert missing_expected_clauses(label, ["04"]) == [("notice", "4")]
 
 
 # --- Evaluator: one calculation path --------------------------------------------------------------

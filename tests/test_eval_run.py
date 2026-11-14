@@ -1,5 +1,6 @@
 import functools
 import json
+import re
 import shutil
 import socket
 import sys
@@ -1605,3 +1606,199 @@ def test_run_keep_drafts_leaves_result_file_and_cache_without_draft_text(
     assert _result_files(results_dir)
     for path in results_dir.rglob("*.json"):
         assert "Yeni metin." not in path.read_text(encoding="utf-8"), path
+
+
+# --- Expected clause numbers checked before any model call (step 19e-2) ---------------------------
+
+_EN_DASH = chr(0x2013)
+_MADDE_HEADING = re.compile(r"^## Madde (\d+) [-" + _EN_DASH + "] ", re.MULTILINE)
+
+
+def _converted_dataset(root: Path, heading: str) -> Path:
+    """Contracts 01 and 02 as in `_small_dataset`, contract 02's "## Madde N - T" headings
+    rewritten as `heading` ("## {}. " or "{}. "); the labels are unchanged."""
+    dataset = _small_dataset(root)
+    path = dataset / LABELS[1]["contract_file"]
+    text = path.read_bytes().decode("utf-8")
+    converted = _MADDE_HEADING.sub(lambda m: heading.format(m.group(1)), text)
+    assert converted != text
+    path.write_bytes(converted.encode("utf-8"))
+    return dataset
+
+
+def _forbid_cache_and_temp_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+    def forbidden(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("ön kontrolden önce çağrılmamalı")
+
+    monkeypatch.setattr(runner, "_open_cache", forbidden)
+    monkeypatch.setattr(runner.tempfile, "TemporaryDirectory", forbidden)
+
+
+def _report(data_dir: Path, results_dir: Path, dataset: Path, **kwargs: Any) -> int:
+    options: dict[str, Any] = {"limit": None, "prepare_only": False} | kwargs
+    return run_or_report(
+        _settings(data_dir),
+        results_dir=results_dir,
+        started_at=STARTED_AT,
+        dataset_dir=dataset,
+        **options,
+    )
+
+
+def test_run_unsplit_expected_clause_exits_1_before_cache_temp_dir_and_model(
+    data_dir: Path,
+    results_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # Unmarked "4. Başlık" headings fall back to paragraphs: no clause carries a number.
+    dataset = _converted_dataset(tmp_path / "kume", "{}. ")
+    model = _model(data_dir, 2)
+    drafts = tmp_path / "drafts.jsonl"
+    _forbid_cache_and_temp_dir(monkeypatch)
+
+    code = _report(data_dir, results_dir, dataset, model=model, keep_drafts=drafts)
+    err = capsys.readouterr().err
+
+    assert code == EXIT_ERROR
+    assert model.received() == []  # not even contract-01, which splits correctly, ran
+    assert not results_dir.exists()
+    assert not _dataset_cache(results_dir, dataset).exists()
+    assert not drafts.exists()
+    label = LABELS[1]
+    assert "contract-02" in err
+    for expected in label["expected"]:
+        if expected["clause_no"] is not None:
+            assert f"{expected['rule_id']}: {expected['clause_no']}" in err
+    assert "numaralı madde sayısı: 0" in err
+    text = (dataset / label["contract_file"]).read_bytes().decode("utf-8")
+    assert not [line for line in text.splitlines() if len(line) > 20 and line in err]
+
+
+@pytest.mark.parametrize("flags", [{"prepare_only": True}, {"resume": True}, {"fresh": True}])
+def test_run_unsplit_expected_clause_exits_1_on_every_path(
+    flags: dict[str, bool],
+    data_dir: Path,
+    results_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    dataset = _converted_dataset(tmp_path / "kume", "{}. ")
+    model = _model(data_dir, 2)
+    _forbid_cache_and_temp_dir(monkeypatch)
+
+    code = _report(data_dir, results_dir, dataset, model=model, **flags)
+
+    assert code == EXIT_ERROR
+    assert model.received() == []
+    assert not results_dir.exists()
+    assert "contract-02: etiketteki madde numarası" in capsys.readouterr().err
+
+
+def test_main_prepare_only_unsplit_expected_clause_exits_1(
+    data_dir: Path,
+    results_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    dataset = _converted_dataset(tmp_path / "kume", "{}. ")
+    monkeypatch.setenv("LLM_PROVIDER", "ollama")
+    monkeypatch.setenv("TENANT_API_KEYS", json.dumps(TENANT_KEYS))
+    monkeypatch.setenv("DATA_DIR", str(data_dir))
+    code = main(
+        ["--prepare-only", "--dataset-dir", str(dataset), "--results-dir", str(results_dir)]
+    )
+    assert code == EXIT_ERROR
+    assert "contract-02: etiketteki madde numarası" in capsys.readouterr().err
+    assert not results_dir.exists()
+
+
+def test_run_expected_clause_number_not_in_contract_exits_1_naming_it(
+    data_dir: Path, results_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A Madde contract whose label expects a clause number the contract does not have.
+    dataset = _small_dataset(tmp_path / "kume")
+    records = json.loads((dataset / "labels.json").read_bytes().decode("utf-8"))
+    rule_id = next(e["rule_id"] for e in records[0]["expected"] if e["clause_no"] is not None)
+    for expected in records[0]["expected"]:
+        if expected["rule_id"] == rule_id:
+            expected["clause_no"] = "99"
+    text = json.dumps(records, ensure_ascii=False, indent=2) + "\n"
+    (dataset / "labels.json").write_bytes(text.encode("utf-8"))
+
+    code = _report(data_dir, results_dir, dataset, prepare_only=True)
+    err = capsys.readouterr().err
+
+    assert code == EXIT_ERROR
+    assert "contract-01: etiketteki madde numarası sözleşmenin bölünmüş maddelerinde yok " in err
+    assert f"({rule_id}: 99)" in err
+    assert not results_dir.exists()
+
+
+def test_run_missing_contract_file_exits_1_with_path_before_cache(
+    data_dir: Path,
+    results_dir: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    dataset = _small_dataset(tmp_path / "kume")
+    missing = dataset / LABELS[1]["contract_file"]
+    missing.unlink()
+    model = _model(data_dir, 2)
+    _forbid_cache_and_temp_dir(monkeypatch)
+
+    code = _report(data_dir, results_dir, dataset, model=model)
+    err = capsys.readouterr().err
+
+    assert code == EXIT_ERROR
+    assert model.received() == []
+    assert f"contract-02: sözleşme dosyası bulunamadı: {missing}" in err
+    assert not results_dir.exists()
+
+
+@pytest.mark.parametrize("folder", ["dataset", "holdout"])
+def test_check_expected_clauses_default_set_and_holdout_pass(folder: str) -> None:
+    dataset = runner._open_dataset(REPO / "evals" / folder)
+    assert dataset.labels
+    runner._check_expected_clauses(dataset, dataset.labels)
+
+
+def test_run_numbered_markdown_headings_contract_runs_to_exit_0(
+    data_dir: Path, results_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Contract 02 written with "## N. Başlık" headings: split into the same numbered clauses, so
+    # the unchanged labels pass the check and the run completes (scripted model).
+    dataset = _converted_dataset(tmp_path / "kume", "## {}. ")
+    converted = (dataset / LABELS[1]["contract_file"]).read_bytes().decode("utf-8")
+    numbers = [c.clause_no for c in split_clauses(converted) if c.clause_no is not None]
+    assert numbers == [str(n) for n in range(1, len(numbers) + 1)]
+    _, mapping = mask(strip_invisible(converted), {})
+    clauses: dict[str, tuple[str, str]] = {}
+    for raw in split_clauses(converted):
+        masked, mapping = mask(strip_invisible(raw.text), mapping)
+        if raw.clause_no is not None:
+            clauses[raw.clause_no] = (raw.clause_id, str(masked))
+    scripts: dict[str, list[ScriptItem]] = {}
+    for index, label in enumerate(LABELS[:2]):
+        rule_text = {r.id: r.text for r in Store(data_dir, label["tenant_id"]).load_rules()}
+        for expected in label["expected"]:
+            if expected["status"] == "not_found":
+                items = _not_found()
+            else:
+                own = clauses if index == 1 else _masked_clauses(label["id"])
+                clause_id, text = own[expected["clause_no"]]
+                items = _answer(expected["status"])(clause_id, text)
+            scripts.setdefault(rule_text[expected["rule_id"]], []).extend(items)
+    model = ScriptedChatModel.keyed(scripts)
+
+    code = _run(data_dir, results_dir, model, dataset_dir=dataset)
+    capsys.readouterr()
+
+    assert code == EXIT_OK
+    assert len(model.received()) == _calls(0, 2)
+    _, data = _result(results_dir)
+    assert [c["contract_id"] for c in data["contracts"]] == ["contract-01", "contract-02"]

@@ -78,6 +78,7 @@ from evals.metrics import (
     evaluate_thresholds,
     example_inputs,
     example_outputs,
+    missing_expected_clauses,
     mode_metrics,
     mode_metrics_json,
     order_by_rules,
@@ -97,6 +98,7 @@ from src.graph import close_graphs, get_review_graph, initial_state, review_conf
 from src.llm import check_chat_model, classify_provider_error
 from src.models import Finding
 from src.prepare import prepare_contract
+from src.prepare.clauses import split_clauses
 from src.prepare.index import clear_indexes, drop_index
 from src.store import Store, close_all
 from src.verify import verify
@@ -232,6 +234,33 @@ def _check_commit(commit: str | None) -> str | None:
 def _contract_text(dataset_dir: Path, label: Label) -> str:
     # Bytes, not read_text: no newline translation, the contract is read exactly as stored.
     return (dataset_dir / label.contract_file).read_bytes().decode("utf-8")
+
+
+def _check_expected_clauses(dataset: _Dataset, selected: Sequence[Label]) -> None:
+    """Every expected clause number of the selected labels is a clause number of its contract,
+    split the way preparation splits it; otherwise an `EvalError`.
+
+    Runs before the cache is opened, before the temporary folder and before any model call
+    (`--prepare-only` too). The message carries the contract id, rule ids and numbers (or the
+    contract file's path), never contract text.
+    """
+    for label in selected:
+        path = dataset.dir / label.contract_file
+        try:
+            text = _contract_text(dataset.dir, label)
+        except FileNotFoundError:
+            raise EvalError(f"{label.id}: sözleşme dosyası bulunamadı: {path}") from None
+        except UnicodeDecodeError:
+            raise EvalError(f"{label.id}: sözleşme dosyası UTF-8 değil: {path}") from None
+        clause_nos = [clause.clause_no for clause in split_clauses(text)]
+        missing = missing_expected_clauses(label, clause_nos)
+        if missing:
+            numbered = len({no for no in clause_nos if no is not None})
+            listed = ", ".join(f"{rule_id}: {no}" for rule_id, no in missing)
+            raise EvalError(
+                f"{label.id}: etiketteki madde numarası sözleşmenin bölünmüş maddelerinde yok "
+                f"({listed}); numaralı madde sayısı: {numbered}."
+            )
 
 
 def _copy_rules(source_dir: Path, target_dir: Path, tenant_ids: Sequence[str]) -> None:
@@ -625,8 +654,9 @@ def run_eval(
 
     A crash raises: `ContractRunError` for a contract's run (provider configuration errors and
     unexpected code errors are never turned into findings), `EvalError` for the runner itself
-    (also a usable cache without `resume` / `fresh`, a corrupt cache and a dataset without a
-    readable labels.json).
+    (also a usable cache without `resume` / `fresh`, a corrupt cache, a dataset without a
+    readable labels.json, and a selected contract file that is missing or whose split lacks an
+    expected clause number: checked before the cache, the temporary folder and any model call).
     `model` is passed to the review graph (tests); without it the graph builds it from settings.
     `now` stamps each contract's `completed_at` (default: `started_at`); `repo_root` is the root
     the cache's run digest is computed from. `dataset_dir` is `--dataset-dir` (None: the
@@ -642,6 +672,7 @@ def run_eval(
     if prepare_only and (resume or fresh):
         raise ValueError("prepare_only önbellek kullanmaz; resume / fresh verilemez.")
     selected = labels[:limit] if limit is not None else labels
+    _check_expected_clauses(dataset, selected)
     partial = len(selected) < len(labels)
     clock: Callable[[], datetime] = now or (lambda: started_at)
 

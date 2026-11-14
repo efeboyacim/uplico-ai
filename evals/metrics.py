@@ -201,6 +201,23 @@ def quote_validity(raw: Finding, verified_after: Finding) -> bool | None:
     return "quote_not_found" not in verified_after.review_reasons
 
 
+def missing_expected_clauses(
+    label: Label, clause_nos: Iterable[str | None]
+) -> list[tuple[str, str]]:
+    """(rule_id, clause_no) of each expected clause number of `label` that is not among
+    `clause_nos` (the split contract's clause numbers), in label order.
+
+    A `not_found` expectation (no clause number) is never missing. The runner checks this before
+    any model call; `search_hit` would otherwise raise after the contract's model calls.
+    """
+    found = {no for no in clause_nos if no is not None}
+    return [
+        (expected.rule_id, expected.clause_no)
+        for expected in label.expected
+        if expected.clause_no is not None and expected.clause_no not in found
+    ]
+
+
 def search_hit(
     rule_id: str,
     expected_clause_no: str | None,
