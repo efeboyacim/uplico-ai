@@ -1042,6 +1042,8 @@ def _verify_one(
             proposal = proposal.model_copy(update={"code_check": code_check})
             if code_check == "failed":
                 reasons.add("proposal_noncompliant")
+            elif code_check == "unverifiable":
+                reasons.add("proposal_unverifiable")
         if injection_suspected:
             reasons.add("injection_suspected")
 

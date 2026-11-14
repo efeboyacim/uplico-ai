@@ -2,6 +2,7 @@ import random
 import re
 from collections import Counter
 from pathlib import Path
+from typing import get_args
 
 import pytest
 from pydantic import ValidationError
@@ -15,6 +16,7 @@ from src.models import (
     Finding,
     MaskedText,
     Proposal,
+    ReviewReason,
     Rule,
     Severity,
 )
@@ -1191,14 +1193,107 @@ def test_verify_proposal_spelled_and_digits_or_copula_passed(text: str) -> None:
     assert result.proposal.code_check == "passed"
 
 
-def test_verify_proposal_rule_without_check_unverifiable_not_queued() -> None:
+def test_verify_proposal_rule_without_check_unverifiable_queued() -> None:
     proposal = _proposal("Sorumluluk sözleşme bedeli ile sınırlıdır.")
     finding = _finding("Satıcı sorumluluğu sınırsızdır.", status="non_compliant", proposal=proposal)
     result = _run(finding, NO_CHECK)
     assert result.proposal is not None
     assert result.proposal.code_check == "unverifiable"
+    assert result.review_reasons == ["proposal_unverifiable"]
+    assert result.needs_review is True
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Sorumluluk sözleşme bedeli ile sınırlıdır.",
+        "Satıcı sorumluluğu sınırsızdır.",  # repeats the violation: code still cannot tell
+        "",
+    ],
+)
+def test_verify_proposal_unverifiable_queued_whatever_the_text(text: str) -> None:
+    finding = _finding(
+        "Satıcı sorumluluğu sınırsızdır.", status="non_compliant", proposal=_proposal(text)
+    )
+    result = _run(finding, NO_CHECK)
+    assert result.review_reasons == ["proposal_unverifiable"]
+    assert result.needs_review is True
+
+
+def test_verify_proposal_unverifiable_on_compliant_finding_queued() -> None:
+    # A compliant finding can carry a draft (agent_design.md §5): the reason ignores the status.
+    proposal = _proposal("Türk hukuku uygulanır.")
+    finding = _finding("Türk hukuku uygulanır.", proposal=proposal)
+    result = _run(finding, NO_CHECK)
+    assert result.proposal is not None
+    assert result.proposal.code_check == "unverifiable"
+    assert result.review_reasons == ["proposal_unverifiable"]
+    assert result.needs_review is True
+    # Without the draft the same finding is not queued: the draft alone queues it.
+    assert _reasons(_finding("Türk hukuku uygulanır."), NO_CHECK) == []
+
+
+def test_verify_proposal_unverifiable_on_not_found_finding_kept_with_other_reasons() -> None:
+    finding = _finding(
+        status="not_found", clause_id=None, proposal=_proposal("Türk hukuku uygulanır.")
+    )
+    result = _run(finding, _rule(severity="critical"))
+    assert result.review_reasons == [
+        "unverified_not_found",
+        "critical_not_found",
+        "proposal_unverifiable",
+    ]
+
+
+def test_verify_proposal_unverifiable_not_added_when_disabled() -> None:
+    proposal = _proposal("Türk hukuku uygulanır.", code_check="unverifiable")
+    finding = _finding("İngiliz hukuku uygulanır.", status="non_compliant", proposal=proposal)
+    result = _run(finding, NO_CHECK, enabled=False)
     assert result.review_reasons == []
     assert result.needs_review is False
+    assert result.proposal is not None
+    assert result.proposal.code_check is None
+
+
+@pytest.mark.parametrize(
+    ("text", "code_check", "reasons"),
+    [
+        ("Bildirim 45 gün önceden yapılır.", "passed", []),
+        ("Bildirim 15 gün önceden yapılır.", "failed", ["proposal_noncompliant"]),
+    ],
+)
+def test_verify_proposal_unverifiable_not_added_to_checked_draft(
+    text: str, code_check: str, reasons: list[str]
+) -> None:
+    # A stale "unverifiable" on the input is rebuilt from the rule's check.
+    finding = _finding(
+        "15 gün önceden", status="non_compliant", proposal=_proposal(text, "unverifiable")
+    )
+    result = _run(finding, AT_LEAST_30_DAYS)
+    assert result.proposal is not None
+    assert result.proposal.code_check == code_check
+    assert result.review_reasons == reasons
+
+
+def test_verify_proposal_unverifiable_in_literal_order() -> None:
+    finding = _finding(
+        "uydurma alıntı",
+        status="non_compliant",
+        proposal=_proposal("Türk hukuku uygulanır."),
+        escalation_reason="Emin değilim.",
+        interrupted_by="llm_error",
+    )
+    result = _run(finding, NO_CHECK, "Başka metin.", injection=True)
+    assert result.review_reasons == [
+        "quote_not_found",
+        "proposal_unverifiable",
+        "agent_escalated",
+        "run_interrupted",
+        "injection_suspected",
+    ]
+    order = list(get_args(ReviewReason))
+    assert order.index("proposal_unverifiable") == order.index("proposal_noncompliant") + 1
+    assert verify([result], [NO_CHECK], [_clause("Başka metin.")], True) == [result]
 
 
 def test_verify_non_compliant_without_proposal_missing_proposal() -> None:
@@ -1822,7 +1917,11 @@ def test_verify_placeholder_lookalike_not_masked_number(lookalike: str) -> None:
 def test_verify_non_compliant_masked_number_not_signalled() -> None:
     clause = "Tedarikçinin toplam sorumluluğu [TELEFON_1] TL ile sınırlıdır."
     finding = _finding(clause, status="non_compliant", proposal=_proposal("Sınır kaldırılır."))
-    assert _reasons(finding, LIABILITY_CAP, clause) == []
+    # The rule has no check, so the draft alone queues the finding (proposal_unverifiable);
+    # masked_value_in_clause is still not added to a non_compliant finding.
+    assert _reasons(finding, LIABILITY_CAP, clause) == ["proposal_unverifiable"]
+    without_draft = _finding(clause, status="non_compliant")
+    assert _reasons(without_draft, LIABILITY_CAP, clause) == ["missing_proposal"]
 
 
 def test_verify_masked_number_not_signalled_when_disabled() -> None:

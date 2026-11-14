@@ -281,19 +281,50 @@ def test_run_rate_limited_rule_exits_2_without_table_or_file(
 def test_run_broken_hard_threshold_exits_3_with_table_and_file(
     data_dir: Path, results_dir: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    model = _model(data_dir, 1, {("contract-01", "liability_cap"): _wrong_noncompliant_with_draft})
-    code = _run(data_dir, results_dir, model, limit=1)
+    # A wrong "compliant" on a rule without a `check` (governing_law, label not_found), quoting a
+    # real clause with no masked number: verification has nothing to catch.
+    clause_id, text = _masked_clauses("contract-02")["11"]
+    wrong = _answer("compliant")(clause_id, text)
+    model = _model(data_dir, 2, {("contract-02", "governing_law"): wrong})
+    code = _run(data_dir, results_dir, model, limit=2)
     out = capsys.readouterr().out
 
     assert code == EXIT_THRESHOLD_FAILED
     _, data = _result(results_dir)
     assert data["thresholds"]["unsafe_error"]["passed"] is False
-    assert data["metrics"]["after"]["unsafe_error"] == {"num": 1, "den": 5, "value": 0.2}
-    assert data["metrics"]["after"]["proposal_unverifiable"]["num"] == 1
+    assert data["metrics"]["after"]["unsafe_error"] == {"num": 1, "den": 10, "value": 0.1}
     assert "TUTMADI" in _line(out, "Güvensiz hata oranı  ")
     assert "Sonuç dosyası:" in out
-    rule = next(r for r in data["rules"] if r["rule_id"] == "liability_cap")
+    rule = next(
+        r
+        for r in data["rules"]
+        if r["contract_id"] == "contract-02" and r["rule_id"] == "governing_law"
+    )
+    assert rule["status"] == "compliant"
     assert rule["needs_review"] == {"before": False, "after": False}
+    assert rule["quote_valid"] is True
+
+
+def test_run_wrong_noncompliant_with_unverifiable_draft_is_queued_not_unsafe(
+    data_dir: Path, results_dir: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Before proposal_unverifiable this row escaped (and broke the unsafe_error threshold):
+    # a wrong non_compliant with a draft on a rule without a `check`. It is still a wrong
+    # finding (1 / 1 breaks false_finding), but no longer an unsafe one.
+    model = _model(data_dir, 1, {("contract-01", "liability_cap"): _wrong_noncompliant_with_draft})
+    code = _run(data_dir, results_dir, model, limit=1)
+    capsys.readouterr()
+
+    assert code == EXIT_THRESHOLD_FAILED
+    _, data = _result(results_dir)
+    failed = sorted(k for k, t in data["thresholds"].items() if t["passed"] is False)
+    assert failed == ["false_finding"]
+    assert data["thresholds"]["unsafe_error"]["passed"] is True
+    assert data["metrics"]["after"]["unsafe_error"]["num"] == 0
+    assert data["metrics"]["after"]["proposal_unverifiable"]["num"] == 1
+    rule = next(r for r in data["rules"] if r["rule_id"] == "liability_cap")
+    assert rule["needs_review"] == {"before": False, "after": True}
+    assert rule["review_reasons"]["after"] == ["proposal_unverifiable"]
     assert rule["code_check"] == "unverifiable"
     assert rule["quote_valid"] is True
 

@@ -9,7 +9,7 @@ import threading
 import uuid
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, get_args
 
 import groq
 import langchain.chat_models.base as chat_models_base
@@ -26,7 +26,7 @@ import src.prepare as prepare_module
 from src.api import create_app
 from src.config import ConfigError, Settings, load_settings
 from src.graph import CHECKPOINTS_NAME, close_graphs, get_review_graph, review_config
-from src.models import Clause, Finding, InjectionFlag, ReviewRecord
+from src.models import Clause, Finding, InjectionFlag, ReviewReason, ReviewRecord
 from src.prepare.index import MAX_RESULTS, ClauseIndex, SearchHit, get_index
 from src.prepare.pii import PLACEHOLDER
 from src.store import RulesError, Store
@@ -458,6 +458,15 @@ def test_ui_page_source_no_forbidden_api_or_external_address() -> None:
     assert source.count("<script") == 1
     assert len(SCRIPT_BLOCK.findall(source)) == 1
     assert "src=" not in source
+
+
+def test_ui_page_reason_labels_cover_every_review_reason() -> None:
+    source = _page_bytes().decode("utf-8")
+    block = re.search(r"const REASONS = L\(\{(.*?)\}\);", source, re.DOTALL)
+    assert block is not None
+    labels = dict(re.findall(r"^\s*(\w+): \"([^\"]+)\",?\s*$", block.group(1), re.MULTILINE))
+    assert list(labels) == list(get_args(ReviewReason))
+    assert labels["proposal_unverifiable"] == "Taslak kodca doğrulanamadı"
 
 
 def test_ui_page_post_method_not_allowed(client: TestClient) -> None:

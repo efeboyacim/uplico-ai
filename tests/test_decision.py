@@ -12,6 +12,7 @@ from src.decision import (
     entry_format_error,
 )
 from src.models import (
+    Clause,
     Finding,
     FindingDecision,
     LawyerDecision,
@@ -19,6 +20,7 @@ from src.models import (
     Proposal,
     Rule,
 )
+from src.verify import verify
 
 RULES = [
     Rule(id="notice", text="Bildirim en az 30 gün.", severity="critical"),
@@ -217,6 +219,37 @@ def test_check_decision_nothing_sent_every_queued_requirement_listed() -> None:
         ("missing_proposal_action", ("findings", "notice", "proposal_action")),
         ("missing_action", ("findings", "penalty", "action")),
     ]
+
+
+def test_check_decision_unverifiable_draft_requires_proposal_action() -> None:
+    # verify queues a draft the code cannot check (proposal_unverifiable); the existing rule then
+    # makes the lawyer decide on it before the contract can be closed.
+    finding = Finding(
+        rule_id="law",
+        status="non_compliant",
+        clause_id="c3",
+        quote="Alman hukuku uygulanır.",
+        proposal=Proposal(clause_id="c3", proposed_text="Türk hukuku uygulanır.", rationale="r"),
+    )
+    clause = Clause(
+        clause_id="c3",
+        clause_no="3",
+        start=0,
+        end=23,
+        text=MaskedText("Alman hukuku uygulanır."),
+    )
+    [verified] = verify([finding], RULES, [clause], False)
+    assert verified.review_reasons == ["proposal_unverifiable"]
+    assert verified.needs_review is True
+    assert [(i.type, i.loc) for i in check_decision([], [verified])] == [
+        ("missing_action", ("findings", "law", "action")),
+        ("missing_proposal_action", ("findings", "law", "proposal_action")),
+    ]
+    [issue] = check_decision([_entry("law", action="accept")], [verified])
+    assert issue.type == "missing_proposal_action"
+    assert issue.loc == ("findings", 0, "proposal_action")
+    entries = [_entry("law", action="accept", proposal_action="reject")]
+    assert check_decision(entries, [verified]) == []
 
 
 def test_check_decision_messages_fixed_and_free_of_input() -> None:
