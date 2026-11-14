@@ -20,9 +20,9 @@ gereği kuyrukta). Madde ilk satırları listesi denendi: Sonnet'te sonuç aynı
 alındı.
 **Dışarıda:** PDF/DOCX, kullanıcı hesapları, sözleşme sürümleri, kuyruk ve yatay ölçekleme,
 embedding, LLM-as-judge, tutar ve ticari şart maskeleme.
-**Zayıf yerler:** model alakasız ama sözleşmede gerçekten geçen bir alıntıyla "uygun" derse ve
-kuralda sabit eşik (`check`) yoksa bulgu avukatsız geçer; kod alıntının varlığını doğrular,
-konuyla ilgisini doğrulayamaz. Taslak yazımı kodla zorlanmaz: yönlendirmeyle 1 / 11 → 11 / 11
+**Zayıf yerler:** model alakasız ama sözleşmede geçen bir alıntıyla "uygun" derse bulgu avukatsız
+geçebilir: `check` yoksa her zaman, varsa maddede eşiği sağlayan bir değer olduğunda; kod
+alıntının konuyla ilgisini doğrulayamaz. Taslak yazımı kodla zorlanmaz: yönlendirmeyle 1 / 11 → 11 / 11
 (tek model, tek koşu). Adım 19c: kodun denetleyemediği taslak avukata gider; kuralı çiğneyen
 değer taşımayan taslak geçer (kod düzenlenen değeri ayırt etmez). Sonnet'te kuyruk 13 → 11 (tek
 koşu).
@@ -37,8 +37,8 @@ yalnızca `lawyer` anahtarıyla API'den gelir.
 **Ölçüm:** kalıplı sözleşmede (6) tarama yakaladı, 5 bulgunun 5'i kuyruğa gitti. Kalıpta olmayan
 ifadeli sözleşmede (7) tarama kaçırdı, model kanmadı; avukatsız geçen yanlış "uygun" 0. İki
 sözleşme, tek model: genel bir dayanıklılık ölçümü değildir.
-**Sınır:** regex başka sözcüklerle atlatılır; o durumda model kanarsa `check`'siz kuralda yanlış
-"uygun" avukatsız geçebilir. Tek yanlış işaret de bütün sözleşmeyi kuyruğa düşürür.
+**Sınır:** regex başka sözcüklerle atlatılır; o durumda model kanarsa yanlış "uygun" avukatsız
+geçebilir. Tek yanlış işaret de bütün sözleşmeyi kuyruğa düşürür.
 
 ## 3. Model sağlayıcıya ne gidiyor?
 **Karar:** maskeleme graph'tan önce, kapatılamayan tek yoldan yapılır; model, indeks,

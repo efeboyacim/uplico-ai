@@ -2373,6 +2373,7 @@ def test_verify_proposal_unverifiable_in_literal_order() -> None:
 # --- Partial draft (proposal_partial) -------------------------------------------------------------
 
 PARTIAL = "proposal_partial"
+MISMATCH = "proposal_clause_mismatch"
 PAYMENT_CLAUSE = (
     "3. ÜCRET VE ÖDEME\n"
     "3.1. Yıllık bedel 100.000 TL'dir.\n"
@@ -2468,12 +2469,15 @@ def test_verify_proposal_partial_reads_the_proposal_clause() -> None:
     finding = _finding("Türk hukuku uygulanır.", proposal=proposal)
     clauses = [_clause("Türk hukuku uygulanır."), _clause(other, "c2")]
     (result,) = verify([finding], [NO_CHECK], clauses, False)
-    assert result.review_reasons == ["proposal_unverifiable", PARTIAL]
+    # The draft is not written for the finding's clause, which is a reason of its own (step 19g).
+    assert result.review_reasons == ["proposal_unverifiable", PARTIAL, MISMATCH]
 
 
 def test_verify_proposal_partial_unknown_clause_adds_nothing() -> None:
     result = _partial_run("3.2. Faturalar 45 gün içinde ödenir.", proposal_clause_id="c9")
-    assert result.review_reasons == []
+    # No clause to count markers in: only the other clause id itself is a reason (step 19g).
+    assert PARTIAL not in result.review_reasons
+    assert result.review_reasons == [MISMATCH]
     assert result.proposal is not None
     assert result.proposal.code_check == "passed"
 
@@ -2528,6 +2532,115 @@ def test_verify_proposal_partial_random_drafts() -> None:
         assert PARTIAL in _partial_run(draft, clause, rule=NO_CHECK).review_reasons
         seen += 1
     assert seen == 500
+
+
+# --- Draft written for another clause (proposal_clause_mismatch) ----------------------------------
+
+NOTICE_CLAUSE = "Madde 1 - Fesih\nTaraflar 15 gün önceden yazılı bildirimle feshedebilir."
+NOTICE_QUOTE = "Taraflar 15 gün önceden yazılı bildirimle feshedebilir."
+INVOICE_CLAUSE = "Madde 2 - Ödeme\nFaturalar 45 gün içinde ödenir."
+
+
+def _mismatch_run(
+    proposal_clause_id: str,
+    draft: str = INVOICE_CLAUSE,
+    rule: Rule = AT_LEAST_30_DAYS,
+    enabled: bool = True,
+    **kwargs: object,
+) -> Finding:
+    """A correct `non_compliant` finding on c1 (the notice clause) with a draft for the given id."""
+    proposal = Proposal(clause_id=proposal_clause_id, proposed_text=draft, rationale="Gerekçe.")
+    finding = Finding.model_validate(
+        {
+            "rule_id": "r1",
+            "status": "non_compliant",
+            "clause_id": "c1",
+            "quote": NOTICE_QUOTE,
+            "proposal": proposal,
+            **kwargs,
+        }
+    )
+    clauses = [_clause(NOTICE_CLAUSE), _clause(INVOICE_CLAUSE, "c2")]
+    (result,) = verify([finding], [rule], clauses, False, enabled=enabled)
+    return result
+
+
+def test_verify_proposal_for_another_clause_queued() -> None:
+    # The reviewed case: the draft names c2 and copies its text, whose "45 gün" satisfies the
+    # notice rule. The value check passes; only the clause id shows the draft fixes nothing.
+    result = _mismatch_run("c2")
+    assert result.review_reasons == [MISMATCH]
+    assert result.needs_review is True
+    assert result.proposal is not None
+    assert result.proposal.code_check == "passed"
+    assert result.proposal.clause_id == "c2"
+
+
+def test_verify_proposal_for_the_finding_clause_not_mismatch() -> None:
+    result = _mismatch_run("c1", NOTICE_CLAUSE.replace("15 gün", "30 gün"))
+    assert result.review_reasons == []
+    assert result.needs_review is False
+
+
+@pytest.mark.parametrize("proposal_clause_id", ["c9", "C1", "c1 ", "c10"])
+def test_verify_proposal_clause_ids_compared_as_written(proposal_clause_id: str) -> None:
+    # An unknown id, another letter case, a trailing space, an id the finding's is a prefix of.
+    assert MISMATCH in _mismatch_run(proposal_clause_id).review_reasons
+
+
+def test_verify_proposal_clause_mismatch_whatever_the_status_and_the_check() -> None:
+    compliant = _mismatch_run("c2", status="compliant", quote="Taraflar")
+    assert MISMATCH in compliant.review_reasons
+    unchecked = _mismatch_run("c2", rule=NO_CHECK)
+    assert unchecked.review_reasons == ["proposal_unverifiable", MISMATCH]
+    failing = _mismatch_run("c2", "Faturalar 10 gün içinde ödenir.")
+    assert failing.review_reasons == ["proposal_noncompliant", MISMATCH]
+
+
+def test_verify_proposal_on_finding_without_clause_not_mismatch() -> None:
+    # A `not_found` finding names no clause: there is nothing to compare the draft's clause with.
+    result = _mismatch_run("c2", status="not_found", clause_id=None, quote=None)
+    assert MISMATCH not in result.review_reasons
+    assert result.review_reasons == ["unverified_not_found"]
+    # With a clause id, a `not_found` finding is compared like any other.
+    named = _mismatch_run("c2", status="not_found", quote=None)
+    assert named.review_reasons == ["unverified_not_found", MISMATCH]
+
+
+def test_verify_proposal_clause_mismatch_not_added_when_disabled() -> None:
+    result = _mismatch_run("c2", enabled=False)
+    assert result.review_reasons == []
+    assert result.proposal is not None
+    assert result.proposal.code_check is None
+
+
+def test_verify_proposal_clause_mismatch_in_literal_order() -> None:
+    result = _mismatch_run("c2", escalation_reason="Emin değilim.")
+    assert result.review_reasons == [MISMATCH, "agent_escalated"]
+    order = list(get_args(ReviewReason))
+    assert order.index(MISMATCH) == order.index(PARTIAL) + 1
+
+
+def test_verify_proposal_clause_mismatch_random_ids() -> None:
+    """The reason is there exactly when the two ids differ, and nothing else in the result moves."""
+    rng = random.Random(20261114)
+    ids = ["c1", "c2", "c3", "c9"]
+    differing = 0
+    for _ in range(300):
+        proposal_id = rng.choice(ids)
+        draft = rng.choice((INVOICE_CLAUSE, NOTICE_CLAUSE, "Faturalar 10 gün içinde ödenir."))
+        rule = rng.choice((AT_LEAST_30_DAYS, NO_CHECK))
+        result = _mismatch_run(proposal_id, draft, rule)
+        same = _mismatch_run("c1", draft, rule)
+        expected = [r for r in get_args(ReviewReason) if r in {*same.review_reasons, MISMATCH}]
+        if proposal_id == "c1":
+            assert result == same
+        else:
+            differing += 1
+            assert result.review_reasons == expected
+            assert result.proposal is not None and same.proposal is not None
+            assert result.proposal.code_check == same.proposal.code_check
+    assert differing > 100
 
 
 def test_verify_non_compliant_without_proposal_missing_proposal() -> None:

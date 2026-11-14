@@ -509,6 +509,12 @@
   Ayrıntı Adım 19f "Gerçekleşen".
 - **Adım 20 bitti (2026-11-14):** `main` kullanıcı onayıyla `origin`'e push edildi. Plan bitti;
   kalan iş plan dışıdır (AI oturumlarını kullanıcı ekler).
+- **Adım 19g bitti (2026-11-14; teslimden sonra, `step-19g` dalında, `main`'e alınmadı ve push
+  edilmedi):** dışarıdan gelen bir incelemenin beş iddiası kodla denendi. Başka maddeye yazılmış
+  taslak artık avukata gider (yeni sebep `proposal_clause_mismatch`); "kanıtlı ama yanlış uygun"
+  sınırının dokümanlardaki eksik yazımı düzeltildi (`check`'li kuralda da geçerli; modelsiz sayım
+  24 çiftin 14'ünde 22 madde). Modelle ölçülmedi. Sıradaki, onay bekleyen adım: 19h (yarıda kalan
+  incelemeyi başlangıçta kapatma). Ayrıntı Adım 19g.
 - **Adım 18c'ye başlarken (2026-11-13 oturumunun devri):**
   1. Depo temiz; son commit bu notun commit'i. `origin`'e push yapılmadı (push Adım 20'dir).
   2. Holdout koşusu bitti; eval önbelleği yok. `src/`, `evals/*.py` ve `uv.lock` artık
@@ -2439,6 +2445,53 @@ Dokümanlar en sonda tek commit'te (kullanıcının 19c'deki talimatı). Tek ba�
   modelle uçtan uca akış (gerçek anahtar gerekir) ve port yayınlayan `docker compose up` (8000
   portu geliştirme makinesinde çalışan uygulamadaydı; kontroller konteyner içinde yapıldı). Bu
   notun commit'i push'tan sonra yazıldı ve ayrıca push edildi.
+
+### [x] Adım 19g — Dış incelemenin iddiaları: başka maddeye yazılmış taslak ve "yanlış uygun" sınırı
+Teslimden (Adım 20) sonra eklendi; numarası konusu gereği 19'dur.
+- **Ne:** Dışarıdan gelen bir inceleme beş teknik açık saydı. Her iddia kod okunarak ve `verify`
+  / `scan_injection` doğrudan çağrılarak denendi (HEAD `05d02c8`, model çağrısı yok):
+
+  | # | İddia | Sonuç |
+  |---|---|---|
+  | 1 | Yanlış maddeden alıntıyla "uygun", `check` olsa da avukatsız geçer | Doğru; dokümanlar yalnızca "`check` yoksa" diyordu. Kural `≥ 30 gün`, ödeme maddesinden "Faturalar 45 gün içinde ödenir." → sebep yok |
+  | 2 | Taslak başka maddeye yazılıp geçer | Doğru: bulgu `c1`, taslak `c2`'nin metni → `code_check=passed`, sebep yok |
+  | 3 | `check`'siz kuralda tek sözcük alıntı yeter | Doğru, ama 1'in belgeli hâli: ilgisiz tam cümle de aynı şekilde geçer; sözcük alt sınırı bir şey kapatmaz |
+  | 4 | Süreç ölürse inceleme `running` kalır | Doğru (kod okunarak; çalıştırılmadı): `mark_failed` yalnızca yakalanan hatada çağrılır, başlangıçta tarama yok |
+  | 5 | `POST /reviews` bloklar | Doğru, `decisions.md` §5'te yazılı; değişiklik yok |
+
+  İncelemenin "raporda uyarı alanı olabilir" önerisi zaten vardı (`approved_with_noncompliant`).
+  Bu adım 2'yi kapatır ve 1'i doğru yazar; 4 ayrı adımdır (19h, onay bekliyor).
+- **1'in sayımı (modelsiz):** eval veri kümesinin yedi sözleşmesi `prepare_contract`'ın yaptığı
+  gibi maskelendi; her (sözleşme, `check`'li kural) çifti için beklenen madde dışındaki her
+  maddenin her cümlesi tek başına alıntılanıp `compliant` bulgu olarak `verify`'a verildi
+  (enjeksiyon işareti kapalı). 24 çiftin 14'ünde, sebepsiz geçen en az bir cümlesi olan 22 madde
+  var (`termination_notice` 15, `insurance_minimum` 4, `payment_term` 2, `price_increase_cap` 1;
+  `late_penalty_cap` ve `warranty_period` 0). `check`'siz 11 çiftte 137 madde (beklenen sınır).
+  Ölçülen tam koşularda doğrulamadan sonra güvensiz hata 0 / 35; sayım sıklığı değil genişliği
+  gösterir.
+- **1 için seçilmeyen çözümler:** (a) incelemenin önerisi, alıntılanan maddenin o kuralın
+  aramalarında dönmüş olması: arama 15–16 maddeden 5'ini döndürür ve sorguyu model seçer; sorgu
+  kural metni olduğunda 22 maddenin 16'sı arama sonucundadır, denetim 6'sını yakalardı. (b)
+  Kurala isteğe bağlı çapa sözcükleri (`fesih`, `sigorta` …), "uygun" bulgunun maddesinde hiçbiri
+  yoksa kuyruk: ilk (maskesiz) sayımda 22 / 22'yi kapattı ve 23 doğru maddeden 1'ini (sözleşme
+  4, dolaylı yazım) kuyruğa düşürdü; sözcükler veriye bakılarak seçildi, sayı iyimserdir. Kural
+  şemasını değiştirir ve model koşusu ister; yapılmadı, karar kullanıcının.
+- **Dosyalar:** `src/models.py` (`ReviewReason`), `src/verify.py` (`_verify_one`),
+  `src/static/index.html` (etiket), `tests/test_verify.py`; `docs/agent_design.md` §2, §5, §6,
+  `docs/architecture.md` §3, `docs/spec.md` §8, `docs/evals.md` §2, `README.md`,
+  `docs/decisions.md` (900 sözcük korundu).
+- **Gerçekleşen (2026-11-14):** doğrulama açıkken, bulgunun taslağı varsa, bulgunun
+  `clause_id`'si doluysa ve taslağın `clause_id`'si ondan farklıysa `proposal_clause_mismatch`
+  eklenir; `code_check` ve öteki sebepler değişmez. Önceden bilerek başka maddeye taslak yazan iki
+  testin beklentisi yeni sebeple güncellendi (başka test kırılmadı); 11 yeni test.
+- **Doğrulama:** HEAD ile fark fuzz'ı: 20 tohum, 159.960 bulgu (112.180'i taslaklı) yeni ve
+  HEAD'deki `verify`'a verildi; 33.074'ünde tek fark eklenen `proposal_clause_mismatch` (ve
+  `needs_review`), kalanında çıktı birebir aynı. 2436 test, ruff (izlenen kod), mypy temiz;
+  değişen dosyalarda CR baytı yok.
+- **Ölçülmeyen:** model çağıran koşu yapılmadı; sebebin gerçek koşularda ne sıklıkta çıktığı
+  bilinmiyor (sonuç dosyaları taslağın ve bulgunun maddesini yan yana tutmaz). Docker imajı
+  yeniden kurulmadı.
+- **Commit:** `fix: queue a draft written for another clause than the finding's`
 
 ## CASE.md teslimatları → adımlar
 | CASE.md | Adım |

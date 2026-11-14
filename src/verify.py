@@ -48,6 +48,8 @@ Design (`docs/agent_design.md` §5 "Doğrulama katmanı"):
 - A draft replaces the whole clause its `clause_id` names. `proposal_partial` queues a draft that
   leaves out a sub-item marker ("3.1.", "12.2") starting a line of that masked clause; it does not
   change `code_check` and a clause without such markers never gives it.
+  `proposal_clause_mismatch` queues a draft whose `clause_id` is not the finding's: the draft
+  checks read the draft's own clause, so the compliant text of another clause would pass them.
 """
 
 import re
@@ -1458,6 +1460,10 @@ def _verify_one(
             target = clauses.get(proposal.clause_id)
             if target is not None and _drops_subitem(target.text, proposal.proposed_text):
                 reasons.add("proposal_partial")
+            # Both checks above read the draft's own clause. A draft written for another clause
+            # than the finding's is queued, whatever they say and whether that clause is known.
+            if finding.clause_id is not None and proposal.clause_id != finding.clause_id:
+                reasons.add("proposal_clause_mismatch")
         if injection_suspected:
             reasons.add("injection_suspected")
 

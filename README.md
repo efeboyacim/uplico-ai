@@ -363,8 +363,11 @@ Tam tablo: `docs/architecture.md` §6.
 En önemlileri; tam liste `docs/spec.md` §8.
 
 - **Kanıtlı ama yanlış "uygun".** Model alakasız ama sözleşmede gerçekten geçen bir alıntıyla
-  "uygun" derse ve kuralda sabit eşik (`check`) yoksa bulgu avukatsız geçer. Kod alıntının
-  varlığını doğrular, konuyla ilgisini doğrulayamaz.
+  "uygun" derse bulgu avukatsız geçebilir: kuralda sabit eşik (`check`) yoksa her zaman; varsa,
+  alıntılanan maddede kuralın türünden ve eşiği sağlayan bir değer olduğunda (fesih süresi kuralı
+  için ödeme maddesindeki "45 gün"). Kod alıntının varlığını ve değerini doğrular, konuyla
+  ilgisini doğrulayamaz. Eval sözleşmelerinde modelsiz sayım: 24 (sözleşme, eşikli kural)
+  çiftinin 14'ünde böyle 22 madde var; ölçülen koşularda model bunu yapmadı.
 - **Arama yalnızca BM25'tir.** Kuralın sözcüklerini kullanmayan madde bulunamayabilir (Groq'ta
   arama isabeti 30 / 32); o kural "bulunamadı" olarak avukata gider.
 - **Ad maskeleme en iyi çabadır.** Ad; etiketten, imza satırından, e-posta bağından, listedeki bir
@@ -375,8 +378,9 @@ En önemlileri; tam liste `docs/spec.md` §8.
   kuralı çiğneyen değeri göremez.
 - **Taslak denetimi sınırlıdır.** Kod taslaktaki her değeri kurala karşı ayrı ayrı denetler; hangi
   değerin düzenlenen değer olduğunu bilmez. Alt madde denetimi (`proposal_partial`) numaraya
-  bakar: eksik alt maddeyi cümle başında anan taslak tam sayılır. Sayısal olmayan kuralda taslak
-  denetlenemez ve her zaman avukata gider.
+  bakar: eksik alt maddeyi cümle başında anan taslak tam sayılır. Bulgunun maddesinden başka bir
+  maddeye yazılmış taslak avukata gider (`proposal_clause_mismatch`). Sayısal olmayan kuralda
+  taslak denetlenemez ve her zaman avukata gider.
 - **Taslak yazımı kodla zorlanmıyor.** Model yazmazsa bulgu `missing_proposal` ile avukata gider.
 - **Audit log dosya düzeyinde korunmaz.** Uygulama üzerinden değiştirilemez (tetikleyiciler), ama
   veritabanı dosyasına doğrudan erişen biri değiştirebilir; imza ya da hash zinciri yok.
@@ -400,9 +404,9 @@ maliyet düşürülebilirdi, ama projenin ilk sürümünde doğruluğu hedefledi
   yazılmış adlar kaçabiliyor. Sonraki adım önceden eğitilmiş bir Türkçe ad tanıma (NER) modeli
   eklemek: model ad adaylarını önerir, kod adayın metinde birebir geçtiğini doğrulayıp maskeler.
   Kimlik numarası, IBAN ve telefon kodda kalır, çünkü garanti yalnızca oradan gelir.
-- **Taslak denetimini güçlendirmek.** Kuralın düzenlediği değeri ayırt etmek, taslağı bulgunun
-  maddesiyle eşleştirmek, taslağı özgün maddeyle karşılaştırıp neyin değiştiğini avukata
-  göstermek ve avukatın düzenlediği taslağı da kodla denetlemek.
+- **Taslak denetimini güçlendirmek.** Kuralın düzenlediği değeri ayırt etmek, taslağı özgün
+  maddeyle karşılaştırıp neyin değiştiğini avukata göstermek ve avukatın düzenlediği taslağı da
+  kodla denetlemek.
 - **Daha büyük ve bağımsız bir eval seti.** Gerçek sözleşmeler, birden çok koşu ve gün; yerel
   model ile büyük modelin aynı sette karşılaştırılması. Dışarıdan gelen iki sözleşmenin dokuz
   sınır göstermesi, sentetik setin kodun gerçek biçimlerle karşılaşmasını ölçmediğini gösterdi.

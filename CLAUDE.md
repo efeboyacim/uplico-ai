@@ -94,6 +94,13 @@ Adım 20 bitti (2026-11-14): `main` kullanıcı onayıyla `origin`'e push edildi
 klonda `.env` / `*.db` yok, imaj kuruluyor, API sahte sağlayıcı anahtarıyla ve modelsiz eval
 çalışıyor; gerçek modelle uçtan uca akış o klonda denenmedi. Plan bitti; AI oturumlarını kullanıcı
 ekler. Ayrıntı `docs/plan.md` "Durum" ve Adım 20.
+Adım 19g bitti (2026-11-14; teslimden sonra, `step-19g` dalında, `main`'e alınmadı ve push
+edilmedi): dış bir incelemenin iddiaları kodla denendi. Bulgunun maddesinden başka bir maddeye
+yazılmış taslak `proposal_clause_mismatch` ile avukata gider; "kanıtlı ama yanlış uygun" sınırı
+`check`'li kuralda da geçerlidir (maddede eşiği sağlayan bir değer varsa; modelsiz sayım 24
+çiftin 14'ünde 22 madde) ve kapatılmadı. Modelle ölçülmedi. Onay bekleyen sıradaki adım 19h:
+süreç ölünce `running` kalan incelemeyi başlangıçta `failed` yapmak. Ayrıntı `docs/plan.md`
+Adım 19g.
 
 ## Komutlar
 ```bash

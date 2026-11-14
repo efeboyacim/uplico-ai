@@ -149,9 +149,11 @@ Tek etkileri agent state'ine bir öneri yazmaktır; dış sisteme dokunmazlar.
 - Tool'un kendi ürettiği her hata (kanıt eksik, olmayan madde) `ToolMessage(status="error")`'dır ve
   state'e yazmaz; daha önce kaydedilmiş geçerli bulgu ya da taslak yerinde kalır. Verilen her
   `clause_id` (`not_found` bulgusundaki dahil) indekste aranır.
-- **Bilinen sınır:** taslağın `clause_id`'si bulgunun `clause_id`'siyle karşılaştırılmaz ve
-  `compliant` / `not_found` bulguya yazılan taslak reddedilmez; ne tool'da ne `verify.py`'de böyle
-  bir kontrol vardır. Avukat taslağın hangi maddeye yazıldığını görür.
+- **Bilinen sınır:** tool, taslağın `clause_id`'sini bulgunun `clause_id`'siyle karşılaştırmaz ve
+  `compliant` / `not_found` bulguya yazılan taslağı reddetmez. Başka maddeye yazılmış taslağı
+  `verify.py` kuyruğa alır (`proposal_clause_mismatch`, Adım 19g; §5); `compliant` / `not_found`
+  bulguya yazılan taslak için ayrı bir kontrol yoktur. Avukat taslağın hangi maddeye yazıldığını
+  görür.
 - İki middleware audit log'a yazar: `wrap_tool_call` (ad, argümanlar, sonuç özeti) ve
   `wrap_model_call` (modele giden maskeli metin, `usage_metadata`). Yüklerin biçimi §7'dedir.
 
@@ -351,6 +353,7 @@ yoktur.**
 | `proposal_noncompliant` | Kuralda `check` var ve taslak kod kontrolünden geçmiyor (aşağıda) |
 | `proposal_unverifiable` | Bulgunun taslağı var ama kuralda `check` yok: kod taslağı denetleyemez (`code_check=unverifiable`, aşağıda). Bulgunun `status`'üne bakılmaz; taslağı olan "uygun" bulgu da kuyruğa girer. Avukat bu taslağa karar vermek zorundadır (`architecture.md` §3 "Avukat kararı") |
 | `proposal_partial` | (Adım 19f) Bulgunun taslağı var, taslağın `clause_id`'si bilinen bir madde ve o maddenin maskeli metnindeki alt madde numaralarından en az biri taslakta kendi başına bir numara olarak geçmiyor (aşağıda "Taslak kontrolü" → "Eksik alt madde"). Taslak maddenin tamamının yerine geçer; alt madde düşüren taslak avukata gider. `code_check`'i değiştirmez, öteki taslak sebeplerinden bağımsızdır; bulgunun `status`'üne ve kuralın `check`'ine bakılmaz |
+| `proposal_clause_mismatch` | (Adım 19g) Bulgunun taslağı var, bulgunun `clause_id`'si dolu ve taslağın `clause_id`'si ondan farklı (aşağıda "Taslak kontrolü" → "Başka maddeye yazılmış taslak"). Kimlikler olduğu gibi karşılaştırılır. `code_check`'i değiştirmez, öteki taslak sebeplerinden bağımsızdır; bulgunun `status`'üne ve kuralın `check`'ine bakılmaz |
 | `agent_escalated` | Agent `escalate_to_lawyer` çağırdı |
 | `no_finding` | Agent `submit_finding` çağırmadı, adım limitine takıldı ya da hata verdi. Sebep kaydedilir: `no_submit` / `step_limit` / `rate_limited` / `llm_error`. Bulgu `status=not_found` ve dolu `no_finding_reason` ile temsil edilir; böyle bir bulguya `unverified_not_found`, `critical_not_found` ve `missing_proposal` eklenmez (kural "bulunamadı" değil, incelenemedi) |
 | `run_interrupted` | Agent bulgu bildirdi ama koşu kendiliğinden bitmedi: adım limitine takıldı ya da sonraki bir model çağrısı hata verdi. Bulgu korunur, `interrupted_by` alanı sebebi taşır (`step_limit` / `rate_limited` / `llm_error`) ve bulgu **her zaman** kuyruğa girer: kod, agent'ın bulguyu düzeltmeyeceğini, taslak yazmayacağını ya da avukata devretmeyeceğini bilemez. Diğer sinyaller yine hesaplanır. `no_finding` ile birlikte bulunmaz; doğrulama kapalıyken de (`enabled=False`) eklenir |
@@ -783,9 +786,23 @@ yoktur.**
   yakalama (avukat yönünde): taslakta `3.1)`, `Madde 3.1`, `**3.1.**`, `- 3.1.` ya da başlığa
   noktalamasız bitişik yazılmış numara ("KOŞULLARI 3.1. …"); maddede satır başına denk gelen
   `1.5 kat` gibi bir sayı. Sebep yalnızca taslağın kendi `clause_id`'sindeki maddeye bakar;
-  yanlış maddeye yazılmış taslak bulgunun maddesiyle karşılaştırılmaz (§2'deki sınır). Modelle
+  başka maddeye yazılmış taslağı ayrı bir sebep kuyruğa alır (aşağıda). Modelle
   ölçülmedi: eval veri kümesinin maddelerinde satır başı noktalı alt madde numarası yoktur, bu
   yüzden sebep veri kümesinde hiç üretilmez.
+
+  **Başka maddeye yazılmış taslak (`proposal_clause_mismatch`, Adım 19g).** `code_check` ve
+  `proposal_partial` taslağın kendi `clause_id`'sindeki maddeye bakar; bulgunun maddesine
+  bakmaz. Bu yüzden `c1` için "uygun değil" bulgusunun taslağı `c2`'ye yazılıp `c2`'nin kurala
+  uyan metnini aynen kopyaladığında `code_check=passed` oluyor ve bulgu kuyruğa girmiyordu
+  (kodu doğrudan çağırarak gösterildi; ölçülen koşularda görülmedi). Artık doğrulama açıkken,
+  bulgunun taslağı varsa, bulgunun `clause_id`'si doluysa ve taslağın `clause_id`'si ondan
+  farklıysa `proposal_clause_mismatch` eklenir. Kimlikler olduğu gibi karşılaştırılır (tool
+  ikisini de indekste arar, §2); taslağın maddesinin bilinip bilinmemesine, `code_check`'e,
+  bulgunun `status`'üne ve kuralın `check`'ine bakılmaz. `clause_id`'si olmayan bulguda
+  (`not_found`) ve `enabled=False` iken eklenmez. Bedeli: ihlali bir maddede görüp düzeltmeyi
+  bilerek başka maddeye yazan doğru taslak da avukata gider. Kapatmadığı: bulgunun maddesine
+  yazılıp o maddenin kurala zaten uyan başka bir değerini taşıyan taslak ("kod düzenlenen değeri
+  ayırt etmez", yukarıda). Modelle ölçülmedi.
 - **`verify(findings, ..., enabled=True)` saf fonksiyondur.** Uygulamada her zaman açıktır; kapatan
   bir ayar yoktur. `enabled=False` yalnızca eval'deki "önce" ölçümünde kullanılır; o durumda yalnızca
   `agent_escalated` ve `no_finding` kuyruğa düşer; alıntı değiştirilmez ve `code_check` boş kalır
@@ -1323,6 +1340,7 @@ kural için avukattan taslak kararı istenmez); ikisi de audit'teki `tool_call` 
 | Taslak kurala uymuyor (`check` var) | Taslak silinmez; `proposal_noncompliant` → avukat kuyruğu |
 | Taslak kodla doğrulanamıyor (`check` yok) | Taslak silinmez; "kod doğrulayamadı" etiketi ve `proposal_unverifiable` → avukat kuyruğu |
 | Taslak maddenin bir alt maddesini düşürüyor | Taslak silinmez; `proposal_partial` → avukat kuyruğu (`code_check` değişmez) |
+| Taslak bulgunun maddesinden başka bir maddeye yazılmış | Taslak silinmez; `proposal_clause_mismatch` → avukat kuyruğu (`code_check` değişmez) |
 | Kural bulunamadı (`not_found`) | Her zaman `unverified_not_found` → avukat kuyruğu; kural `critical` ise ek sebep `critical_not_found` |
 | Enjeksiyon şüphesi | İnceleme devam eder; ifade silinmez, tüm bulgular avukat kuyruğuna gider |
 

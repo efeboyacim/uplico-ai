@@ -90,7 +90,8 @@ flowchart LR
    (`code_check=unverifiable`) ve bulgu `proposal_unverifiable` ile kuyruğa girer. Taslak
    maddenin tamamının yerine geçer; maddenin satır başındaki alt madde numaralarından (`3.1.`)
    birini taslakta taşımayan taslak `proposal_partial` ile kuyruğa girer (Adım 19f; `code_check`
-   değişmez).
+   değişmez). Bulgunun maddesinden başka bir maddeye yazılmış taslak
+   `proposal_clause_mismatch` ile kuyruğa girer (Adım 19g; `code_check` değişmez).
 6. **human_review:** Graph `interrupt()` ile durur. Graph döndükten sonra API doğrulanmış bulguları
    ve taslakları (maskeli) `reviews` tablosuna yazar, durumu `awaiting_lawyer` yapar, `awaiting_lawyer`
    audit satırını aynı transaction'da ekler, indeksi siler ve incelemeyi HTTP 200 ile döner (yanıt
@@ -334,9 +335,10 @@ Son sonuç (raporda ve `reviews` kaydında):
 - Karar verilmeyen taslak (yalnızca kuyruk dışında olabilir) "karar verilmedi" (`proposal_action:
   null`) olarak görünür ve talep edilen değişikliklere **girmez**. Kodun denetleyemediği taslak
   (`code_check=unverifiable`) her zaman kuyruktadır (`proposal_unverifiable`), bu yüzden kararsız
-  kalamaz; kuyruk dışındaki taslak kodun denetimini geçmiş (`passed`) ve maddenin alt madde
-  numaralarını koruyan taslaktır (alt madde düşüren taslak `proposal_partial` ile kuyruktadır,
-  Adım 19f). (Kuyruk
+  kalamaz; kuyruk dışındaki taslak kodun denetimini geçmiş (`passed`), maddenin alt madde
+  numaralarını koruyan ve bulgunun maddesine yazılmış taslaktır (alt madde düşüren taslak
+  `proposal_partial` ile, başka maddeye yazılmış taslak `proposal_clause_mismatch` ile
+  kuyruktadır; Adım 19f ve 19g). (Kuyruk
   `awaiting_lawyer`'a geçerken kaydedilir; bu sebepten önce kaydedilmiş bir incelemede
   `unverifiable` taslak kuyruk dışında kalmış olabilir.)
 - Son sonucu `non_compliant` olmayan bir bulgunun taslağı talep edilen değişikliklere girmez.

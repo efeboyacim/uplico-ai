@@ -343,6 +343,24 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   yazılmış madde. Fazla yakalama (avukat yönünde): taslakta `3.1)`, `Madde 3.1`, `**3.1.**`,
   başlığa noktalamasız bitişik numara. Eval veri kümesinin maddelerinde böyle numara olmadığı
   için sebep orada hiç üretilmez; modelle ölçülmedi.
+- **Kanıtlı ama yanlış "uygun": alıntının konusu denetlenmez.** Kod alıntının gösterilen maddede
+  geçtiğini ve kuralda `check` varsa alıntıdaki değerin eşiği sağladığını doğrular; maddenin
+  kuralın konusuyla ilgili olduğunu doğrulayamaz. `check`'siz kuralda sözleşmede geçen her alıntı
+  yeter. `check`'li kuralda başka konudaki bir maddenin, kuralın türünden ve eşiği sağlayan
+  değeri yeter ("fesih bildirimi en az 30 gün" kuralı için ödeme maddesindeki "45 gün"); bu
+  ikinci hâl Adım 19g'ye kadar dokümanlarda yoktu. Modelsiz sayım (Adım 19g; maskeli maddeler,
+  her cümle tek başına alıntı, enjeksiyon işareti sayılmadan): eval veri kümesindeki 24
+  (sözleşme, `check`'li kural) çiftinin 14'ünde, beklenen madde dışında böyle 22 madde var.
+  Sayım açığın genişliğini gösterir, sıklığını değil: ölçülen tam koşuların hiçbirinde
+  doğrulamadan sonra güvensiz hata yok (0 / 35; `evals.md` §4–§5). Kapatılmadı. Denenip
+  seçilmeyen çözüm: alıntılanan maddenin o kuralın aramalarında dönmüş olmasını istemek; arama 5
+  madde döndürür ve sorguyu model seçer, sorgu kural metni olduğunda 22 maddenin 16'sı arama
+  sonucundadır.
+- **Başka maddeye yazılmış taslak (Adım 19g, `proposal_clause_mismatch`):** taslağın `clause_id`'si
+  bulgunun `clause_id`'sinden farklıysa bulgu avukata gider; `code_check` değişmez. İhlali bir
+  maddede görüp düzeltmeyi bilerek başka maddeye yazan doğru taslak da avukata gider. `compliant`
+  / `not_found` bulguya yazılan taslak için ayrı bir kontrol yoktur. Kodu doğrudan çağırarak
+  doğrulandı; modelle ölçülmedi.
 - **Adım 19f'nin düzeltmeleri dış sözleşmede tek koşuyla ölçüldü:** sınırları gösteren ikinci dış
   sözleşme depoda değildir. Düzeltmelerden sonra Sonnet ile bir kez yeniden koşuldu (status
   9 / 10, garanti edilmeyen PII 0 / 6); tam eval de Sonnet ile bir kez koşuldu (`evals.md` §4),

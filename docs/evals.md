@@ -320,6 +320,14 @@
   sırasıyla yazılır (`proposal_unverifiable`'dan sonra). 500 rastgele taslak. Tool açıklamasının
   §2 tablosuyla aynı olması `tests/test_tools.py`'de, arayüz etiketi `tests/test_api.py`'de
   denetlenir.
+- **Başka maddeye yazılmış taslak (`proposal_clause_mismatch`, Adım 19g;
+  `tests/test_verify.py`):** `c1` için "uygun değil" bulgusunun taslağı `c2`'ye yazılmış ve
+  `c2`'nin kurala uyan metnini taşıyor → tek sebep `proposal_clause_mismatch`, `code_check`
+  `passed` kalır. Aynı maddeye yazılmış taslak sebep almaz; taslağın maddesi bilinmese de sebep
+  eklenir; `clause_id`'siz (`not_found`) bulgu ve `enabled=False` sebep eklemez; "uygun" bulguda
+  da eklenir; öteki sebeplerle birlikte `ReviewReason` sırasıyla yazılır (`proposal_partial`'dan
+  sonra). Veri kümesinde sınanmıyor: ölçülen koşuların sonuç dosyaları taslağın ve bulgunun
+  maddesini yan yana tutmaz. Arayüz etiketi `tests/test_api.py`'de denetlenir.
 - **`submit_finding` yanıtı (`tests/test_tools.py`):** `non_compliant` + taslak yok → yanıt
   `propose_change`'i ve maddeyi (`(c2)`) söyleyen sabit yönlendirmedir (tool'un reddettiği bir
   taslaktan sonra da); diğer durumlarda (`compliant`, `not_found`, taslaktan sonra gelen ya da
