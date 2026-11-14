@@ -89,7 +89,10 @@ bir kez yeniden koşuldu (9 / 10, garanti edilmeyen PII 6 / 6 → 0 / 6; yeni s�
 önceki yılın", `docs/evals.md` §4); Sonnet ile tam eval (`c3f3f69`): sert eşikler tuttu, 34 / 35 satırın sebepleri
 önceki koşuyla aynı, `proposal_partial` veri kümesinde sınanmıyor; Groq bu kodla koşulmadı.
 Ayrıntı `docs/plan.md` Adım 19f ve `docs/evals.md` §4.
-Sıradaki: Adım 20 — teslim (kullanıcı onayıyla push). Ayrıntı `docs/plan.md` "Durum".
+Adım 20 bitti (2026-11-14): `main` kullanıcı onayıyla `origin`'e push edildi (`c225c2c`); temiz
+klonda `.env` / `*.db` yok, imaj kuruluyor, API sahte sağlayıcı anahtarıyla ve modelsiz eval
+çalışıyor; gerçek modelle uçtan uca akış o klonda denenmedi. Plan bitti; AI oturumlarını kullanıcı
+ekler. Ayrıntı `docs/plan.md` "Durum" ve Adım 20.
 
 ## Komutlar
 ```bash

@@ -507,7 +507,8 @@
   `docs/evals.md` §4); tam eval Sonnet ile bir kez (`c3f3f69`): sert eşikler tuttu, 34 / 35 satırın
   sebepleri tabanla aynı, `proposal_partial` veri kümesinde sınanmıyor. Groq bu kodla koşulmadı.
   Ayrıntı Adım 19f "Gerçekleşen".
-- **Sıradaki:** Adım 20 — teslim (kullanıcı onayıyla push).
+- **Adım 20 bitti (2026-11-14):** `main` kullanıcı onayıyla `origin`'e push edildi. Plan bitti;
+  kalan iş plan dışıdır (AI oturumlarını kullanıcı ekler).
 - **Adım 18c'ye başlarken (2026-11-13 oturumunun devri):**
   1. Depo temiz; son commit bu notun commit'i. `origin`'e push yapılmadı (push Adım 20'dir).
   2. Holdout koşusu bitti; eval önbelleği yok. `src/`, `evals/*.py` ve `uv.lock` artık
@@ -2408,13 +2409,24 @@ Dokümanlar en sonda tek commit'te (kullanıcının 19c'deki talimatı). Tek ba�
   cümle başında anan taslak `proposal_partial`'dan kaçar, `3.1)` ya da kalın numaralar okunmaz.
 - **Dal:** `step-19f`, kullanıcı onayıyla `main`'e alındı (2026-11-14). Sıradaki adım Adım 20.
 
-### [ ] Adım 20 — Teslim
+### [x] Adım 20 — Teslim
 - **Ne:** Kullanıcının onayıyla `origin`'e push edilir. AI oturumları bu planın dışındadır: ham
   oturumları ekleme ve secret maskeleme işini kullanıcı kendisi yapar.
 - **Dosyalar:** —
 - **Doğrulama:** Push'tan sonra GitHub'dan temiz klonda `.env` ve `*.db` dosyası yok; README adımları
   o klonda çalışır.
 - **Commit:** yok (yalnızca push).
+- **Gerçekleşen (2026-11-14):** `step-19f` `main`'e alındı ve `main` push edildi (`c225c2c`).
+  Push'tan önce: 2407 test, ruff ve mypy temiz; git geçmişinde API anahtarı kalıbı, `.env` ya da
+  `*.db` yok; `.env.example`'ın değişken adları kodun ve Compose'un okuduklarıyla aynı, dosya
+  olduğu gibi yüklenince beklenen "anahtar zorunlu" hatası, anahtar eklenince geçerli ayar.
+  `.gitignore`'a README komutlarının yazdığı dosyalar eklendi. GitHub'dan temiz klonda: `.env` ve
+  `*.db` yok; imaj sıfırdan kuruldu; anahtarsız başlangıç yapılandırma hatasıyla durdu; sahte
+  sağlayıcı anahtarıyla `GET /` 200, `viewer` ile `POST /reviews` 403, `lawyer` ile 502
+  (`provider_config`); `--prepare-only` 7 / 7 sözleşmede çalıştı. **Denenmeyen:** o klonda gerçek
+  modelle uçtan uca akış (gerçek anahtar gerekir) ve port yayınlayan `docker compose up` (8000
+  portu geliştirme makinesinde çalışan uygulamadaydı; kontroller konteyner içinde yapıldı). Bu
+  notun commit'i push'tan sonra yazıldı ve ayrıca push edildi.
 
 ## CASE.md teslimatları → adımlar
 | CASE.md | Adım |
