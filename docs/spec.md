@@ -347,10 +347,13 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   sözleşme depoda değildir. Düzeltmelerden sonra Sonnet ile bir kez yeniden koşuldu (status
   9 / 10, garanti edilmeyen PII 0 / 6); tam eval de Sonnet ile bir kez koşuldu (`evals.md` §4),
   Groq ile koşulmadı.
-- **Taslakta sayı sözcüğü "bir" değer gibi okunabilir (dış sözleşmenin yeniden koşusunda
-  görüldü, düzeltilmedi):** gün kurallı bir maddenin bütün metnini içeren taslakta "bir önceki
-  yılın" ifadesi kuralı çiğneyen bir değer sayıldı ve uygun taslak `proposal_noncompliant` ile
-  avukata gitti. Hata güvenli yöndedir; okumanın mekanizması incelenmedi.
+- **Bütün madde taslağında kuralla ilgisiz okunamayan ifade (dış sözleşmenin yeniden koşusunda
+  görüldü):** taslak Adım 19f'den beri maddenin tamamını içerir; maddenin başka bir alt
+  maddesindeki "sayı + ara sözcük + birim" ifadesi okunamayan değer sayılır ve uygun taslak
+  `proposal_noncompliant` ile avukata gider (güvenli yön, gereksiz yönlendirme). Görülen örnek
+  ("bir önceki yılın") düzeltildi: "bir önceki / evvelki" + süre birimi artık atlanır. Aynı sınıfın
+  kalanı sürer: "bir sonraki gün", "bir başka gün", "bir tam yıl", "(bir önceki yılın)", "bir
+  önceki takvim yılı". Düzeltme modelle ölçülmedi.
 - **Groq `openai/gpt-oss-120b` (üç tam koşu) ve Anthropic `claude-sonnet-5-5` (üç tam koşu, her biri farklı kodla)
   dışındaki her yapılandırma "çalışır, ölçülmedi"dir (`google_genai` tek sözleşmede denendi,
   ölçülmedi):** ölçümler `evals.md` §4'tedir; iki model ayrı okunur. Ollama "ölçülmedi"

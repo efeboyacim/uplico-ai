@@ -85,8 +85,9 @@ başka başlık yoksa hemen altında kendi alt maddesi olan büyük harfli "7. B
 sırasıyla madde böler; etiketli bitişik TCKN checksum'ı tutmasa da maskelenir, akan metinde
 parantezli kimlik numarasından önceki ve unvandan sonraki ad bulunur (yalnızca bütün metinde);
 alt madde numarası düşüren taslak `proposal_partial` ile avukata gider. Dış sözleşme Sonnet ile
-bir kez yeniden koşuldu (9 / 10, garanti edilmeyen PII 6 / 6 → 0 / 6; yeni sınır: taslakta "bir
-önceki yılın", `docs/evals.md` §4); Sonnet ile tam eval (`c3f3f69`): sert eşikler tuttu, 34 / 35 satırın sebepleri
+bir kez yeniden koşuldu (9 / 10, garanti edilmeyen PII 6 / 6 → 0 / 6; koşunun gösterdiği sınır, taslakta
+okunamayan sayılan "bir önceki yılın", teslimden sonra düzeltildi: `docs/agent_design.md` §5,
+`docs/evals.md` §4); Sonnet ile tam eval (`c3f3f69`): sert eşikler tuttu, 34 / 35 satırın sebepleri
 önceki koşuyla aynı, `proposal_partial` veri kümesinde sınanmıyor; Groq bu kodla koşulmadı.
 Ayrıntı `docs/plan.md` Adım 19f ve `docs/evals.md` §4.
 Adım 20 bitti (2026-11-14): `main` kullanıcı onayıyla `origin`'e push edildi (`c225c2c`); temiz

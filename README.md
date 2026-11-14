@@ -111,7 +111,7 @@ uv run ruff check . && uv run ruff format --check .      # lint + format
 uv run mypy src evals                                    # type-check
 ```
 
-Test takımı 2407 testtir ve geliştirme makinesinde ≈ 5 dk sürer.
+Test takımı 2425 testtir ve geliştirme makinesinde ≈ 5 dk sürer.
 
 ## Kullanım
 
@@ -331,9 +331,11 @@ hatalar düzeltildikten sonra (`LLM_TEMPERATURE=none`, `MAX_CONCURRENCY=1`):
   hanesi tutmayan etiketli TCKN, unvandan sonraki adlar ve alt maddeyi düşüren taslak var. Hepsi
   düzeltildi ve testle sabitlendi. İkinci sözleşme düzeltmelerden sonra Sonnet ile bir kez daha
   koşuldu: maskelenmeyen kişisel veri 6 / 6 → 0 / 6, maddeler kodun kendisiyle numaralandı, beş
-  taslak alt maddelerini korudu; karar yine 9 / 10. Koşu yeni bir sınır da gösterdi
-  (düzeltilmedi): taslaktaki "bir önceki yılın" ifadesinin "bir"i değer gibi okunuyor ve uygun bir
-  taslak kod kontrolünden kalıp avukata gidiyor. Birinci sözleşme yeniden koşulmadı.
+  taslak alt maddelerini korudu; karar yine 9 / 10. Koşu bir sınır daha gösterdi:
+  taslak artık maddenin tamamını içerdiği için, başka bir alt maddedeki "bir önceki yılın" ifadesi
+  okunamayan değer sayılıyor ve uygun taslak kod kontrolünden kalıp avukata gidiyordu. Bu ifade
+  düzeltildi (modelle yeniden ölçülmedi); aynı türden başka ifadeler ("bir sonraki gün") bilerek
+  avukata gitmeye devam ediyor. Birinci sözleşme yeniden koşulmadı.
 
 ## Veri nereye gidiyor
 

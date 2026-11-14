@@ -2394,9 +2394,18 @@ Dokümanlar en sonda tek commit'te (kullanıcının 19c'deki talimatı). Tek ba�
 - **Dış sözleşme Sonnet ile yeniden (2026-11-14, tek koşu, `c3f3f69`, geçici yamalar olmadan):**
   status yine 9 / 10 (RULE-04); garanti edilmeyen PII 6 / 6 → 0 / 6; doğru madde 8 / 9; RULE-01
   taslağı `passed`; RULE-03, -04, -01, -06 ve -09 taslakları alt maddeleri korur, yalnızca
-  RULE-10 taslağı 12.2'yi çıkarır ve `proposal_partial` alır. Yeni sınır (düzeltilmedi): RULE-03'ün
-  bütün madde taslağında 3.3'teki "bir önceki yılın" değer gibi okunur ve taslak
-  `proposal_noncompliant` olur. Ayrıntı `docs/evals.md` §4.
+  RULE-10 taslağı 12.2'yi çıkarır ve `proposal_partial` alır. Koşunun gösterdiği sınır: RULE-03'ün
+  bütün madde taslağında 3.3'teki "bir önceki yılın" okunamayan değer ifadesi sayılır ve taslak
+  `proposal_noncompliant` olur (davranış 19f'den önce de vardı; bütün madde taslağı görünür
+  kıldı). Ayrıntı `docs/evals.md` §4.
+- **Teslimden sonra düzeltme (2026-11-14):** "bir önceki / evvelki" + süre birimi geçmiş döneme
+  gönderme sayılır, ne değer ne okunamayan ifadedir (`src/verify.py` `_past_period`; yalnızca
+  yazıyla tek başına "bir", arada yalnızca boşluk, önünde sayı / bağlaç / parantez yok). Bir agent
+  yazdı, bağımsız bir inceleyici ≈ 42.000 üretilmiş ve 333 gerçek metinde eski kodla karşılaştırdı:
+  kritik bulgu yok, her fark hedeflenen türden. İnceleyicinin eşik altı notu (araya noktalama)
+  ayrıca kapatıldı; bu son değişiklikten sonra yalnızca testler koşuldu (2425 test, ruff, mypy
+  temiz). RULE-03 taslağı yerelde `failed` → `passed`; "bir sonraki gün içinde" hâlâ kalır.
+  Modelle ölçülmedi.
 - **Ölçülmeyen:** dış sözleşmedeki etki tek koşudur; prompt cümlesinin etkisi başka modelde
   ölçülmedi; Groq bu kodla koşulmadı; holdout ve birinci dış sözleşme yeniden koşulmadı.
 - **Kalan sınırlar** (`docs/agent_design.md` §4–§5, `docs/spec.md` §8): gövdesi kendi alt
