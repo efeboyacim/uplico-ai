@@ -105,7 +105,7 @@ Adım 19h bitti (2026-11-15; aynı dalda, 19g ile birlikte `main`'de): süreç i
 (`process_interrupted`) yazar (`create_app` veritabanına yazmaz); gerçek süreç öldürülerek
 denendi; Docker'da elle bırakılan `running` satırla yeniden başlatma da tuttu (Adım 21). Açık karar: "yanlış uygun" sınırı için çapa sözcükleri. Ayrıntı
 `docs/plan.md` Adım 19h.
-Adım 21 bitti (2026-11-15; `step-21` dalında): kurulum varsayılanı Sonnet oldu. Yalnızca
+Adım 21 bitti (2026-11-15; `step-21` dalı `main`'e alındı ve push edildi): kurulum varsayılanı Sonnet oldu. Yalnızca
 `.env.example` ve dokümanlar değişti; kod, testler ve kodun varsayılanı (boş `LLM_PROVIDER` →
 Groq) aynı. `.env.example` artık sağlayıcıya özel üç satır taşır (`LLM_PROVIDER`, `LLM_MODEL`,
 `LLM_TEMPERATURE=none`); sağlayıcıyı değiştiren üçünü birlikte değiştirir. Terimler ve bedeller:

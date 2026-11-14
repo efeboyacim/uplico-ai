@@ -519,7 +519,7 @@
   `review_failed` (`process_interrupted`) alır. Gerçek süreç öldürülerek denendi. Dış incelemeden
   kalan açık karar: "yanlış uygun" sınırı için çapa sözcükleri (Adım 19g "seçilmeyen çözümler").
   Ayrıntı Adım 19h.
-- **Adım 21 bitti (2026-11-15; `step-21` dalında):** kurulum varsayılanı Anthropic
+- **Adım 21 bitti (2026-11-15; `step-21` dalı kullanıcı onayıyla `main`'e alındı ve push edildi):** kurulum varsayılanı Anthropic
   `claude-sonnet-5-5` oldu. Yalnızca `.env.example` ve dokümanlar değişti; kod, testler ve kodun
   varsayılanı (boş `LLM_PROVIDER` → Groq) aynı. Temiz klonda README adımları gerçek modelle baştan
   sona yürütüldü; yeni ayarla eval koşulmadı. Ayrıntı Adım 21.
