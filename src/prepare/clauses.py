@@ -27,6 +27,18 @@ _HEADING = re.compile(
     + r")"
 )
 
+# "## 4. Fesih" / "## **4.** Fesih": a Markdown heading whose title starts with a top-level number
+# (1-3 digits, then a "." not followed by a digit, then a title or the end of the line). Used only
+# when the text has no "Madde N" heading, and only at the "#" level of the first such heading.
+# Not a heading: "## 4.1. Alt", "## 14.11.2026", "## 1.200 TL", "## 2026. Yıl", "## I. Giriş",
+# an unmarked "4. Başlık" or a numbered list; a sub-item stays inside its top-level clause.
+_NUMBERED_HEADING = re.compile(
+    _HEADING_START
+    + r"[ \t]*#+[ \t]+(?:\*\*)?(\d{1,3})\.(?!\d)(?:\*\*)?(?:[ \t]+(?=\S)|[ \t]*"
+    + _LINE_END
+    + r")"
+)
+
 _PARAGRAPH_BREAK = re.compile(_NEWLINE + r"[^\S\r\n]*" + _NEWLINE)
 
 _SPECIAL_CASE = {"i": "[iİ]", "İ": "[iİ]", "ı": "[ıI]", "I": "[ıI]"}
@@ -89,9 +101,24 @@ def _split_paragraphs(text: str) -> list[tuple[int, int, str | None]]:
     return spans
 
 
+def _heading_level(heading: re.Match[str]) -> int:
+    line = heading.group(0).lstrip(_BOM + " \t")
+    return len(line) - len(line.lstrip("#"))
+
+
+def _numbered_headings(text: str) -> list[re.Match[str]]:
+    """Numbered Markdown headings at the "#" level of the first one ("### 1." under "## 2." is
+    not a heading)."""
+    headings = list(_NUMBERED_HEADING.finditer(text))
+    if not headings:
+        return []
+    level = _heading_level(headings[0])
+    return [heading for heading in headings if _heading_level(heading) == level]
+
+
 def split_clauses(text: str) -> list[RawClause]:
     """Split `text` into clauses; each clause satisfies `text == original[start:end]`."""
-    headings = list(_HEADING.finditer(text))
+    headings = list(_HEADING.finditer(text)) or _numbered_headings(text)
     spans = _split_by_headings(text, headings) if headings else _split_paragraphs(text)
     clauses: list[RawClause] = []
     for raw_start, raw_end, clause_no in spans:

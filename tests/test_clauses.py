@@ -1,5 +1,8 @@
-from src.models import RawClause
+import pytest
+
+from src.models import Check, Clause, Finding, MaskedText, RawClause, Rule
 from src.prepare.clauses import split_clauses
+from src.verify import verify
 
 
 def _split(text: str) -> list[RawClause]:
@@ -226,3 +229,164 @@ def test_split_clauses_bom_elsewhere_or_doubled_is_not_a_line_start() -> None:
 def test_split_clauses_bom_without_headings_paragraphs_unchanged() -> None:
     clauses = _split(BOM + "Birinci paragraf.\n\nİkinci paragraf.")
     assert [c.text for c in clauses] == [BOM + "Birinci paragraf.", "İkinci paragraf."]
+
+
+# --- Numbered Markdown headings ("## 4. Fesih"), only when there is no "Madde N" heading ---------
+
+
+def test_split_clauses_numbered_markdown_headings_keep_sub_items_inside() -> None:
+    text = "## 1. Taraflar\n1.1. A\n\n1.2. B\n\n## 2. Konu\n2.1. C\n\n## 3. Fesih\n3.1. D\n\n3.2. E"
+    clauses = _split(text)
+    assert [c.clause_no for c in clauses] == ["1", "2", "3"]
+    assert clauses[0].text == "## 1. Taraflar\n1.1. A\n\n1.2. B"
+    assert clauses[2].text.endswith("3.2. E")
+
+
+def test_split_clauses_numbered_markdown_sub_item_heading_does_not_split() -> None:
+    clauses = _split("## 4. Fesih\nx\n## 4.1. Bildirim\ny\n## 4.2. Süre\nz")
+    assert [c.clause_no for c in clauses] == ["4"]
+
+
+def test_split_clauses_numbered_markdown_heading_with_bold_number() -> None:
+    clauses = _split("## **1.** Taraflar\nA\n\n## **2.** Konu\nB")
+    assert [c.clause_no for c in clauses] == ["1", "2"]
+
+
+def test_split_clauses_numbered_markdown_heading_alone_on_line() -> None:
+    clauses = _split("## 1.\nA\n\n## 2.  \nB")
+    assert [c.clause_no for c in clauses] == ["1", "2"]
+
+
+def test_split_clauses_numbered_markdown_heading_number_as_written() -> None:
+    clauses = _split("## 01. A\nx\n\n## 02. B\ny")
+    assert [c.clause_no for c in clauses] == ["01", "02"]
+
+
+def test_split_clauses_numbered_markdown_preamble_and_signature() -> None:
+    text = "# SÖZLEŞME\n\nGiriş metni.\n\n## 1. A\nx\n\n## 2. B\ny\n\nİmzalar\nX A.Ş.   Y Ltd."
+    clauses = _split(text)
+    assert [c.clause_no for c in clauses] == [None, "1", "2", None]
+    assert clauses[0].text == "# SÖZLEŞME\n\nGiriş metni."
+    assert clauses[2].text == "## 2. B\ny"
+    assert clauses[3].text.startswith("İmzalar")
+
+
+def test_split_clauses_numbered_markdown_annex_stays_in_last_clause() -> None:
+    clauses = _split("## 1. A\nx\n\n## 2. B\ny\n\n## Ek-1\nek metni")
+    assert [c.clause_no for c in clauses] == ["1", "2"]
+    assert clauses[1].text.endswith("## Ek-1\nek metni")
+
+
+@pytest.mark.parametrize("newline", ["\r\n", "\r"])
+def test_split_clauses_numbered_markdown_crlf_and_cr(newline: str) -> None:
+    text = newline.join(["## 1. A", "x", "", "## 2. B", "y"])
+    clauses = _split(text)
+    assert [(c.clause_no, c.text) for c in clauses] == [
+        ("1", newline.join(["## 1. A", "x"])),
+        ("2", newline.join(["## 2. B", "y"])),
+    ]
+
+
+def test_split_clauses_numbered_markdown_heading_after_bom() -> None:
+    clauses = _split(BOM + "## 1. Taraflar\nA\n\n## 2. Konu\nB")
+    assert [c.clause_no for c in clauses] == ["1", "2"]
+    assert clauses[0].text[0] == BOM
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "## 4.1. Alt\nmetin\n\n## 4.2. Alt\nmetin",
+        "## 14.11.2026 Tarihli Ek\nmetin\n\n## 1.200 TL\nx",
+        "## 2026. Yılı Fiyatları\nmetin\n\n## 1234. Uzun\nx",
+        "## 4 - Fesih\nx\n\n## 5 - Son\ny",
+        "## 4.Fesih\nx\n\n## 5.Son\ny",
+        "#4. Fesih\nx\n\n#5. Son\ny",
+        "1. Taraflar\n1.1. A\n\n2. Konu\n2.1. C",
+        "**1.** Taraflar\nA\n\n**2.** Konu\nB",
+        "Tedarikçi:\n1. Teslim eder.\n2. Kurar.\n\n3. Bakım yapar.",
+        "## I. Giriş\nmetin\n\n## II. Konu\nmetin",
+        "14.11.2026 tarihinde imzalandı.\n\n1.200.000 TL bedel.",
+    ],
+)
+def test_split_clauses_not_numbered_heading_falls_back_to_paragraphs(text: str) -> None:
+    clauses = _split(text)
+    assert all(c.clause_no is None for c in clauses)
+    assert [c.text for c in clauses] == [p.strip() for p in text.split("\n\n") if p.strip()]
+
+
+def test_split_clauses_numbered_markdown_ignored_when_madde_heading_exists() -> None:
+    clauses = _split("## Madde 1 - A\nx\n\n## 2. B\ny")
+    assert [c.clause_no for c in clauses] == ["1"]
+    assert clauses[0].text == "## Madde 1 - A\nx\n\n## 2. B\ny"
+
+
+def test_split_clauses_numbered_list_one_level_below_does_not_split() -> None:
+    text = "## 1. Konu\nx\n\n## 2. Ekler\n### 1. Teknik şartname\n### 2. Fiyat listesi\n"
+    clauses = _split(text)
+    assert [c.clause_no for c in clauses] == ["1", "2"]
+    assert clauses[1].text.endswith("### 2. Fiyat listesi")
+
+
+def test_split_clauses_numbered_markdown_level_is_that_of_first_heading() -> None:
+    text = "### 1. Konu\nx\n## 2. Ara başlık\ny\n### 3. Fesih\nz"
+    clauses = _split(text)
+    assert [c.clause_no for c in clauses] == ["1", "3"]
+    assert clauses[0].text == "### 1. Konu\nx\n## 2. Ara başlık\ny"
+
+
+def test_split_clauses_numbered_markdown_every_character_covered_once() -> None:
+    text = "Giriş\r\n\r\n## 1. A\r\n1.1. metin\r\n## **2.** B\r\nmetin\r\nİmzalar\r\nX A.Ş.\r\n"
+    clauses = _split(text)
+    assert [c.clause_id for c in clauses] == ["c1", "c2", "c3", "c4"]
+    covered = [i for c in clauses for i in range(c.start, c.end)]
+    assert len(covered) == len(set(covered))
+    assert {i for i, ch in enumerate(text) if not ch.isspace()} <= set(covered)
+
+
+@pytest.mark.parametrize(
+    ("rule", "text", "quote"),
+    [
+        (
+            Rule(
+                id="termination_notice",
+                text="Fesih bildirim süresi en az 30 gün olmalıdır.",
+                check=Check(op=">=", value=30, unit="gün"),
+            ),
+            "## 4. Fesih\n\n4.1. Taraflar 45 gün önceden yazılı bildirimle feshedebilir.\n\n"
+            "4.2. Ancak Tedarikçi 10 gün önceden bildirimle feshedebilir.",
+            "Taraflar 45 gün önceden yazılı bildirimle feshedebilir.",
+        ),
+        (
+            Rule(
+                id="insurance_minimum",
+                text="Tedarikçi en az 1.000.000 TL teminatlı sigorta yaptırmalıdır.",
+                check=Check(op=">=", value=1000000, unit="TL"),
+            ),
+            "## 6. Sigorta\n\n6.1. Tedarikçi 2.000.000 TL teminatlı mesleki sorumluluk "
+            "sigortası yaptırır.\n\n6.2. İlk yıl için teminat 500.000 TL olarak uygulanır.",
+            "Tedarikçi 2.000.000 TL teminatlı mesleki sorumluluk sigortası yaptırır.",
+        ),
+    ],
+)
+def test_split_clauses_numbered_heading_lets_verify_see_breaking_sub_item(
+    rule: Rule, text: str, quote: str
+) -> None:
+    # A "compliant" quote on one sub-item while the next sub-item breaks the rule: the whole
+    # top-level clause is one clause, so verify sees the breaking value outside the quote.
+    (clause,) = [c for c in _split(text) if quote in c.text]
+    assert clause.clause_no == text[3]
+    clauses = [
+        Clause(
+            clause_id=c.clause_id,
+            clause_no=c.clause_no,
+            start=c.start,
+            end=c.end,
+            text=MaskedText(c.text),
+        )
+        for c in _split(text)
+    ]
+    finding = Finding(rule_id=rule.id, status="compliant", clause_id=clause.clause_id, quote=quote)
+    (result,) = verify([finding], [rule], clauses, False, enabled=True)
+    assert result.needs_review
+    assert "numeric_mismatch" in result.review_reasons
