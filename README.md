@@ -90,10 +90,14 @@ COMPOSE_PROFILES=offline
 ```
 
 Bu profille `ollama` ve `ollama-pull` servisleri de başlar; model iner, `app` indirme bitene kadar
-bekler, sonrasında internet gerekmez. `LLM_MODEL` boşsa model `qwen3.5:9b`'dir (~7 GB, tahmin;
-yedek `qwen3.5:4b` 3,3 GB). Ollama imajı 3,40 GB iner. Çevrimdışı mod yalnızca `qwen3.5:4b` ile
-denendi (ilk `docker compose up` 7 dk 17 sn); `qwen3.5:9b` hiç denenmedi (geliştirme makinesinin
-ekran kartı 4 GB). Host'taki Ollama için: `OLLAMA_BASE_URL=http://host.docker.internal:11434`.
+bekler, sonrasında internet gerekmez. API anahtarı gerekmez (`LLM_API_KEY` boş kalabilir).
+
+- **Model:** `LLM_MODEL` boşsa `qwen3.5:9b` iner (~7 GB, tahmin; hiç denenmedi). Küçük ekran
+  kartında `LLM_MODEL=qwen3.5:4b` yaz (3,3 GB; denenen tek model, ilk `docker compose up` 7 dk
+  17 sn). Ollama imajı 3,40 GB iner.
+- **Süre:** yavaştır; `qwen3.5:4b` ile tek sözleşme GPU'da 443 sn, CPU'da 903 sn sürdü.
+- **GPU:** Compose'daki `ollama` kapsayıcısına GPU tanımlı değildir. GPU için host'ta kurulu
+  Ollama'yı kullan: `OLLAMA_BASE_URL=http://host.docker.internal:11434`.
 
 ### Başka bir sağlayıcı
 Sağlayıcı, model, anahtar ve adres yalnızca `.env` ile seçilir; kod değişmez. İmajda
