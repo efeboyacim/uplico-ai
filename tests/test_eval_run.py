@@ -1802,3 +1802,23 @@ def test_run_numbered_markdown_headings_contract_runs_to_exit_0(
     assert len(model.received()) == _calls(0, 2)
     _, data = _result(results_dir)
     assert [c["contract_id"] for c in data["contracts"]] == ["contract-01", "contract-02"]
+
+
+def test_run_limit_skips_unsplit_expected_clause_of_unselected_contract(
+    data_dir: Path, results_dir: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Contract 02 cannot be split by its labels' numbers, but `--limit 1` selects only
+    # contract 01: the check looks at the selected labels alone, and the run completes.
+    dataset = _converted_dataset(tmp_path / "kume", "{}. ")
+    model = _model(data_dir, 1)
+
+    code = _run(data_dir, results_dir, model, limit=1, dataset_dir=dataset)
+    err = capsys.readouterr().err
+
+    assert code == EXIT_OK
+    assert "contract-02" not in err
+    assert len(model.received()) == _calls(0, 1)
+    _, data = _result(results_dir)
+    assert [c["contract_id"] for c in data["contracts"]] == ["contract-01"]
+    assert data["contracts_run"] == 1
+    assert data["partial"] is True
