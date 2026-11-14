@@ -35,7 +35,13 @@ Design (`docs/agent_design.md` §5 "Doğrulama katmanı"):
   proposal check all go through it.
 - An hour ("72 saat") is a value only for a rule whose unit is saat (`extract(..., hours=True)`);
   for every other rule it stays an unreadable expression, as it was before saat was a unit. A
-  clock time ("08:30 saatinde") is never an hour value.
+  number that may be a clock time or its minutes is no hour value either; its expression stays
+  unreadable (`_Reader._clock_time`): after a colon of any kind and a digit, spaces allowed
+  ("08:30", "08 : 30 saati"), right after another digit run with a space or "h" between ("08 30",
+  "08h30 saatte"), or written H,MM / HH,MM within 0-24 and 00-59 ("9,30 saati"; so "1,50 saat"
+  stays unreadable too). "9.30 saati" is one malformed number, unreadable as before. Not caught:
+  a clock time with no minutes ("17 saati itibarıyla" reads 17 hours) and the hours of a clock
+  time a connector links to an hour value ("14 saat veya 12:00" reads 12 hours, so two values).
 - Comparisons are on intervals; an exact value is a one-point interval.
 """
 
@@ -114,6 +120,11 @@ _DURATION_FORMS: dict[str, CheckUnit] = {
 _DURATION_STEMS: tuple[str, ...] = ("gün", "hafta", "ay", "yıl", "saat")
 # The one duration unit read only for a rule in that unit (`_Reader.hours`).
 _HOUR: CheckUnit = "saat"
+# What separates the hours and the minutes of a clock time (`_Reader._clock_time`): ":", U+2236
+# RATIO, U+FF1A FULLWIDTH COLON (NFKC turns it into ":"), U+02D0 and U+A789 (modifier colons).
+_CLOCK_COLONS = frozenset(":\u2236\uff1a\u02d0\ua789")
+# A clock time written with a comma, H,MM or HH,MM ("9,30 saati"); the ranges are checked apart.
+_COMMA_TIME_RE = re.compile(r"(\d{1,2}),(\d{2})")
 # Time units the code does not convert: after a number they are unreadable, never dropped.
 _OTHER_TIME_STEMS: tuple[str, ...] = ("sene", "dakika")
 
@@ -214,7 +225,9 @@ class _Token:
     trailing: bool = False
     # Word that starts with a number word but is not one ("beşer", "birkaç", "üçüncü").
     inflected: bool = False
-    # Number token that took in what continues it ("1,5 milyon", "1/2", "1 000"): never read.
+    # Number token that took in what continues it ("1,5 milyon", "1/2", "1 000"): never read on
+    # its own (`_readable`). The one exception is a TL amount in canonical words that restates
+    # the digits next to it ("1.000 TL (bin TL)"): it gets the digits' value (`_Reader._value`).
     continued: bool = False
     # Nothing but at most a space separates this token from the one before it.
     joined_left: bool = False
@@ -471,7 +484,10 @@ def _sentence_start(norm: str, tok: _Token) -> bool:
 
 
 def _join_continuations(norm: str, lowered: str, tokens: Sequence[_Token]) -> list[_Token]:
-    """Fold what continues a number into the number's token, marked `continued` (never read).
+    """Fold what continues a number into the number's token, marked `continued`.
+
+    A `continued` token is never read on its own; only a TL amount in canonical words that
+    restates the digits next to it gets a value, the digits' value (`_Reader._value`).
 
     A number continues into a multiplier or fraction word right after it ("1,5 milyon", "bir
     buçuk"), into digits joined by "/" or U+2044 ("1/2") and into space-grouped digits whose later
@@ -480,8 +496,9 @@ def _join_continuations(norm: str, lowered: str, tokens: Sequence[_Token]) -> li
     the number ("Ek-2, 225": two numbers).
 
     A multiplier or fraction word with no number before it ("bin beş yüz gün", "bin 500 gün",
-    "yarım yıl", "bin TL") is a number too, with the number after it folded in: it is never read,
-    and what follows it is not read as a number of its own.
+    "yarım yıl", "bin TL") is a number too, with the number after it folded in: it is not read on
+    its own (only as the restatement above: "1.000 TL (bin TL)"), and what follows it is not read
+    as a number of its own.
     """
     out: list[_Token] = []
     i = 0
@@ -768,13 +785,50 @@ class _Reader:
             self.unreadable[first] = self.norm[toks[first].start : toks[last].end]
 
     def _clock_time(self, members: Sequence[int]) -> bool:
-        """A member is the minutes of a clock time: a digit and ":" stand right before it
-        ("08:30 saati"). Such a number is no hour value."""
+        """A member may be a clock time, or its minutes: then no member is an hour value.
+
+        - A colon of any kind (`_CLOCK_COLONS`) and a digit stand before it, spaces skipped on
+          both sides of the colon: "08:30", "08: 30", "08 : 30 saati", U+2236 in place of ":".
+        - Another digit run stands right before it, with a space or one "h" between: "08 30",
+          "08h30", "08 h 30 saatte".
+        - It is written H,MM or HH,MM with H 0-24 and MM 00-59: "9,30 saati", "08,30 saatte".
+          A real duration written so ("1,50 saat") stays unreadable too.
+
+        Not caught (known limit): a clock time with no minutes ("17 saati itibarıyla").
+        """
+        toks, norm = self.tokens, self.norm
+
+        def after_colon(start: int) -> bool:
+            k = start - 1
+            while k >= 0 and norm[k].isspace():
+                k -= 1
+            if k < 0 or norm[k] not in _CLOCK_COLONS:
+                return False
+            k -= 1
+            while k >= 0 and norm[k].isspace():
+                k -= 1
+            return k >= 0 and norm[k].isdigit()
+
+        def digit_run(k: int) -> bool:
+            return k >= 0 and toks[k].kind == "number" and not toks[k].spelled
+
+        def after_digits(m: int) -> bool:
+            if not toks[m].joined_left:
+                return False
+            if digit_run(m - 1):
+                return True
+            h = toks[m - 1]
+            return h.kind == "word" and h.text == "h" and h.joined_left and digit_run(m - 2)
+
+        def comma_time(tok: _Token) -> bool:
+            if tok.spelled or tok.continued:
+                return False
+            text = tok.text[:-1] if tok.trailing else tok.text
+            match = _COMMA_TIME_RE.fullmatch(text)
+            return match is not None and int(match[1]) <= 24 and int(match[2]) <= 59
+
         return any(
-            self.tokens[m].start >= 2
-            and self.norm[self.tokens[m].start - 1] == ":"
-            and self.norm[self.tokens[m].start - 2].isdigit()
-            for m in members
+            after_colon(toks[m].start) or after_digits(m) or comma_time(toks[m]) for m in members
         )
 
     def _value(
@@ -791,11 +845,14 @@ class _Reader:
           "bin (1.000) TL", "₺1.000 (bin)", "TL 1.000 (bin)". The group is the one the reader
           already takes as a restatement of digits ("₺1.000 (5.000)"), so what it allows
           between the number and "(" is allowed here too;
-        - an expression of its own that is the whole group: "(" right after a read one-number TL
-          expression, with at most a space between, the words, a unit word, then ")" -
-          "2.400.000 TL (iki milyon dört yüz bin Türk lirası)", "₺1.200.000 (bir milyon iki yüz
-          bin TL)". Not "2.400.000 TL, (...)", not "1.000 TL (iki milyon bin TL)" ("bin TL" is
-          not the whole group), not "1.000 TL (bin) ila 2.000 TL" (no unit word inside).
+        - an expression of its own that starts the group: "(" right after a read one-number TL
+          expression, with at most a space between, the words, then a unit word and ")" right
+          after the expression - "2.400.000 TL (iki milyon dört yüz bin Türk lirası)",
+          "₺1.200.000 (bir milyon iki yüz bin TL)". A ")" may also stand between the words and
+          the unit word, since the unit is looked for past ")" (`_unit_after`): "1.000 TL (bin)
+          TL)" reads two values. Not "2.400.000 TL, (...)", not "1.000 TL (iki milyon bin TL)"
+          ("bin TL" is not the whole group), not "1.000 TL (bin) ila 2.000 TL" (no unit word
+          inside).
 
         Words that say another amount, that the grammar does not read, or that stand anywhere
         else are no value: the expression stays unreadable, as before.

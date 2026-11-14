@@ -1290,7 +1290,7 @@ def test_extract_amount_words_restatement_edges(text: str, expected: Extraction)
 def test_extract_amount_restatement_gives_unit_to_linked_neighbour() -> None:
     # The restatement is read, so the connector rule gives its unit to the unit-less 2.000, as it
     # does after "500 TL ila 2.000"; before, the whole expression was unreadable and 2.000 had no
-    # unit (decided in plan 19e: the cascade is accepted).
+    # unit (the cascade is accepted; recorded in plan step 19e, "Gerçekleşen").
     assert extract("500 (beş yüz) TL ila 2.000", "amount") == Extraction(
         (Quantity(500, "TL"), Quantity(500, "TL"), Quantity(2000, "TL")), ()
     )
@@ -1643,6 +1643,132 @@ def test_verify_hour_rule_loaded_from_rules_file_end_to_end(data_dir: Path) -> N
     wrong = finding.model_copy(update={"proposal": _proposal("Arızaya 3 gün içinde.")})
     (result,) = verify([wrong], [rule], [clause], False)
     assert result.review_reasons == ["proposal_noncompliant"]
+
+
+# Clock times in a rule in hours: no member that may be a clock time or its minutes is read.
+_CLOCK_COLON_CHARS = (":", "\u2236", "\uff1a", "\u02d0", "\ua789")
+_NBSP = "\u00a0"
+_CLOCK_TIMES = [
+    ("08: 30 saati", "30 saati"),
+    ("08 :30 saati", "30 saati"),
+    ("08 : 30 saati", "30 saati"),
+    (f"08{_NBSP}:{_NBSP}30 saati", "30 saati"),
+    ("08\u223630 saati", "30 saati"),
+    ("08 \u2236 30 saatte", "30 saatte"),
+    ("08\uff1a30 saati", "30 saati"),
+    ("08\u02d030 saati", "30 saati"),
+    ("08\ua78930 saati", "30 saati"),
+    ("08h30 saatte", "30 saatte"),
+    ("08H30 saatte", "30 saatte"),
+    ("08 h 30 saatte", "30 saatte"),
+    ("08 30 saatte", "30 saatte"),
+    ("9,30 saati", "9,30 saati"),
+    ("8,30 saatte", "8,30 saatte"),
+    ("08,30 saatte", "08,30 saatte"),
+    ("00,00 saatte", "00,00 saatte"),
+    ("24,59 saatte", "24,59 saatte"),
+]
+
+
+@pytest.mark.parametrize(("text", "expression"), _CLOCK_TIMES)
+def test_extract_hour_clock_time_spellings_unreadable(text: str, expression: str) -> None:
+    sentence = f"Müdahale {text} itibarıyla yapılır."
+    assert extract(sentence, "duration", hours=True) == Extraction((), (expression,))
+    # Outside a rule in hours nothing changes: the hour stays unreadable, with the same span.
+    assert extract(sentence, "duration") == Extraction((), (expression,))
+    assert extract(sentence, "duration").spans == extract(sentence, "duration", hours=True).spans
+
+
+@pytest.mark.parametrize(("text", "_expression"), _CLOCK_TIMES)
+def test_verify_hour_rule_clock_time_queued_and_draft_failed(text: str, _expression: str) -> None:
+    sentence = f"Müdahale {text} itibarıyla yapılır."
+    assert _reasons(_finding(sentence), AT_MOST_48_HOURS) == ["numeric_mismatch"]
+    clause = f"Müdahale 48 saat içinde yapılır. Bakım {text} itibarıyla başlar."
+    finding = _finding("Müdahale 48 saat içinde yapılır.")
+    assert _reasons(finding, AT_MOST_48_HOURS, clause) == ["ambiguous_value"]
+    draft = _non_compliant_with_hours(sentence)
+    assert draft.proposal is not None
+    assert draft.proposal.code_check == "failed"
+
+
+def _non_compliant_with_hours(draft: str) -> Finding:
+    finding = _finding(
+        "Müdahale 72 saat içinde yapılır.", status="non_compliant", proposal=_proposal(draft)
+    )
+    return _run(finding, AT_MOST_48_HOURS)
+
+
+def test_verify_hour_rule_clock_time_minimal_reproduction() -> None:
+    quote = "Müdahale 08: 30 saati itibarıyla yapılır."
+    assert _reasons(_finding(quote), AT_MOST_48_HOURS) == ["numeric_mismatch"]
+
+
+def test_extract_hour_comma_with_two_decimals_unreadable() -> None:
+    # The cost of reading "9,30 saati" as a clock time: a real duration written H,MM stays
+    # unreadable too and goes to the lawyer (the safe side).
+    assert extract("1,50 saat içinde", "duration", hours=True) == Extraction((), ("1,50 saat",))
+    assert _reasons(_finding("1,50 saat içinde"), AT_MOST_48_HOURS) == ["numeric_mismatch"]
+    # Out of the clock ranges a comma number is a duration.
+    assert extract("25,30 saatte", "duration", hours=True).values == (Quantity(25.3, "saat"),)
+    assert extract("9,60 saatte", "duration", hours=True).values == (Quantity(9.6, "saat"),)
+
+
+@pytest.mark.parametrize("text", ["9.30 saati", "17.00 saatte"])
+def test_extract_hour_dotted_clock_time_unreadable_as_before(text: str) -> None:
+    assert extract(f"Bakım {text} başlar", "duration", hours=True) == Extraction((), (text,))
+
+
+def test_extract_hour_clock_time_known_limits() -> None:
+    # A clock time with no minutes reads as hours.
+    assert extract("17 saati itibarıyla", "duration", hours=True) == Extraction(
+        (Quantity(17, "saat"),), ()
+    )
+    # The hours of a clock time linked by a connector take the unit: two values, so queued.
+    text = "Müdahale 14 saat veya 12:00 itibarıyla yapılır."
+    assert extract(text, "duration", hours=True).values == (
+        Quantity(14, "saat"),
+        Quantity(12, "saat"),
+    )
+    assert _reasons(_finding(text), AT_MOST_48_HOURS) == ["ambiguous_value"]
+
+
+@pytest.mark.parametrize(
+    ("text", "values"),
+    [
+        ("72 saat", [(72, "saat")]),
+        ("yetmiş iki (72) saat", [(72, "saat"), (72, "saat")]),
+        ("24 saatlik", [(24, "saat")]),
+        ("48 saatte", [(48, "saat")]),
+        ("1,5 saat", [(1.5, "saat")]),
+        ("0,5 saat", [(0.5, "saat")]),
+        ("2 gün 12 saat", [(2, "gün"), (12, "saat")]),
+        ("2 gün, 12 saat", [(2, "gün"), (12, "saat")]),
+        ("Süre: 30 saat", [(30, "saat")]),
+        ("48 ila 72 saat", [(48, "saat"), (72, "saat")]),
+    ],
+)
+def test_extract_hour_durations_still_read(text: str, values: list[tuple[float, str]]) -> None:
+    extraction = extract(f"Müdahale {text} içinde yapılır.", "duration", hours=True)
+    assert extraction.unreadable == ()
+    assert [(q.amount, q.unit) for q in extraction.values] == values
+
+
+def test_extract_clock_time_spellings_never_an_hour_value_seeded() -> None:
+    rng = random.Random(19_051)
+    spaces = ["", " ", _NBSP, " " + _NBSP]
+    colons = [left + c + right for c in _CLOCK_COLON_CHARS for left in spaces for right in spaces]
+    separators = [*colons, " ", "  ", _NBSP, "h", "H", " h ", "h ", " H", ","]
+    forms = [*_HOUR_FORMS, "saatine", "saatinde", "saatinden", "saatleri", "Saat", "SAATTE"]
+    fillers = ["Teslim", "en geç", "içinde", "30 gün", "veya", "Ayrıca", "%5", "", "(", ")"]
+    for _ in range(10_000):
+        hh, mm = rng.randrange(25), rng.randrange(60)
+        hours = f"{hh:02d}" if rng.random() < 0.5 else str(hh)
+        before = " ".join(rng.choice(fillers) for _ in range(rng.randint(0, 3)))
+        after = " ".join(rng.choice(fillers) for _ in range(rng.randint(0, 3)))
+        text = f"{before} {hours}{rng.choice(separators)}{mm:02d} {rng.choice(forms)} {after}"
+        extraction = extract(text, "duration", hours=True)
+        assert all(q.unit != "saat" for q in extraction.values), ascii(text)
+        assert extraction.unreadable, ascii(text)
 
 
 # --- Critical rule, not_found, no_finding ---------------------------------------------------------
