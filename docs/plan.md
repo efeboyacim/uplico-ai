@@ -519,6 +519,10 @@
   `review_failed` (`process_interrupted`) alır. Gerçek süreç öldürülerek denendi. Dış incelemeden
   kalan açık karar: "yanlış uygun" sınırı için çapa sözcükleri (Adım 19g "seçilmeyen çözümler").
   Ayrıntı Adım 19h.
+- **Adım 21 bitti (2026-11-15; `step-21` dalında):** kurulum varsayılanı Anthropic
+  `claude-sonnet-5-5` oldu. Yalnızca `.env.example` ve dokümanlar değişti; kod, testler ve kodun
+  varsayılanı (boş `LLM_PROVIDER` → Groq) aynı. Yeni ayarla model çağıran koşu yapılmadı. Ayrıntı
+  Adım 21.
 - **Adım 18c'ye başlarken (2026-11-13 oturumunun devri):**
   1. Depo temiz; son commit bu notun commit'i. `origin`'e push yapılmadı (push Adım 20'dir).
   2. Holdout koşusu bitti; eval önbelleği yok. `src/`, `evals/*.py` ve `uv.lock` artık
@@ -2531,6 +2535,45 @@ Dış incelemenin 4. iddiası (Adım 19g tablosu).
   satırı taranmaz. Aynı veri dizininde ikinci bir süreç başlatmak ilkinin süren incelemesini
   `failed` yapar (tek süreç varsayımı). Yarım thread `checkpoints.db`'de kalır.
 - **Commit:** `fix: fail reviews left running by an interrupted process at startup`
+
+### [x] Adım 21 — Kurulum varsayılanı Sonnet
+Teslimden sonra, kullanıcının isteğiyle.
+- **Ne:** README kurulumu Groq anahtarıyla anlatıyordu; ölçümlerin çoğu ve en iyi sonuç ise
+  Sonnet'tendi. `cp .env.example .env` ile gelen ayar Sonnet yapıldı ve README buna göre yazıldı.
+  **Kod değişmedi** (kullanıcının seçimi: kodsuz yol); `LLM_PROVIDER` boşsa `src/config.py` hâlâ
+  Groq'u seçer. Gerekçe, terimler ve bedeller: `docs/architecture.md` ADR-013.
+- **Dosyalar:** `.env.example`; `README.md` (giriş, kurulum, yeni "Groq ile" bölümü, çevrimdışı
+  mod, değişken tablosu, eval bölümlerinin sırası, veri akışı); `docs/architecture.md` (şema, §6,
+  ADR-010 notu, ADR-013), `docs/tech_stack.md`, `docs/spec.md`, `docs/agent_design.md`,
+  `docs/evals.md`, `docs/decisions.md` (899 sözcük), `CLAUDE.md`.
+- **Gerçekleşen (2026-11-15):** `.env.example` üç satırı Sonnet için dolu getirir
+  (`LLM_PROVIDER=anthropic`, `LLM_MODEL=claude-sonnet-5-5`, `LLM_TEMPERATURE=none`) ve Groq için
+  yorumlu bir örnek blok taşır. README'de zorunlu tek değer `LLM_API_KEY` oldu; Groq "ücretsiz
+  seçenek" olarak ayrı bölümde; çevrimdışı mod artık dört satır değiştirir (`LLM_MODEL` ve
+  `LLM_TEMPERATURE` de boşaltılır). Eval sonuçlarında Sonnet bölümü öne alındı; tabloların içeriği
+  değişmedi, önce/sonra tablosu Groq bölümünde kaldı (2 → 0 farkını gösteren koşu o). Karar
+  dokümanında Sonnet koşu sayısı "üç" kalmıştı, "dört" yapıldı.
+- **Doğrulama (modelsiz):** `.env.example` ayrıştırılıp `load_settings`'e verildi: olduğu gibi →
+  "LLM_API_KEY anthropic sağlayıcısı için zorunlu"; anahtar eklenince → `anthropic` /
+  `claude-sonnet-5-5` / sıcaklık yok; README'deki Groq bloğu → `groq` / `openai/gpt-oss-120b` / 0;
+  çevrimdışı bloğu → `ollama` / `qwen3.5:9b` / 0. `LLM_PROVIDER` satırı silinince ya da
+  boşaltılınca uygulama başlamaz ("`LLM_TEMPERATURE=none` groq ile kullanılamaz"). `src/`,
+  `tests/`, `evals/` altında değişen dosya yok; bu yüzden test koşulmadı. Değişen dosyalarda CR
+  baytı yok.
+- **Bu adımın gösterdiği iki şey:**
+  1. Yalnızca `LLM_PROVIDER=ollama` yapılıp öteki iki satır bırakılırsa ayar yüklenir ve model
+     `claude-sonnet-5-5` kalır (Ollama'da böyle bir model yok; Ollama ile çalıştırılarak
+     denenmedi). README çevrimdışı bölümü bu yüzden dört satır yazar.
+  2. `langchain-anthropic` yerel `uv` ortamında kurulu değildir (isteğe bağlı grup); imajda
+     kuruludur. Docker dışında varsayılan sağlayıcıyla çalıştırmak `uv sync --extra anthropic`
+     ister (README "Geliştirme komutları").
+  Konteynerde (`docker compose run --env-from-file .env.example`, imaj `604643d`): Compose üç
+  değeri ve dört tenant anahtarını dosyadan doğru okudu; anahtar boşken aynı yapılandırma hatası,
+  sahte anahtarla ayar yüklendi ve model nesnesi kuruldu (ağ çağrısı yok).
+- **Ölçülmeyen:** yeni `.env.example` ile `docker compose up` ve model çağıran koşu yapılmadı.
+  Aynı üç değer önceki dört Sonnet eval koşusunda `-e` ile verilmişti (`evals.md` §4). Anthropic'in
+  saklama ve kullanım koşulları okunmadı; dokümanlardaki saklama notu yalnızca Groq içindir.
+- **Commit:** `docs: make Sonnet the setup default in .env.example and the README`
 
 ## CASE.md teslimatları → adımlar
 | CASE.md | Adım |

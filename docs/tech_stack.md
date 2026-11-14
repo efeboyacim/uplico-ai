@@ -11,19 +11,22 @@
 - OS / container: Docker, `python:3.12-slim`; `docker compose up` ile tek komut
 
 ## LLM & agent katmanı
-İki mod vardır: varsayılan mod (Groq) ve çevrimdışı mod (Ollama). Sohbet modeli env ile seçilir;
+İki mod vardır: varsayılan mod (bir dış sağlayıcı) ve çevrimdışı mod (Ollama). Varsayılan modun
+**kurulum varsayılanı** Anthropic `claude-sonnet-5-5`'tir (`.env.example` bu ayarla gelir; Adım 21,
+`architecture.md` ADR-013); `LLM_PROVIDER` boşsa **kod** Groq'u seçer (kod değişmedi). Bu
+dokümanda "varsayılan mod" çevrimdışı olmayan modun adıdır. Sohbet modeli env ile seçilir;
 kodda kapalı bir sağlayıcı listesi yoktur, `init_chat_model`'in tanıdığı başka bir sağlayıcı da env
 ile seçilebilir (aşağıda "Sürüm sabitleri / kısıtlar", "Bilinen sağlayıcı tablosu"). Fark yalnızca
-sohbet modelindedir; graph, tool'lar, maskeleme ve doğrulama her sağlayıcıda aynıdır. **Varsayılan
-Groq `openai/gpt-oss-120b` üç tam eval koşusuyla, Anthropic `claude-sonnet-5-5` dört tam koşuyla
+sohbet modelindedir; graph, tool'lar, maskeleme ve doğrulama her sağlayıcıda aynıdır. **Groq
+`openai/gpt-oss-120b` üç tam eval koşusuyla, Anthropic `claude-sonnet-5-5` dört tam koşuyla
 (her biri farklı kodla) ölçüldü** (`evals.md` §4; Sonnet `LLM_TEMPERATURE=none` ister, aşağıda); diğerleri "çalışır,
 ölçülmedi"dir; `google_genai` tek sözleşmede denendi (2026-11-13), ölçülmedi (`plan.md` Adım 18d
 "Elle deneme").
 
 | Konu | Seçim | Not |
 |---|---|---|
-| **Varsayılan mod** | Groq (`LLM_PROVIDER=groq`) | GPU gerektirmez, hızlı. **Maskeli sözleşme metni Groq'a gider.** |
-| Ana model (Groq) | `openai/gpt-oss-120b` | Production model, tool calling, 131K bağlam. Ucuz alternatif: `openai/gpt-oss-20b` |
+| **Varsayılan mod** | Dış sağlayıcı. Kurulum varsayılanı Anthropic (`LLM_PROVIDER=anthropic`, `LLM_MODEL=claude-sonnet-5-5`, `LLM_TEMPERATURE=none`); `LLM_PROVIDER` boşsa Groq | GPU gerektirmez. **Maskeli sözleşme metni seçilen sağlayıcıya gider.** |
+| Groq modeli (ücretsiz seçenek) | `openai/gpt-oss-120b` | Production model, tool calling, 131K bağlam. Ucuz alternatif: `openai/gpt-oss-20b` |
 | **Çevrimdışı mod** | Ollama (`LLM_PROVIDER=ollama`) | LangSmith kapalıyken veri makineden çıkmaz. İnternetsiz (banka) kurulum budur. |
 | Ana model (Ollama) | `qwen3.5:9b` | ≤ 8 GB VRAM'e sığar, tool calling. Yedek: `qwen3.5:4b` |
 | Agent framework | LangChain v1 `create_agent` + LangGraph `StateGraph` | Kural agent'ı `create_agent`; akış LangGraph. |
@@ -198,8 +201,13 @@ Tanımsız, boş ve yalnızca boşluk içeren değer aynıdır ("boş").
   Varsayılan modeli olmayan sağlayıcıda (`openai`, `anthropic`, `google_genai` ve tabloda olmayan
   her sağlayıcı)
   zorunludur; boşsa `LLM_MODEL`'i söyleyen başlangıç hatasıdır. Sağlayıcı varsayılanları tek yerde,
-  `src/config.py`'dedir; `.env.example`'da boş bırakılır ki yalnızca `LLM_PROVIDER` değiştirilince
-  yanlış model adı kalmasın.
+  `src/config.py`'dedir. `.env.example` Adım 21'e kadar bu satırı boş bırakıyordu ki yalnızca
+  `LLM_PROVIDER` değiştirilince yanlış model adı kalmasın; Adım 21'den beri
+  `LLM_MODEL=claude-sonnet-5-5` ile gelir (Anthropic'in kodda varsayılan modeli yok). Bedeli:
+  sağlayıcıyı değiştiren `LLM_MODEL` ve `LLM_TEMPERATURE` satırlarını da değiştirmelidir
+  (README "Groq ile", "Çevrimdışı mod"). Yalnızca `LLM_PROVIDER` değişirse: `groq` başlamaz
+  (`LLM_TEMPERATURE=none` reddedilir), `ollama` olmayan bir modeli indirmeye çalışır, başka bir
+  bulut sağlayıcı ilk incelemede model hatası verir (denenen yalnızca `groq`; ADR-013).
 - `GROQ_API_KEY` — `LLM_PROVIDER=groq` iken anahtar budur; boşsa `LLM_API_KEY` kullanılır, ikisi de
   boşsa başlangıç hatasıdır
 - `LLM_API_KEY` — sağlayıcı anahtarı; verilmişse `api_key` olarak geçirilir (boş değer ya da

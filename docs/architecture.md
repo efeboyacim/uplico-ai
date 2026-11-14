@@ -22,7 +22,7 @@ flowchart LR
         V --> H[human_review<br/>interrupt]
         H -->|Command resume| F[finalize]
     end
-    A <-->|maskeli metin| LLM[(Seçilen sağlayıcı<br/>varsayılan Groq · çevrimdışı modda Ollama)]
+    A <-->|maskeli metin| LLM[(Seçilen sağlayıcı<br/>kurulumda Anthropic · çevrimdışı modda Ollama)]
     A -. model + tool çağrıları .-> AUD[(Audit log)]
     API -. awaiting_lawyer · review_failed .-> AUD
     P -. hazırlık adımları .-> AUD
@@ -472,13 +472,13 @@ model adını basan `python -m src.config` eklenir.
 ## 6. Dış entegrasyonlar
 | Sistem | Erişim | Auth | Not |
 |---|---|---|---|
-| Groq | Sohbet modeli (varsayılan mod) | `GROQ_API_KEY` (ya da `LLM_API_KEY`) | Maskeli metin gider. 429'da `max_retries=3`; limitler organizasyon başına. Eşzamanlılık `MAX_CONCURRENCY` ile sınırlı |
+| Groq | Sohbet modeli (varsayılan mod; ücretsiz seçenek, `LLM_PROVIDER` boşsa kodun seçtiği) | `GROQ_API_KEY` (ya da `LLM_API_KEY`) | Maskeli metin gider. 429'da `max_retries=3`; limitler organizasyon başına. Eşzamanlılık `MAX_CONCURRENCY` ile sınırlı |
 | Ollama | Sohbet modeli (yalnızca çevrimdışı mod) | Yok (yerel ağ) | Varsayılan modda çalışmaz. Çevrimdışı modda `OLLAMA_NUM_PARALLEL=1`, `MAX_CONCURRENCY=1` |
-| Başka bir sağlayıcı (isteğe bağlı; ör. OpenAI, Anthropic, Gemini Developer API, OpenAI uyumlu bir servis) | Sohbet modeli (`LLM_PROVIDER` ile seçilirse) | `LLM_API_KEY` (çok kimlik bilgili sağlayıcılarda kendi env değişkenleri) | Maskeli metin gider. OpenAI gibi sağlayıcılar: çalışır, ölçülmedi. Anthropic `claude-sonnet-5-5`: bir tam eval koşusuyla ölçüldü (2026-11-13; varsayılan 0 ile çalışmaz, `LLM_TEMPERATURE=none` ile çalıştı, başka değer denenmedi; 0 ile her çağrı yerelde reddedilir ve başlangıç kontrolü bunu yakalamaz; `tech_stack.md`). Gemini Developer API (`google_genai`): tek sözleşmede denendi (2026-11-13), ölçülmedi (`plan.md` Adım 18d "Elle deneme"). `max_retries=3`, 60 sn zaman aşımı; ADR-012 |
+| Başka bir sağlayıcı (Anthropic kurulum varsayılanıdır, ADR-013; ayrıca ör. OpenAI, Gemini Developer API, OpenAI uyumlu bir servis) | Sohbet modeli (`LLM_PROVIDER` ile seçilirse) | `LLM_API_KEY` (çok kimlik bilgili sağlayıcılarda kendi env değişkenleri) | Maskeli metin gider. OpenAI gibi sağlayıcılar: çalışır, ölçülmedi. Anthropic `claude-sonnet-5-5`: bir tam eval koşusuyla ölçüldü (2026-11-13; varsayılan 0 ile çalışmaz, `LLM_TEMPERATURE=none` ile çalıştı, başka değer denenmedi; 0 ile her çağrı yerelde reddedilir ve başlangıç kontrolü bunu yakalamaz; `tech_stack.md`). Gemini Developer API (`google_genai`): tek sözleşmede denendi (2026-11-13), ölçülmedi (`plan.md` Adım 18d "Elle deneme"). `max_retries=3`, 60 sn zaman aşımı; ADR-012 |
 | LangSmith | Eval + tracing (isteğe bağlı) | `LANGSMITH_API_KEY` | Trace'lere yalnızca maskeli veri gider. Eval yüklemesinde sözleşme metni, alıntı ve PII listesi gitmez; giden yalnızca kimlikler, beklenen bulgular, etiketler, kural satırları ve sayımlardır (`evals.md` §7). Anahtar yoksa hiçbir şey gitmez |
 
 ### Veri nereye gidiyor
-| Veri | Dış sağlayıcı (varsayılan Groq ya da seçilen başka bir sağlayıcı) | Çevrimdışı mod (Ollama) |
+| Veri | Dış sağlayıcı (kurulum varsayılanı Anthropic, Groq ya da seçilen başka bir sağlayıcı) | Çevrimdışı mod (Ollama) |
 |---|---|---|
 | Asıl sözleşme metni | Makinede kalır (tenant `app.db`) | Makinede kalır |
 | PII eşlemesi (yer tutucu → gerçek değer) | Makinede kalır (tenant `app.db`) | Makinede kalır |
@@ -562,7 +562,7 @@ insanlar okuyabilir. Maskeleme her sağlayıcıda graph'tan önce aynı şekilde
   sonradan yazdığı düzenlenmiş taslak metni de aynı maskeleyiciden geçer.
 - **Sonuç:** Modele ad, TCKN, telefon, e-posta, IBAN gitmez. Yalnızca kimlik bilgileri maskelenir;
   tutarlar, süreler, tarihler ve ticari şartlar maskelenmez (kurallar bunlara ihtiyaç duyuyor).
-  Varsayılan modda "model" Groq (ya da seçilen başka bir bulut sağlayıcı) olduğu için bunlar
+  Varsayılan modda "model" bir dış sağlayıcı (kurulum varsayılanında Anthropic) olduğu için bunlar
   makineden çıkar; çıkmaması gerekiyorsa çevrimdışı
   mod kullanılır (ADR-010).
 
@@ -620,7 +620,9 @@ insanlar okuyabilir. Maskeleme her sağlayıcıda graph'tan önce aynı şekilde
     sohbet modeli (`qwen3.5:9b`) internet olan bir makinede hazırlanıp içeri taşınır
     (`ollama-pull` çalıştırılmaz; yalnızca `app` ve `ollama` başlatılır); sohbet modeli için ~8 GB VRAM'li GPU gerekir. Kod değişmez.
   - Groq ve Ollama kodda kapalı bir liste değildir; başka bir sağlayıcı da env ile seçilebilir
-    (ADR-012). Varsayılan ve çevrimdışı mod bu ADR'deki gibi kalır.
+    (ADR-012). Varsayılan ve çevrimdışı mod bu ADR'deki gibi kalır. Kodun varsayılanı (boş
+    `LLM_PROVIDER` → `groq`) hâlâ budur; `.env.example` ile gelen kurulum varsayılanı Adım 21'de
+    Anthropic oldu (ADR-013).
 
 ### ADR-012: Sağlayıcı ve model yalnızca env ile seçilir
 - **Bağlam:** `LLM_PROVIDER` yalnızca `groq` ve `ollama` kabul ediyordu; başka bir sağlayıcıyı
@@ -673,7 +675,7 @@ insanlar okuyabilir. Maskeleme her sağlayıcıda graph'tan önce aynı şekilde
     `plan.md` Adım 18d "Elle deneme"); tek kilit, tek
     `langchain-core`.
 - **Sonuçlar / ödünleşimler:**
-  - Varsayılan Groq `openai/gpt-oss-120b` üç tam eval koşusuyla, Anthropic `claude-sonnet-5-5`
+  - Groq `openai/gpt-oss-120b` üç tam eval koşusuyla, Anthropic `claude-sonnet-5-5`
     dört tam koşuyla (2026-11-13 ve üç kez 2026-11-14, her biri farklı kodla) ölçüldü (`evals.md`
     §4); diğerleri "çalışır, ölçülmedi"dir;
     `google_genai` tek sözleşmede denendi (2026-11-13), ölçülmedi (`spec.md` §8 "Bilinen
@@ -705,3 +707,37 @@ insanlar okuyabilir. Maskeleme her sağlayıcıda graph'tan önce aynı şekilde
     bir adreste kayıtta `openai` görünür, isteğin gerçekte gittiği yer görünmez (bilinen sınır).
   - Testin sahte HTTP taşıyıcısı yalnızca `groq` ve `openai`'de kabul edilir; diğerlerinde
     baştan `ValueError`.
+
+### ADR-013: Kurulum varsayılanı Anthropic `claude-sonnet-5-5` (Adım 21)
+- **Bağlam:** Ölçülen iki yapılandırmadan Sonnet 35 kararın 35'ini, Groq `openai/gpt-oss-120b`
+  33'ünü doğru verdi (`evals.md` §4) ve Adım 19c'den sonraki bütün tam eval koşuları Sonnet'le
+  yapıldı.
+  README ise kurulumu Groq anahtarıyla anlatıyordu: adımları izleyen kişi, sonuç tablolarının
+  çoğunu üreten modeli değil ötekini çalıştırıyordu.
+- **Karar:** `.env.example` Sonnet ayarıyla gelir (`LLM_PROVIDER=anthropic`,
+  `LLM_MODEL=claude-sonnet-5-5`, `LLM_TEMPERATURE=none`); README kurulumu `LLM_API_KEY` ile anlatır
+  ve Groq'u ücretsiz seçenek olarak gösterir. **Kod değişmez:** `LLM_PROVIDER` boşsa `src/config.py`
+  hâlâ `groq`'u seçer, Anthropic'in kodda varsayılan modeli ve birim fiyatı yoktur.
+- **Terim:** dokümanlarda "varsayılan mod" çevrimdışı olmayan (dış sağlayıcılı) modun adıdır;
+  "kurulum varsayılanı" `.env.example`'ın seçtiği sağlayıcıdır (Anthropic); "kodun varsayılanı"
+  boş `LLM_PROVIDER`'da seçilen sağlayıcıdır (Groq, ADR-010).
+- **Alternatif (seçilmedi):** kodun varsayılanını da `anthropic` yapmak. `langchain-anthropic`
+  isteğe bağlı paketten çekirdeğe taşınır (`uv.lock`, boş `LLM_EXTRAS` imajı), Anthropic için kodda
+  varsayılan model ve sıcaklık tanımlanır, yapılandırma ve model testleri değişir. Teslim edilmiş
+  ve ölçülmüş koda dokunmamak için yapılmadı.
+- **Sonuçlar / ödünleşimler:**
+  - Kurulumu izleyen kişi ücretli bir Anthropic anahtarına ihtiyaç duyar; ücretsiz deneme için
+    README'deki Groq yolu kalır.
+  - Varsayılan kurulumda maskeli metin Anthropic'e gider. Anthropic'in saklama ve kullanım
+    koşulları bu projede okunmadı; dokümanlardaki saklama notu yalnızca Groq içindir.
+  - `.env.example` artık sağlayıcıya özel üç satır taşır (önceden `LLM_MODEL` bilerek boştu,
+    `tech_stack.md`). Sağlayıcıyı değiştiren üçünü birlikte değiştirmelidir. Denendi
+    (`load_settings`): `LLM_PROVIDER` satırı silinir ya da boş bırakılırsa uygulama başlamaz
+    ("`LLM_TEMPERATURE=none` groq ile kullanılamaz"); `LLM_PROVIDER` ve `LLM_TEMPERATURE` birlikte
+    silinirse başlar, sağlayıcı Groq, model `claude-sonnet-5-5` olur; `GROQ_API_KEY` boşsa Groq'a
+    `LLM_API_KEY`'deki anahtar verilir (`src/llm.py`; istek gönderilerek denenmedi).
+  - `LLM_TEMPERATURE=none` silinip sağlayıcı Anthropic kalırsa uygulama başlar ama her model
+    çağrısı yerelde reddedilir ve bütün kurallar "bulunamadı" çıkar (ADR-012); başlangıç kontrolü
+    bunu yakalamaz.
+  - Eval'in maliyet tahmini Sonnet'te "bilinmiyor" yazar (birim fiyat kodda yok).
+  - Karar dokümanının sayıları 2. Groq koşusundan kalır; kaynağı orada yazılıdır.

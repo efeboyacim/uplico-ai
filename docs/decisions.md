@@ -45,7 +45,7 @@ geçebilir. Tek yanlış işaret de bütün sözleşmeyi kuyruğa düşürür.
 checkpoint, audit ve trace yalnızca maskeli metni görür. Maskelenen: TCKN (checksum), IBAN
 (mod-97), telefon, e-posta, taraf ve imza bloklarındaki adlar. Eşleme tenant'ın veritabanında
 kalır; maskesiz metni yalnızca `lawyer` görür.
-**Gidenler (varsayılan Groq ya da env ile seçilen başka sağlayıcı):** maskeli madde ve kural
+**Gidenler (kurulumda Anthropic; env ile Groq ya da başka sağlayıcı):** maskeli madde ve kural
 metni; tutar, süre, tarih, şirket adı ve ticari şartlar; maskelemenin kaçırdıkları.
 **Neden:** kurallar tutar ve süre üzerinedir; maskelenirlerse doğrulama çalışmaz. Ticari şartlar
 dışarı çıkmamalıysa çözüm çevrimdışı moddur.
@@ -59,9 +59,9 @@ Groq içindir: başka sağlayıcının koşulları kullanıcının sorumluluğun
 katmanında içerik ürün geliştirmede kullanılabilir, insanlar okuyabilir).
 
 ## 4. İnternetsiz banka sunucusu
-**Değişen:** `LLM_PROVIDER=ollama`, `COMPOSE_PROFILES=offline`. İmajlar ve sohbet modeli
-(`qwen3.5:9b`) internetli makinede hazırlanıp taşınır; ~8 GB VRAM'li GPU gerekir. Maskeleme,
-arama, doğrulama, graph ve tool'lar aynıdır; kod değişmez, sağlayıcı yalnızca env ile seçilir.
+**Değişen:** `LLM_PROVIDER=ollama`, `COMPOSE_PROFILES=offline`, `LLM_MODEL` ve `LLM_TEMPERATURE`
+boş. İmajlar ve sohbet modeli (`qwen3.5:9b`) internetli makinede hazırlanıp taşınır; ~8 GB VRAM'li
+GPU gerekir. Maskeleme, arama, doğrulama, graph ve tool'lar aynıdır; kod değişmez.
 `LLM_EXTRAS` boş imaj OpenAI / Anthropic / Google paketlerini taşımaz. Kayıt
 kendi audit log'umuzdadır.
 **LangSmith:** çevrimdışı kurulumda LangSmith değişkenleri verilmez; uygulamada açılırsa gerçek
@@ -70,7 +70,7 @@ reddetmesi eklenirdi; bu projede eklenmedi, koruma işletim kuralıdır.
 **Ölçülmeyen:** `qwen3.5:9b` denenmedi, Ollama ile eval koşulmadı. Tek sözleşmede `qwen3.5:4b`
 443 sn (GPU) ve 903 sn (CPU) sürdü; sayısal hatalarını `numeric_mismatch` kuyruğa aldı,
 `check`'siz bir kuralda iki koşuda farklı sonuç verdi. Ölçülenler: Groq (üç koşu) ve
-Anthropic `claude-sonnet-5-5` (üç koşu; `LLM_TEMPERATURE=none` ile). Gemini'nin OpenAI
+Anthropic `claude-sonnet-5-5` (dört koşu; `LLM_TEMPERATURE=none` ile). Gemini'nin OpenAI
 uyumlu adreste tool döngüsü kırıldığı için Google paketi eklendi (bedeli herkese
 `langchain-core` 1.8.0); tek sözleşmede denendi, ölçülmedi.
 **Eksik kalan:** anahtar döndürme ve kişi bazlı kimlik yok; audit log dosya düzeyinde korunmuyor

@@ -4,8 +4,9 @@
 Tedarikçi sözleşmelerini şirketin kendi kural setine göre inceleyen bir agent sistemi (`docs/CASE.md`).
 Her kural için sonuç uygun / uygun değil / bulunamadı olur ve sözleşmeden birebir alıntıyla
 kanıtlanır; uygun olmayan maddeler için değişiklik taslağı yazılır, belirsiz bulgular avukata
-bırakılır. Python, LangChain `create_agent`, LangGraph ve LangSmith ile kurulur; varsayılan model
-sağlayıcısı Groq, çevrimdışı mod Ollama'dır; başka bir sağlayıcı yalnızca env ile seçilir (kod
+bırakılır. Python, LangChain `create_agent`, LangGraph ve LangSmith ile kurulur; kurulum
+varsayılanı Anthropic `claude-sonnet-5-5`'tir (`.env.example`; `LLM_PROVIDER` boşsa kod Groq'u
+seçer), ücretsiz seçenek Groq, çevrimdışı mod Ollama'dır; sağlayıcı yalnızca env ile seçilir (kod
 değişmez; Groq üç, Anthropic `claude-sonnet-5-5` dört tam eval koşusuyla ölçüldü). İki kurgusal şirketin (tenant) verisi ayrı tutulur.
 
 ## Ana ilke
@@ -104,6 +105,12 @@ Adım 19h bitti (2026-11-15; aynı dalda, 19g ile birlikte `main`'de): süreç i
 (`process_interrupted`) yazar (`create_app` veritabanına yazmaz); gerçek süreç öldürülerek
 denendi, Docker'da denenmedi. Açık karar: "yanlış uygun" sınırı için çapa sözcükleri. Ayrıntı
 `docs/plan.md` Adım 19h.
+Adım 21 bitti (2026-11-15; `step-21` dalında): kurulum varsayılanı Sonnet oldu. Yalnızca
+`.env.example` ve dokümanlar değişti; kod, testler ve kodun varsayılanı (boş `LLM_PROVIDER` →
+Groq) aynı. `.env.example` artık sağlayıcıya özel üç satır taşır (`LLM_PROVIDER`, `LLM_MODEL`,
+`LLM_TEMPERATURE=none`); sağlayıcıyı değiştiren üçünü birlikte değiştirir. Terimler ve bedeller:
+`docs/architecture.md` ADR-013. Yeni ayarla model çağıran koşu yapılmadı (aynı env değerleriyle
+dört Sonnet koşusu vardı). Ayrıntı `docs/plan.md` Adım 21.
 
 ## Komutlar
 ```bash

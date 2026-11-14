@@ -138,7 +138,8 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   ve sözleşme avukata yönlendirilir.
 - FR-11: Eval tek komutla çalışır ve bir değişikliğin etkisini önce/sonra tablosuyla gösterir.
 - FR-12: `docker compose up` ile çalışır; LLM sağlayıcısı, modeli, anahtarı ve adresi yalnızca env
-  ile değişir, kod değişmez (varsayılan Groq, çevrimdışı mod Ollama; `init_chat_model`'in tanıdığı
+  ile değişir, kod değişmez (kurulum varsayılanı Anthropic `claude-sonnet-5-5`, `LLM_PROVIDER`
+  boşsa Groq, çevrimdışı mod Ollama; `init_chat_model`'in tanıdığı
   başka bir sağlayıcı da seçilebilir, entegrasyon paketi imajda kuruluysa). Gerekli anahtar, model
   ya da paket yoksa uygulama başlangıçta açık bir hatayla durur; hız limitinde sınırlı yeniden
   deneme yapar.
@@ -149,17 +150,20 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   aynıdır. Audit kaydı her iki role de maskeli gösterilir.
 
 ## 6. Fonksiyonel olmayan gereksinimler
-- **Performans:** Hedef yok; istek bloklar. Varsayılan modda (Groq) sözleşme başına bir dakikanın
-  altı beklenir; çevrimdışı modda (yerel 8 GB VRAM) birkaç dakika kabul edilir.
-- **Maliyet:** Varsayılan modda token başına ücret (Groq); çevrimdışı modda API ücreti yok. Token
+- **Performans:** Hedef yok; istek bloklar. Varsayılan modda sözleşme başına bir dakikanın
+  altı beklenir (ölçülen eval ortalaması: Sonnet ≈ 36–40 sn, Groq ≈ 82–116 sn); çevrimdışı modda
+  (yerel 8 GB VRAM) birkaç dakika kabul edilir.
+- **Maliyet:** Varsayılan modda token başına ücret (seçilen sağlayıcı); çevrimdışı modda API ücreti yok. Token
   sayısı ve tahmini maliyet raporlanır; birim fiyatı kodda olmayan sağlayıcı ya da modelde tahmini
   maliyet "bilinmiyor" yazılır.
 - **Güvenlik & uyumluluk:**
   - Kimlik bilgileri (ad, TCKN, telefon, e-posta, IBAN) maskelenir; modele ve trace'e gitmez.
     Tutar, süre ve tarihler maskelenmez.
   - Maskesiz içeriği yalnızca `lawyer` rolü görür; `viewer` her yerde maskeli görür.
-  - **Varsayılan modda maskeli sözleşme metni makineden çıkar ve Groq'a gider.** (Groq sakladığı
-    veriyi ABD'de tutar; çıkarımın hangi ülkede yapıldığı belgelerinde yazmıyor.) Buna
+  - **Varsayılan modda maskeli sözleşme metni makineden çıkar ve seçilen sağlayıcıya gider:
+    kurulum varsayılanında Anthropic'e, `LLM_PROVIDER=groq` ile Groq'a.** (Groq sakladığı
+    veriyi ABD'de tutar; çıkarımın hangi ülkede yapıldığı belgelerinde yazmıyor. Anthropic'in
+    saklama ve kullanım koşulları bu projede okunmadı.) Buna
     maskelenmeyen her şey dahildir: tutarlar, fiyatlar, ticari şartlar, şirket adları ve maskelemenin
     kaçırdığı kimlik bilgileri (gövdede geçen ad, etiketsiz imza satırındaki ad, satıra bölünmüş,
     tireli ya da çift boşluklu IBAN, ayraçsız ya da bölünemez boşlukla gruplanmış öneksiz cep
@@ -431,7 +435,8 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   (`500 000 00 00`) telefon sayar; tek boşlukla ayrılmış ayrı sayılar birlikte 11 hane edip
   checksum'ı tutarsa (`10 30 120 10 20`, yaklaşık yüzde bir) TCKN sayılır; parantez içinde `0` +
   üç hane ve ardından 3-2-2 hane, tutar bağlamında bile telefon sayılır (`(0347) 3284041 TL`).
-- Varsayılan mod bir Groq hesabı ve `GROQ_API_KEY` (ya da `LLM_API_KEY`) gerektirir. Geliştirme
+- Varsayılan kurulum bir Anthropic anahtarı (`LLM_API_KEY`) gerektirir; ücretsiz seçenek bir Groq
+  hesabı ve `GROQ_API_KEY`'dir (ya da `LLM_API_KEY`). Groq geliştirme
   hesabı ücretsiz katmandadır (belgelenen sınırlar: 8K TPM / 200K TPD); önce/sonra tablolu tam
   eval (tek geçiş) Adım 18'de 206K ve 242K token tuttu, yani bu limitlerle bir güne sığmaz (2026-11-12'de iki tam koşu 429 almadan
   bitti, ardından holdout koşusu limite takıldı; geçerli limit bilinmiyor, `tech_stack.md`

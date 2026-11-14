@@ -10,9 +10,10 @@ maddede geçip geçmediğini, sayıyı ve taslağın kurala uyup uymadığını 
 eder ve avukat kuyruğuna neyin gideceğine kod karar verir. Agent'ın onay veren bir tool'u yoktur;
 sözleşmeyi yalnızca `lawyer` rolündeki anahtarla, API üzerinden bir insan onaylar.
 
-Python, LangChain `create_agent`, LangGraph ve LangSmith (`evaluate()`) ile kuruldu. Varsayılan
-model sağlayıcısı Groq (`openai/gpt-oss-120b`), çevrimdışı mod Ollama'dır (`qwen3.5:9b`); başka bir
-sağlayıcı yalnızca env ile seçilir. Kararların gerekçesi: `docs/decisions.md` (karar dokümanı) ve
+Python, LangChain `create_agent`, LangGraph ve LangSmith (`evaluate()`) ile kuruldu. Kurulumun
+varsayılan modeli Anthropic `claude-sonnet-5-5`'tir (`.env.example` bu ayarla gelir); ücretsiz
+seçenek Groq (`openai/gpt-oss-120b`), çevrimdışı mod Ollama'dır (`qwen3.5:9b`). Sağlayıcı yalnızca
+env ile seçilir; kod değişmez. Kararların gerekçesi: `docs/decisions.md` (karar dokümanı) ve
 `docs/architecture.md` §7 (ADR'ler).
 
 ## İçindekiler
@@ -30,7 +31,8 @@ sağlayıcı yalnızca env ile seçilir. Kararların gerekçesi: `docs/decisions
 **Gerekenler**
 
 - Docker ve Docker Compose. GPU gerekmez.
-- Bir model sağlayıcısının API anahtarı: varsayılan modda Groq (ücretsiz katman yeterlidir).
+- Bir model sağlayıcısının API anahtarı: varsayılan kurulumda Anthropic. Ücretli anahtarın yoksa
+  Groq'un ücretsiz katmanı yeterlidir ([Groq ile](#groq-ile-ücretsiz-katman)).
 - [Kullanım](#kullanım)'daki örnek komutlar için `curl` (Windows 10 ve sonrasında `curl.exe`
   olarak gelir) ve Python 3 (yalnızca JSON dosyası hazırlamak ve okumak için).
 
@@ -40,12 +42,17 @@ sağlayıcı yalnızca env ile seçilir. Kararların gerekçesi: `docs/decisions
 git clone <depo adresi>
 cd case-uplico
 cp .env.example .env          # PowerShell: Copy-Item .env.example .env
-# .env içinde GROQ_API_KEY= satırını GROQ_API_KEY=gsk_... olarak doldur (tırnaksız, boşluksuz).
+# .env içinde LLM_API_KEY= satırını LLM_API_KEY=sk-ant-... olarak doldur (tırnaksız, boşluksuz).
 docker compose up
 ```
 
-- **Zorunlu tek değer `GROQ_API_KEY`'dir** (ya da `LLM_API_KEY`); diğer satırlar olduğu gibi
-  kalabilir. İkisi de boşsa `app` tek satırlık bir hatayla (`Yapılandırma hatası: …`) çıkar.
+- **Zorunlu tek değer `LLM_API_KEY`'dir** (Anthropic anahtarı); diğer satırlar olduğu gibi
+  kalabilir. Boşsa `app` tek satırlık bir hatayla (`Yapılandırma hatası: …`) çıkar.
+- **`.env.example` üç satırı Sonnet için hazır getirir:** `LLM_PROVIDER=anthropic`,
+  `LLM_MODEL=claude-sonnet-5-5`, `LLM_TEMPERATURE=none`. Bu üçü birlikte değişir: sağlayıcıyı
+  değiştirirken model ve sıcaklık satırlarını da aşağıdaki bölümlerde yazıldığı gibi değiştir.
+  `LLM_TEMPERATURE=none` bu modelde zorunludur: 0 ile her çağrı yerelde reddedilir, bütün kurallar
+  "bulunamadı" olarak avukata gider ve uygulama yine de başlar.
 - **`TENANT_API_KEYS`** anahtar → tenant, rol, görünen ad eşlemesidir. `.env.example`'daki dört
   `change-me-…` anahtarı olduğu gibi kabul edilir; kendi makinende denemek için değiştirmeden
   kullanabilirsin (aşağıdaki örnekler bunları kullanır). Bu değerler herkesçe bilinir; başka her
@@ -57,11 +64,28 @@ docker compose up
 - **Veri nerede:** incelemeler, audit log ve checkpoint'ler `data/tenants/<tenant>/` altındaki
   SQLite dosyalarındadır; klasör kapsayıcıya bağlanır, durdurmak silmez, git'e girmez.
 
+### Groq ile (ücretsiz katman)
+`.env`'de dört satır değişir; komut yine `docker compose up`:
+
+```bash
+LLM_PROVIDER=groq
+LLM_MODEL=
+LLM_TEMPERATURE=
+GROQ_API_KEY=gsk_...
+```
+
+Model boşsa `openai/gpt-oss-120b` kullanılır. `LLM_TEMPERATURE=none` Groq'ta kabul edilmez
+(uygulama başlamaz); satırı boş bırak. Anahtarı `GROQ_API_KEY`'e yaz: bu satır boşken
+`LLM_API_KEY`'de başka sağlayıcının anahtarı kalırsa o anahtar Groq'a gönderilir. Ücretsiz katman
+günde 5–8 sözleşmeye yeter. `LLM_PROVIDER` satırı boş bırakılır ya da silinirse kod da Groq'u seçer.
+
 ### Çevrimdışı mod (Ollama)
-`.env`'de iki değişken değişir; komut yine `docker compose up`:
+`.env`'de dört satır değişir; komut yine `docker compose up`:
 
 ```bash
 LLM_PROVIDER=ollama
+LLM_MODEL=
+LLM_TEMPERATURE=
 COMPOSE_PROFILES=offline
 ```
 
@@ -77,26 +101,14 @@ Sağlayıcı, model, anahtar ve adres yalnızca `.env` ile seçilir; kod değiş
 
 | Değişken | Anlamı |
 |---|---|
-| `LLM_PROVIDER` | LangChain `init_chat_model`'in tanıdığı sağlayıcı adı (`openai`, `anthropic`, `google_genai` …); boşsa `groq` |
+| `LLM_PROVIDER` | LangChain `init_chat_model`'in tanıdığı sağlayıcı adı (`anthropic`, `groq`, `openai`, `google_genai` …); `.env.example`'da `anthropic`, satır boşsa kod `groq`'u seçer |
 | `LLM_MODEL` | Model adı; `groq` ve `ollama` dışında zorunlu |
-| `LLM_API_KEY` | Sağlayıcı anahtarı; `GROQ_API_KEY` eskisi gibi çalışır |
+| `LLM_API_KEY` | Sağlayıcı anahtarı. Groq için `GROQ_API_KEY` de kullanılabilir; ikisi de doluysa Groq'ta `GROQ_API_KEY` geçerlidir |
 | `LLM_BASE_URL` | Verilirse modelin adresi (OpenAI uyumlu servisler için) |
-| `LLM_TEMPERATURE` | Boşsa 0; `none` yazılırsa istekte gönderilmez |
+| `LLM_TEMPERATURE` | Boşsa 0; `none` yazılırsa istekte gönderilmez (`claude-sonnet-5-5`'te zorunlu, Groq'ta kullanılamaz) |
 | `LLM_MAX_TOKENS` | Çağrı başına çıktı sınırı; boşsa 2048 |
 
-Ölçülen ikinci ayar Anthropic'tir:
-
-```bash
-LLM_PROVIDER=anthropic
-LLM_MODEL=claude-sonnet-5-5
-LLM_API_KEY=<Anthropic API anahtarı>
-LLM_TEMPERATURE=none
-```
-
-`LLM_TEMPERATURE=none` bu modelde zorunludur: varsayılan 0 ile her çağrı yerelde reddedilir,
-bütün kurallar "bulunamadı" olarak avukata gider ve uygulama yine de başlar.
-
-Ölçülenler: Groq `openai/gpt-oss-120b` üç, Anthropic `claude-sonnet-5-5` dört tam eval koşusu.
+Ölçülenler: Anthropic `claude-sonnet-5-5` dört, Groq `openai/gpt-oss-120b` üç tam eval koşusu.
 Gemini (`google_genai`) tek sözleşmede denendi, ölçülmedi; OpenAI denenmedi. Ölçülmemiş her
 sağlayıcının çalışması beklenir ama garanti değildir. Ayrıntı: `docs/tech_stack.md` "Ortam
 değişkenleri".
@@ -111,7 +123,9 @@ uv run ruff check . && uv run ruff format --check .      # lint + format
 uv run mypy src evals                                    # type-check
 ```
 
-Test takımı 2446 testtir ve geliştirme makinesinde ≈ 5 dk sürer.
+Test takımı 2446 testtir ve geliştirme makinesinde ≈ 5 dk sürer. Uygulamayı ya da eval'i Docker
+dışında varsayılan sağlayıcıyla çalıştırmak için önce `uv sync --extra anthropic` gerekir
+(`langchain-anthropic` imajda kuruludur, yerel ortamda isteğe bağlıdır); testler bunu istemez.
 
 ## Kullanım
 
@@ -122,7 +136,8 @@ klasöründe** sırayla çalıştır. Bloklar bash içindir (Linux / macOS / Git
 `python3` yerine `python`, ve değişken atamaları `$LAWYER_KEY = "change-me-acme-lawyer"` ile
 `$REVIEW_ID = python -c "…"` biçiminde yazılır.
 
-**1. İncelemeyi başlat.** İstek inceleme bitene kadar bekler (örnek sözleşme Groq'ta ≈ 90–110 sn).
+**1. İncelemeyi başlat.** İstek inceleme bitene kadar bekler (eval'de sözleşme başına ortalama
+Sonnet'te ≈ 36–40 sn; örnek sözleşme Groq'ta ≈ 90–110 sn).
 
 ```bash
 LAWYER_KEY=change-me-acme-lawyer
@@ -237,7 +252,8 @@ docker compose run --rm -e MAX_CONCURRENCY=1 app python -m evals.run --limit 3  
 docker compose run --rm app python -m evals.run --prepare-only                # model çağırmaz: yalnızca PII ve enjeksiyon taraması
 ```
 
-- Tam koşu Groq'ta ≈ 206K–246K token ve 10–14 dk, Sonnet'te ≈ 620K–640K token ve 4–5 dk tutar.
+- Tam koşu Sonnet'te ≈ 620K–640K token ve 4–5 dk, Groq'ta ≈ 206K–246K token ve 10–14 dk tutar.
+  Maliyet tahmini yalnızca Groq'un varsayılan modeli için basılır; Sonnet'te "bilinmiyor" yazar.
 - **Ücretsiz Groq katmanında tam koşu hız limitine takılabilir** (aynı gün ≈ 365K–510K token'dan
   sonra görüldü; hangi sınırın devreye girdiği bilinmiyor). Limitte koşucu çıkış kodu 2 ile durur;
   aynı komut `--resume` ile kaldığı yerden devam eder, `--fresh` baştan koşar.
@@ -253,9 +269,38 @@ Bütün sert eşikler yedi tam koşunun yedisinde de tuttu; eşikler sonuca gör
 Örneklem küçüktür (35 karar; bir satır 2,9 puan) ve her tablo tek koşudur. Ayrıntı, satır satır
 dökümler ve sonuç dosyalarının adları: `docs/evals.md` §4–§5.
 
-### Varsayılan model: Groq `openai/gpt-oss-120b`
+### Varsayılan model: Anthropic `claude-sonnet-5-5`
 
-2. koşu (2026-11-12, kod `4ccc03d`), doğrulama katmanı kapalı → açık:
+Dört koşu; ilk üçü aşağıdadır, her biri bir öncekinin gösterdiği hatalar düzeltildikten sonra
+(`LLM_TEMPERATURE=none`, `MAX_CONCURRENCY=1`). Doğrulama kapalıyken de açıkken de güvensiz hata
+0 / 35'tir; doğrulamanın önce/sonra etkisi aşağıdaki Groq tablosunda görünür (2 → 0).
+
+| Metrik ("sonra") | 1. koşu (`a9ad2ed`) | Adım 19c sonrası (`7f7cbf9`) | Adım 19f sonrası (`c3f3f69`) |
+|---|---|---|---|
+| Güvensiz hata | 0 / 35 | 0 / 35 | 0 / 35 |
+| Etiket doğruluğu | 35 / 35 | 35 / 35 | 35 / 35 |
+| Arama isabeti | 32 / 32 | 32 / 32 | 32 / 32 |
+| Alıntısı maddede birebir geçen bulgu | 32 / 32 | 32 / 32 | 32 / 32 |
+| Kod kontrolünden geçen taslak | 8 / 11 | 11 / 11 | 11 / 11 |
+| Avukata yönlendirme (önce → sonra) | 3 → 13 / 35 | 2 → 11 / 35 | 3 → 11 / 35 |
+| Garanti edilmeyen PII sızıntısı | 2 / 5 | 0 / 5 | 0 / 5 |
+| Token / süre | 617.108 · 277 sn | 630.660 · 253 sn | 641.294 · 269 sn |
+
+- Sonnet, Groq'un (aşağıda) kaçırdığı iki maddeyi buldu. Dört koşuda da doğrulamanın yakaladığı yanlış sonuç
+  yok; görünen yalnızca bedeli (kuyruktaki her satırda status doğru).
+- 1. koşu üç hata gösterdi, Adım 19c düzeltti: uygun taslakların kod kontrolünden kalması,
+  maskelenmeyen iki ad, kodun denetleyemediği taslağın avukata gitmemesi.
+- Son koşu önceki koşuyla satır satır karşılaştırıldı: 35 satırın 34'ünde avukata gitme sebepleri
+  aynı; tek fark modelin bir satırı ayrıca kendisinin devretmesi.
+- 4. koşu (2026-11-14, kod `85362c7`: "bir önceki yıl" düzeltmesinden sonra) üçüncüyle satır satır
+  aynıdır: 35 satırın 35'inde sonuç, madde, avukata gitme sebepleri ve taslak durumu değişmedi
+  (639.873 token, 283 sn). Düzeltmenin eskiyi bozmadığını gösterir; veri kümesinde bu ifade
+  yalnızca yüzdeyle denetlenen fiyat maddelerinde geçtiği için düzeltmenin kendisini ölçmez.
+
+### Ücretsiz seçenek: Groq `openai/gpt-oss-120b`
+
+Başka modeldir; Sonnet sayılarıyla karşılaştırılmaz. 2. koşu (2026-11-12, kod `4ccc03d`),
+doğrulama katmanı kapalı → açık:
 
 | Metrik | Önce | Sonra |
 |---|---|---|
@@ -294,33 +339,6 @@ tasarım gereğidir: 3 beklenen "bulunamadı" ve enjeksiyon işareti konan sözl
   garanti edilmeyen değerler gösterir.
 - Groq, Adım 19c–19f'nin koduyla koşulmadı.
 
-### İkinci model: Anthropic `claude-sonnet-5-5`
-
-Başka modeldir; Groq sayılarıyla karşılaştırılmaz. Dört koşu; ilk üçü aşağıdadır, her biri bir öncekinin gösterdiği
-hatalar düzeltildikten sonra (`LLM_TEMPERATURE=none`, `MAX_CONCURRENCY=1`):
-
-| Metrik ("sonra") | 1. koşu (`a9ad2ed`) | Adım 19c sonrası (`7f7cbf9`) | Adım 19f sonrası (`c3f3f69`) |
-|---|---|---|---|
-| Güvensiz hata | 0 / 35 | 0 / 35 | 0 / 35 |
-| Etiket doğruluğu | 35 / 35 | 35 / 35 | 35 / 35 |
-| Arama isabeti | 32 / 32 | 32 / 32 | 32 / 32 |
-| Alıntısı maddede birebir geçen bulgu | 32 / 32 | 32 / 32 | 32 / 32 |
-| Kod kontrolünden geçen taslak | 8 / 11 | 11 / 11 | 11 / 11 |
-| Avukata yönlendirme (önce → sonra) | 3 → 13 / 35 | 2 → 11 / 35 | 3 → 11 / 35 |
-| Garanti edilmeyen PII sızıntısı | 2 / 5 | 0 / 5 | 0 / 5 |
-| Token / süre | 617.108 · 277 sn | 630.660 · 253 sn | 641.294 · 269 sn |
-
-- Sonnet, Groq'un kaçırdığı iki maddeyi buldu. Dört koşuda da doğrulamanın yakaladığı yanlış sonuç
-  yok; görünen yalnızca bedeli (kuyruktaki her satırda status doğru).
-- 1. koşu üç hata gösterdi, Adım 19c düzeltti: uygun taslakların kod kontrolünden kalması,
-  maskelenmeyen iki ad, kodun denetleyemediği taslağın avukata gitmemesi.
-- Son koşu önceki koşuyla satır satır karşılaştırıldı: 35 satırın 34'ünde avukata gitme sebepleri
-  aynı; tek fark modelin bir satırı ayrıca kendisinin devretmesi.
-- 4. koşu (2026-11-14, kod `85362c7`: "bir önceki yıl" düzeltmesinden sonra) üçüncüyle satır satır
-  aynıdır: 35 satırın 35'inde sonuç, madde, avukata gitme sebepleri ve taslak durumu değişmedi
-  (639.873 token, 283 sn). Düzeltmenin eskiyi bozmadığını gösterir; veri kümesinde bu ifade
-  yalnızca yüzdeyle denetlenen fiyat maddelerinde geçtiği için düzeltmenin kendisini ölçmez.
-
 ### Görülmemiş sözleşmeler
 
 - **Holdout (tek atış).** Prompt ve `verify` 7 sözleşmeye bakılarak ayarlandığı için, projeyi
@@ -349,10 +367,11 @@ metni görür. Kişi adları, TCKN, IBAN, telefon ve e-posta yer tutucuyla deği
 makinede, tenant'ın veritabanında kalır ve maske yalnızca `lawyer` yanıtında açılır. Tutarlar,
 süreler, tarihler ve şirket adları maskelenmez (kurallar bunlara ihtiyaç duyar).
 
-- **Varsayılan mod:** maskeli madde metni, kural metni ve agent mesajları Groq'a gider.
+- **Varsayılan kurulum:** maskeli madde metni, kural metni ve agent mesajları Anthropic'e gider.
   Maskeleyicinin kaçırdığı bir kimlik bilgisi de gidebilir.
-- **Başka bir sağlayıcı:** aynı veri seçilen sağlayıcıya gider; saklama ve kullanım koşulları
-  kullanıcının sorumluluğundadır.
+- **Groq ya da başka bir sağlayıcı:** aynı veri seçilen sağlayıcıya gider. Her sağlayıcının
+  saklama ve kullanım koşulları kullanıcının sorumluluğundadır (Anthropic'inkiler dahil; bu
+  projede yalnızca Groq'un beyanı okundu, `docs/decisions.md` §3).
 - **Çevrimdışı mod:** model yereldir; veri makineden çıkmaz.
 - **LangSmith:** açılırsa gerçek sözleşmelerin maskeli trace'i dışarı gider.
 
@@ -386,7 +405,7 @@ En önemlileri; tam liste `docs/spec.md` §8.
   veritabanı dosyasına doğrudan erişen biri değiştirebilir; imza ya da hash zinciri yok.
 - **Küçük örneklem.** 35 karar, iki model, sentetik sözleşmeler; genel bir Türkçe kalite ölçümü
   değildir.
-- **Denenmeyenler.** LangSmith'e gerçek yükleme; Ollama ile tam eval ve varsayılan `qwen3.5:9b`;
+- **Denenmeyenler.** LangSmith'e gerçek yükleme; Ollama ile tam eval ve çevrimdışı modun varsayılanı `qwen3.5:9b`;
   OpenAI; arayüzün otomatik testi.
 
 ## Daha fazla vaktim olsaydı

@@ -10,9 +10,10 @@
   "hangi maddeye bakayım" kısmında gerekiyor.
 - **Otonomi seviyesi:** Yalnızca öneri verir. Karar kodda, onay avukatta.
 - **Maksimum adım:** Kural başına 8 model çağrısı (`ModelCallLimitMiddleware(run_limit=8, exit_behavior="end")`).
-  Varsayılan model (`gpt-oss`) paralel tool çağrısı yapmaz; her tool bir model çağrısıdır. En uzun
+  Groq'un `gpt-oss` modeli paralel tool çağrısı yapmaz; her tool bir model çağrısıdır. En uzun
   olağan yol 5 çağrıdır (ara → oku → bildir → taslak → bitir).
-- **Model:** Agent hangi modelle çalıştığını bilmez. Varsayılan Groq `openai/gpt-oss-120b`,
+- **Model:** Agent hangi modelle çalıştığını bilmez. Kurulum varsayılanı Anthropic
+  `claude-sonnet-5-5` (`.env.example`; Adım 21), `LLM_PROVIDER` boşsa Groq `openai/gpt-oss-120b`,
   çevrimdışı modda Ollama `qwen3.5:9b`; env ile seçilen başka bir sağlayıcıda da prompt ve tool'lar
   aynıdır (`tech_stack.md`). Ölçülen yapılandırmalar Groq `openai/gpt-oss-120b` (üç tam eval
   koşusu) ve Anthropic `claude-sonnet-5-5`'tir (dört tam koşu, her biri farklı kodla,
@@ -1233,7 +1234,7 @@ yoktur.**
     satırda tek başına, ne listedeki bir unvandan sonra, ne de parantez içindeki etiketli kimlik
     numarasından hemen önce geçiyorsa hiçbir yazımı yakalanmaz: imza bloğunda "AHMET YILMAZ" ile
     "İmza:" arasında boş satır varsa, gövdedeki "Ahmet Yılmaz" ile birlikte ikisi de modele gider.
-    Varsayılan modda maskelenmeyen her şey Groq'a (başka bir bulut sağlayıcı seçilirse ona) gider
+    Varsayılan modda maskelenmeyen her şey seçilen dış sağlayıcıya (kurulum varsayılanında Anthropic'e) gider
     (`architecture.md` §6 "Veri nereye gidiyor");
     maskeleme bu yüzden sağlayıcıdan bağımsız, graph'tan önce yapılır ve kapatılamaz.
 - **Kim neyi görür:** model her zaman maskeli metni görür. `lawyer` maskesiz, `viewer` maskeli görür
