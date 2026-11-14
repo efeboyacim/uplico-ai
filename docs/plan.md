@@ -2173,6 +2173,78 @@ dosyasına ya da son mesaja; inceleyici boş bulgu listesiyle değil kapsam rapo
 - **Commit:** `docs: let names give way to strict non-name values` ·
   `fix: mask an e-mail glued to a known name`
 
+### [ ] Adım 19e — Gerçek bir sözleşmenin gösterdiği beş kod sınırı
+- **Kullanıcının isteği (2026-11-14):** dışarıdan verilen tek sözleşmeyle (Sonnet koşusu;
+  `docs/evals.md` §4 "Dışarıdan verilen tek sözleşme") görülen beş sınır çözülür. Tasarım
+  kararlarını ana döngü verir, kullanıcı beğenmediğini geri aldırır (2026-11-14). Sözleşme depoda
+  değildir; her sınır bildirimden yeniden kurulan en küçük girdilerle koşularak üretildi.
+  Araştırma kayıtları `.claude/plans/19e/` altındadır (commit edilmez).
+- **Araştırmanın bildirimi düzelttiği yerler:** (3) kök neden sıra ya da "Türk lirası" değil —
+  tutar tasarım gereği hiç sözcükle okunmaz ve sayı sözcükleri 1–999'dur; (5) asıl engel
+  `verify` değil, kuralın `check.unit` şemasıdır (saat birimli kural yüklenmez); (4) hata sonuç
+  tablosunda değil, o sözleşmenin model çağrılarından hemen sonra çıkar ve mesajı kullanıcıya
+  ulaşmaz; (1) "hiçbiri yanlış uygun üretmiyor" doğru değil: başlık bulunamayınca sözleşme
+  paragraflara bölünür, "4.1" ve "4.2" ayrı madde olur ve `verify` alıntı dışındaki kuralı çiğneyen
+  değeri komşu paragrafta göremez (koşularak gösterildi) — düzeltme güvenli yöndedir.
+
+#### Kararlar
+1. **Başlık (sınır 1):** `src/prepare/clauses.py`'ye ikinci bir başlık kalıbı; **yalnızca metinde
+   hiç "Madde N" başlığı yoksa** kullanılır: satır başında Markdown `#` işareti, isteğe bağlı
+   `**`, 1–3 basamaklı sayı, ardından rakam gelmeyen `.`, sonra başlık metni ya da satır sonu
+   (`## 4. Fesih`, `## **4.** Fesih`). `clause_no` üst düzey sayıdır (yazıldığı gibi; tip `str`
+   kalır). Başlık sayılan satırların `#` sayısı ilk numaralı başlığınkiyle aynı olmalıdır (alt
+   düzeydeki `### 1.` listesi madde bölmez). Bölmeyenler: alt madde `4.1.`, tarih, tutar, 3
+   basamaktan uzun sayı, işaretsiz `4. Başlık`, numaralı liste, Roma rakamı. Reddedilenler: alt
+   maddeyi ayrı madde saymak ("Madde 3.2" de başlık değildir; maddenin tamamı tek parçada kalınca
+   `verify` çiğneyen alt maddeyi görür); işaretsiz "N. BAŞLIK" (taraf listesi madde oluyor,
+   koşularak gösterildi). "Madde N" başlıklı ya da hiçbir başlığı olmayan her metnin bölünmesi
+   bayt bayt aynı kalır. Paragraf kipindeki açık (Roma rakamı, işaretsiz başlık) bilinen sınır
+   olarak yazılır.
+2. **Eval ön kontrolü (sınır 4):** `evals/run.py` `run_eval`, seçilen her etiketin beklenen
+   `clause_no`'larının sözleşmenin bölünmüş maddelerinde bulunduğunu **model çağrısından, önbellekten
+   ve geçici klasörden önce** denetler (`--prepare-only`'de de); bulunmazsa `EvalError`, çıkış 1,
+   mesajda yalnızca sözleşme / kural kimliği ve numaralar. Saf kısım `evals/metrics.py`'dedir.
+   `search_hit`'teki `ValueError` kalır (ön kontrolden sonra ulaşılamaz; sessiz "ıskalama" yanlış
+   metrik üretirdi).
+3. **Modelin birimi (sınır 2):** `_model_unit`'te bugünkü tam eşleşme önce çalışır; `None`
+   dönecekken, kural süre türündeyse ve birim tam iki sözcükse, ilki okuyucunun köprü sözcüğü
+   (`takvim`) ve ikincisi okuyucunun kapalı süre biçimlerindense o biçimin birimi sayılır (aynı
+   tablolar; ikinci bir liste yazılmaz). `iş günü`, tek başına ekli biçimler (`günlük`), `TRY`,
+   `yüzde` tanınmamaya devam eder. Reddedilen: okuyucunun tamamını modelin birimine uygulamak
+   (mevcut bir testi çevirir, geniş `lira` kökünü miras alır, etki alanı ≈ 5 kat); tool şemasını
+   ya da prompt'u değiştirmek (her sağlayıcıya giden isteği değiştirir).
+4. **Yazıyla tekrarlanan tutar (sınır 3):** yalnızca **rakamla yazılmış bir TL tutarının parantez
+   içinde yazıyla aynen tekrarı** tanınır (`2.400.000 TL (iki milyon dört yüz bin Türk lirası)`,
+   `1.000 (bin) TL`, `₺1.000 (bin)`); yazı, kanonik Türkçe tutar dilbilgisiyle (milyar / milyon /
+   bin / grup; üst sınır 999.999.999.999) okunur ve rakamla **aynı** değeri söylüyorsa tek değer
+   sayılır. Yazı farklı bir tutar söylüyorsa, okunamıyorsa ya da biçim tutmuyorsa bugünkü gibi
+   okunamayan kalır ("okunamayan değer atılmaz" ilkesi değişmez). Sözcükle yazılmış tek başına
+   tutar okunmaz; sayı sözcükleri genel olarak genişletilmez; süre ve yüzde değişmez. Bilinen
+   sınır olarak kalır (önceden var): parantezde birimi yazılmamış çelişen değer görülmez
+   (`1.200.000 TL (1.300.000)`).
+5. **Saat birimi (sınır 5):** `CheckUnit`'e `saat`; süre ailesinde saat ↔ gün / hafta kesin
+   (24 / 168), saat ↔ ay / yıl aralıklı (mevcut gün aralıklarının 24 katı). Saat ifadeleri
+   **yalnızca kuralın birimi `saat` iken** değer olarak okunur; öteki bütün kurallarda bugünkü gibi
+   okunamayan kalır (her süre kuralında okumak 30.000 rastgele vakanın 309'unda güvensiz yönde
+   fark verdi). Saat:dakika yazımı (`08:30 saatinde`) ve `saatine / saatinde / saatinden` biçimleri
+   değer okunmaz; "iş saati", "mesai saati" okunamayan kalır. Model `unit: "saat"`'i yalnızca saat
+   kuralında yazabilir. Tenant kurallarına saat kuralı eklenmez (eval etiketleri değişmesin);
+   dakika ve `sene` kapsam dışıdır.
+
+#### Alt adımlar
+Her biri: test + kod, eski kodla fark testi (`verify` ve madde bölme çekirdek modüldür;
+güvensiz yönde tek fark kabul edilmez), dokunulan modülün testleri, ruff, mypy; sonra commit.
+Dokümanlar en sonda tek commit'te (kullanıcının 19c'deki talimatı). Tek bağımsız inceleme en sonda.
+- **19e-1 (karar 1):** `fix: split contracts with numbered Markdown headings into clauses`
+- **19e-2 (karar 2):** `fix: check expected clause numbers before any model call in the eval`
+- **19e-3 (karar 3):** `fix: accept "takvim" + duration unit in the model's unit field`
+- **19e-4 (karar 4):** `fix: read an amount restated in words in parentheses as one value`
+- **19e-5 (karar 5):** `feat: support hour as a rule unit`
+- **19e-6:** dokümanlar (`agent_design.md` §4–§5, `spec.md`, `evals.md` §2 / §6, `architecture.md`,
+  README), bu adımın "Gerçekleşen" kaydı, `CLAUDE.md`.
+- **Yapılmayacaklar:** model çağıran eval koşulmaz (kullanıcıya sorulur); sözleşme depoda olmadığı
+  için sınırlar gerçek metinle yeniden ölçülmez — bu, "Gerçekleşen"e yazılır.
+
 ### [ ] Adım 20 — Teslim
 - **Ne:** Kullanıcının onayıyla `origin`'e push edilir. AI oturumları bu planın dışındadır: ham
   oturumları ekleme ve secret maskeleme işini kullanıcı kendisi yapar.
