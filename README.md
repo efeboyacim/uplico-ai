@@ -111,7 +111,7 @@ uv run ruff check . && uv run ruff format --check .      # lint + format
 uv run mypy src evals                                    # type-check
 ```
 
-Test takımı 2425 testtir ve geliştirme makinesinde ≈ 5 dk sürer.
+Test takımı 2446 testtir ve geliştirme makinesinde ≈ 5 dk sürer.
 
 ## Kullanım
 

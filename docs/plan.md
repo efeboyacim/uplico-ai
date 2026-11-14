@@ -509,12 +509,12 @@
   Ayrıntı Adım 19f "Gerçekleşen".
 - **Adım 20 bitti (2026-11-14):** `main` kullanıcı onayıyla `origin`'e push edildi. Plan bitti;
   kalan iş plan dışıdır (AI oturumlarını kullanıcı ekler).
-- **Adım 19g bitti (2026-11-14; teslimden sonra, `step-19g` dalında, `main`'e alınmadı ve push
-  edilmedi):** dışarıdan gelen bir incelemenin beş iddiası kodla denendi. Başka maddeye yazılmış
+- **Adım 19g bitti (2026-11-14; teslimden sonra; `step-19g` dalı 2026-11-15'te kullanıcı onayıyla
+  `main`'e alındı ve push edildi):** dışarıdan gelen bir incelemenin beş iddiası kodla denendi. Başka maddeye yazılmış
   taslak artık avukata gider (yeni sebep `proposal_clause_mismatch`); "kanıtlı ama yanlış uygun"
   sınırının dokümanlardaki eksik yazımı düzeltildi (`check`'li kuralda da geçerli; modelsiz sayım
   24 çiftin 14'ünde 22 madde). Modelle ölçülmedi. Ayrıntı Adım 19g.
-- **Adım 19h bitti (2026-11-15; `step-19g` dalında, `main`'e alınmadı ve push edilmedi):** süreç
+- **Adım 19h bitti (2026-11-15; aynı dalda, 19g ile birlikte `main`'e alındı ve push edildi):** süreç
   inceleme sırasında ölünce `running` kalan satır artık bir sonraki başlangıçta `failed` olur ve
   `review_failed` (`process_interrupted`) alır. Gerçek süreç öldürülerek denendi. Dış incelemeden
   kalan açık karar: "yanlış uygun" sınırı için çapa sözcükleri (Adım 19g "seçilmeyen çözümler").
@@ -2492,9 +2492,11 @@ Teslimden (Adım 20) sonra eklendi; numarası konusu gereği 19'dur.
   HEAD'deki `verify`'a verildi; 33.074'ünde tek fark eklenen `proposal_clause_mismatch` (ve
   `needs_review`), kalanında çıktı birebir aynı. 2436 test, ruff (izlenen kod), mypy temiz;
   değişen dosyalarda CR baytı yok.
-- **Ölçülmeyen:** model çağıran koşu yapılmadı; sebebin gerçek koşularda ne sıklıkta çıktığı
-  bilinmiyor (sonuç dosyaları taslağın ve bulgunun maddesini yan yana tutmaz). Docker imajı
-  yeniden kurulmadı.
+- **Ölçülmeyen:** bu adım için model çağıran koşu yapılmadı. Sebebin gerçek koşularda ne sıklıkta
+  çıkacağına dair tek veri dolaylıdır: 19c Sonnet koşusunun saklanan 12 taslağı (depoda değil;
+  `evals/drafts/` `.gitignore`'dadır) o koşunun sonuç satırlarıyla madde numarası üzerinden
+  eşleştirildi, 12'sinin 12'si bulgunun maddesine yazılmış. Groq koşularının taslakları
+  saklanmadı.
 - **Commit:** `fix: queue a draft written for another clause than the finding's`
 
 ### [x] Adım 19h — Yarıda kalan incelemeyi başlangıçta kapat
@@ -2525,8 +2527,7 @@ Dış incelemenin 4. iddiası (Adım 19g tablosu).
   sağlayıcıyı beklerken süreç öldürüldü: satır `running`, son audit satırı `index_built` (iddia
   böylece çalıştırılarak da doğrulandı). Süreç yeniden başlatıldı: log'da kapatma satırı, `GET`
   `failed`, son audit satırı `system` / `review_failed` / `process_interrupted`, öteki tenant 404.
-- **Ölçülmeyen / sınır:** Docker'da (`docker compose` durdur / başlat) denenmedi; imaj yeniden
-  kurulmadı. Uygulama yeniden başlayana kadar satır `running` görünür. Anahtarı olmayan tenant'ın
+- **Ölçülmeyen / sınır:** Docker'da (`docker compose` durdur / başlat) denenmedi. Uygulama yeniden başlayana kadar satır `running` görünür. Anahtarı olmayan tenant'ın
   satırı taranmaz. Aynı veri dizininde ikinci bir süreç başlatmak ilkinin süren incelemesini
   `failed` yapar (tek süreç varsayımı). Yarım thread `checkpoints.db`'de kalır.
 - **Commit:** `fix: fail reviews left running by an interrupted process at startup`

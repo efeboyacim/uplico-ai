@@ -326,8 +326,11 @@
   `passed` kalır. Aynı maddeye yazılmış taslak sebep almaz; taslağın maddesi bilinmese de sebep
   eklenir; `clause_id`'siz (`not_found`) bulgu ve `enabled=False` sebep eklemez; "uygun" bulguda
   da eklenir; öteki sebeplerle birlikte `ReviewReason` sırasıyla yazılır (`proposal_partial`'dan
-  sonra). Veri kümesinde sınanmıyor: ölçülen koşuların sonuç dosyaları taslağın ve bulgunun
-  maddesini yan yana tutmaz. Arayüz etiketi `tests/test_api.py`'de denetlenir.
+  sonra). Veri kümesinde sınanmıyor: sonuç dosyaları taslağın maddesini tutmaz. Tek dolaylı
+  ölçüm: 19c Sonnet koşusunun `--keep-drafts` ile saklanan 12 taslağı (depoda değil) o koşunun
+  sonuç satırlarıyla madde numarası üzerinden eşleştirildi; 12'sinin 12'si bulgunun maddesine
+  yazılmış, yani sebep o koşuda hiç çıkmazdı. Groq koşularının taslakları saklanmadı. Arayüz
+  etiketi `tests/test_api.py`'de denetlenir.
 - **`submit_finding` yanıtı (`tests/test_tools.py`):** `non_compliant` + taslak yok → yanıt
   `propose_change`'i ve maddeyi (`(c2)`) söyleyen sabit yönlendirmedir (tool'un reddettiği bir
   taslaktan sonra da); diğer durumlarda (`compliant`, `not_found`, taslaktan sonra gelen ya da

@@ -94,12 +94,12 @@ Adım 20 bitti (2026-11-14): `main` kullanıcı onayıyla `origin`'e push edildi
 klonda `.env` / `*.db` yok, imaj kuruluyor, API sahte sağlayıcı anahtarıyla ve modelsiz eval
 çalışıyor; gerçek modelle uçtan uca akış o klonda denenmedi. Plan bitti; AI oturumlarını kullanıcı
 ekler. Ayrıntı `docs/plan.md` "Durum" ve Adım 20.
-Adım 19g bitti (2026-11-14; teslimden sonra, `step-19g` dalında, `main`'e alınmadı ve push
-edilmedi): dış bir incelemenin iddiaları kodla denendi. Bulgunun maddesinden başka bir maddeye
+Adım 19g bitti (2026-11-14; teslimden sonra; `step-19g` dalı 2026-11-15'te kullanıcı onayıyla
+`main`'e alındı ve push edildi): dış bir incelemenin iddiaları kodla denendi. Bulgunun maddesinden başka bir maddeye
 yazılmış taslak `proposal_clause_mismatch` ile avukata gider; "kanıtlı ama yanlış uygun" sınırı
 `check`'li kuralda da geçerlidir (maddede eşiği sağlayan bir değer varsa; modelsiz sayım 24
 çiftin 14'ünde 22 madde) ve kapatılmadı. Modelle ölçülmedi. Ayrıntı `docs/plan.md` Adım 19g.
-Adım 19h bitti (2026-11-15; aynı dalda): süreç inceleme sırasında ölünce `running` kalan satırı
+Adım 19h bitti (2026-11-15; aynı dalda, 19g ile birlikte `main`'de): süreç inceleme sırasında ölünce `running` kalan satırı
 `main()` bir sonraki başlangıçta, sunmadan önce `failed` yapar ve `review_failed`
 (`process_interrupted`) yazar (`create_app` veritabanına yazmaz); gerçek süreç öldürülerek
 denendi, Docker'da denenmedi. Açık karar: "yanlış uygun" sınırı için çapa sözcükleri. Ayrıntı
