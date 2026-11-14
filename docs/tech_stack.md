@@ -174,8 +174,10 @@ Doğrulanamayan `spec.md` §10'da açık sorudur: `gpt-oss-120b`'nin Türkçe ka
 - Çevrimdışı modda `app`, `ollama-pull` bitene kadar bekler (`depends_on`, `required: false`;
   varsayılan modda yok sayılır). Port yalnızca `127.0.0.1`'de yayınlanır.
 - Varsayılan modda yalnızca `app` başlar; Ollama kapsayıcısı çalışmaz, imajı ve modeli inmez.
-- Çevrimdışı moda geçiş `.env`'de iki değişkendir: `LLM_PROVIDER=ollama` ve
-  `COMPOSE_PROFILES=offline`; komut yine `docker compose up`.
+- Çevrimdışı moda geçiş `.env`'de dört satırdır: `LLM_PROVIDER=ollama`, `COMPOSE_PROFILES=offline`
+  ve boş `LLM_MODEL` ile `LLM_TEMPERATURE` (Adım 21'den beri `.env.example` bu ikisini Sonnet için
+  dolu getirir; boşaltılmazsa `ollama-pull` `claude-sonnet-5-5` adlı modeli indirmeye çalışır).
+  Komut yine `docker compose up`.
 - Varsayılan modda GPU gerekmez. Çevrimdışı modda Windows'ta GPU için host'taki Ollama
   kullanılabilir (`OLLAMA_BASE_URL=http://host.docker.internal:11434`).
 - `app` servisinde `restart` tanımlanmaz. Anahtar ya da sağlayıcı paketi eksikse `app` hatayı
