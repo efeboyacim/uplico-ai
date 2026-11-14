@@ -69,7 +69,11 @@ eklendi. Sonnet ile tek koşu (`7f7cbf9`): status 35 / 35, yönlendirme 13 / 35 
 uygunluğu 8 / 11 → 11 / 11, garanti edilmeyen PII 2 / 5 → 0 / 5, sert eşikler tuttu; beklenen
 dört satır değişikliklere bağlandı, kalan farklar koşu oynaklığı, biri belirsiz (`docs/evals.md` §4). Açık soru:
 bitişik yazılmış ad + e-posta (`docs/spec.md` §10). Groq bu kodla koşulmadı.
-Sıradaki: Adım 20 — teslim (kullanıcı onayıyla push). Ayrıntı `docs/plan.md` "Durum".
+Adım 19d bitti (2026-11-14): bir ad, katı ad dışı bir değerle (e-posta, bitişik / standart IBAN,
+önekli telefon, bitişik TCKN) örtüşürse yol verir; bitişik yazılmış ad + e-posta açığı kapandı,
+17b değişmezi korundu; kalan sınırlar `docs/spec.md` §8 ve §10'da (ada yapışık IBAN açık soru).
+Sıradaki: Adım 19e — gerçek bir sözleşmenin gösterdiği beş kod sınırı (`docs/plan.md`), sonra
+Adım 20 — teslim (kullanıcı onayıyla push). Ayrıntı `docs/plan.md` "Durum".
 
 ## Komutlar
 ```bash

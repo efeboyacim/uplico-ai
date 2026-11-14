@@ -350,8 +350,9 @@ Kurallar:
   görür. Sınır: eşlemede olmayan yeni bir kişi adı, keşif yollarından biri (etiket, aynı satırdaki
   e-posta, etiketsiz imza satırı) bulmadıkça yakalanmaz (serbest metin adlarıyla aynı sınır);
   `viewer` onu inceleme yanıtında, raporda ve audit'te görebilir (`spec.md` §8 "Bilinen sınırlar").
-  Bu çağrıya Adım 19c'nin "yol verme" listesi (`unlabelled`) verilmez: eşlemedeki ad, boşluksuz
-  bitişik yazılmış bir e-postanın bir kısmını ham bırakabilir (`spec.md` §10, açık soru).
+  Bu çağrıya Adım 19c'nin "yol verme" listesi (`unlabelled`) verilmez; eşlemedeki ad yine de
+  boşluksuz bitişik yazılmış bir e-postaya yol verir (Adım 19d, kural `mask` içindedir;
+  `spec.md` §10).
   TCKN, IBAN, telefon ve e-posta yakalanır.
 - Düzenlenmiş metin kod kontrolünden geçmez; avukatın kararıdır.
 - Avukat taslağı olmayan bir bulguya yeni taslak ekleyemez (kapsam dışı).

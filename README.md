@@ -777,11 +777,16 @@ Tam tablo: `docs/architecture.md` §6 "Veri nereye gidiyor".
   sözcükleri, işlev posta kutuları ("Müşteri Hizmetleri" + `musteri.hizmetleri@`); tireli soyad
   yarım maskelenir. Sözleşme 5'in iki adı bu yollarla maskelenir ama "garanti edilmeyen"
   listesinde kaldı. Tam liste: `docs/agent_design.md` "PII maskeleme" → "Kişi adı".
-- **Bitişik yazılmış ad + e-posta (açık soru).** Ad ile e-posta boşluksuz yapışık yazılırsa
-  (`Elif Soylu-elif@ornek.com`) e-postanın bir kısmı ham kalabilir: etiket yolunun bulduğu adda
-  (Adım 19c'den önce de böyleydi) ve avukatın düzenlediği taslakta (`src/api.py`
-  `_masked_decision`). Yeni iki yolun bulduğu ad, inceleme metninde e-postaya yol verir. Kuralın
-  genişletilip genişletilmeyeceği kullanıcı kararını bekliyor (`docs/spec.md` §10).
+- **Ada boşluksuz yapışık değer.** Ad ile e-posta boşluksuz yapışık yazılırsa
+  (`Elif Soylu-elif@ornek.com`) e-posta artık her durumda maskelenir (Adım 19d; etiketli adda,
+  maddede ve avukatın düzenlediği taslakta da): ad, e-postaya ve öteki katı değerlere yol verir.
+  Bedeli: adın e-postaya girmeyen kısmı o geçişte ham kalır (`Elif [EPOSTA_1]`; e-posta kalıbı
+  yalnızca ASCII harf aldığından `Kemal Uçar-kemal@ornek.com` → `Kemal Uç[EPOSTA_1]`), ve
+  e-postaya da yapışık zayıf bir değer ham kalabilir. Önceden var olan, değişmeyen iki sınır:
+  etiketli ad `TR` ile bitip ardından boşluklu serbest gruplu IBAN geldiğinde
+  (`Yetkili: Ahmet TR 33 0006 …`) IBAN'ın rakamları ham kalır; bir ada boşluksuz yapışık IBAN
+  (`Elif SoyluTR330006100519786457841326`) hiç maskelenmez, ne ad ne IBAN (açık soru,
+  `docs/spec.md` §10).
 - **Maskelenmeyen diğer kimlik bilgileri.** Satıra
   bölünmüş, tireli ya da çift boşluklu IBAN, ayraçsız öneksiz cep numarası, öneksiz sabit hat,
   öneksiz yazılmış parantezli alan kodu (`(532) 123 45 67`), `+90 (0) 212 555 12 34` yazımı ve

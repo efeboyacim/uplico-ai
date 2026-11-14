@@ -601,10 +601,13 @@ yoktur.**
     arasındaki "önce başlayan kazanır" kuralı burada TCKN'nin son hanelerini açıkta bırakırdı).
     **Katı** olanlar Adım 17b'den önce de bulunanlardır:
     e-posta, bitişik ya da standart gruplu IBAN, `+90` / `0` önekli telefon, bitişik TCKN, ad.
-    Çakışan aralıklar üç turda çözülür: önce katı değerler arasında önce başlayan, eşit başlangıçta
-    uzun olan kazanır (sonuç Adım 17b öncesiyle aynıdır); sonra zayıf değerler yalnızca katı bir
-    değerin kaplamadığı metni alır, kendi aralarında yine önce başlayan, eşit başlangıçta uzun olan
-    kazanır; en son parantezli telefon yalnızca ilk iki turun kaplamadığı metni alır. Bu yüzden
+    Çakışan aralıklar şu turlarla çözülür; her tur yalnızca önceki turların kaplamadığı metni alır,
+    tur içinde önce başlayan, eşit başlangıçta uzun olan kazanır: (1) ad dışı katı değerler;
+    (2) adlar (aşağıda "Kişi adı" → "Yol verme"; Adım 19d'den beri ad, ad dışı katı bir değerle
+    örtüştüğü yerde ona yol verir, önceden önce başlayan kazanıyordu); (3) zayıf değerler; (4)
+    parantezli telefon; (5) yalnızca Adım 19c'nin iki yolunun bulduğu adlar. Ad, katıdır: zayıf
+    biçimlere ve parantezli telefona yol vermez, yani bu biçimler olmadan maskelenen her aralık
+    onlarla da birebir aynı maskelenir (değişmez, Adım 19d'de de korunur). Bu yüzden
     katı bir IBAN'ın ya da önekli (parantezsiz) telefonun içinden TCKN çıkmaz (parantezli yazım
     ise boşluklu TCKN'ye yer bırakır, yukarıda); önündeki bir sayıyla
     telefonun ilk grupları birleşerek (`4437 0532 648`) telefonu bölemez; hanesi eksik bir IBAN'ın
@@ -745,17 +748,26 @@ yoktur.**
       ("ve …" devamları dahil, en çok 12 sözcük) ya da bunların hemen ardındaki sözcükte şirket eki
       varsa ad sayılmaz (`Ahmet Yılmaz İnşaat A.Ş. ahmet.yilmaz@…`). Sınır, bir satırda çok aday
       olduğunda süreyi doğrusal tutmak içindir; etiket yolu sınırsız bakar.
-    - **Yol verme:** yalnızca yeni iki yolun bulduğu (etiket yolunun bulmadığı) bir ad, bir
-      geçişinde başka bir değerle (e-posta, numara, IBAN, etiketli ad) örtüşüyorsa o geçişte yol
-      verir: o geçiş olduğu gibi kalır, öteki değer ad hiç bulunmamış gibi maskelenir; adın öteki
-      geçişleri maskelenir. Böylece yeni yollar, önceden maskelenen hiçbir değerin yerini almaz.
-      Örnek: `Yedek: Kemal Ozturk_kemal@ornek.com … Kemal Ozturk\nİmza:` → `Yedek: Kemal
-      [EPOSTA_1] … [KISI_1]\nİmza:` (e-posta kalıbı `Ozturk_kemal@ornek.com`'u alır; yol verilen
-      geçişte adın e-postaya girmeyen kısmı, "Kemal", ham kalır). Bir madde tek başına adın nasıl
-      bulunduğunu göstermeyebilir; bu yüzden `prepare_contract` bu adları önce bütün sözleşmeden
-      çıkarır (`unlabelled_names`) ve her madde çağrısına verir (`mask(…, unlabelled=…)`). Eşlemede
-      zaten duran bir ad, `unlabelled` ile verilmedikçe yol vermez (eşlemedeki ad olarak, Adım 19c
-      öncesi gibi maskelenir).
+    - **Yol verme, ad ↔ ad dışı katı değer (Adım 19d; kullanıcı kararı, 2026-11-14):** her ad
+      (etiket yolunun bulduğu, yeni iki yolun bulduğu ya da dışarıdan gelen eşlemedeki; madde
+      çağrısında da, avukatın düzenlediği metinde de) bir geçişinde ad dışı **katı** bir değerle
+      (e-posta, bitişik ya da standart gruplu IBAN, önekli telefon, bitişik TCKN) örtüşüyorsa o
+      geçişte yol verir: o değer, hiç ad bilinmeseydi nasıl maskelenecekse öyle maskelenir; adın o
+      geçişi maskelenmez, öteki geçişleri maskelenir. Örnek: `Yetkili: Elif Soylu\nElif
+      Soylu-elif@ornek.com` → `Yetkili: [KISI_1]\nElif [EPOSTA_1]` (e-posta kalıbı
+      `Soylu-elif@ornek.com`'u alır). Kural `mask` içindedir (`_resolve`); `unlabelled` listesine
+      bağlı değildir. Pratikte yalnızca e-posta örtüşür: ad, ardında harf ya da rakam olmayan yerde
+      biter, katı numaralar ise rakamla, `+` ile ya da `TR` + rakamla başlar. Zayıf (Adım 17b)
+      biçimlere ve parantezli telefona ad yol vermez (yukarıda "Öncelik"). Neden yalnızca katı
+      değerler (kullanıcının kapatmak istediği iki durum e-postayla ilgili): ad zayıf değerlere de
+      yol verseydi `Yetkili: Ahmet TR 33 0006 1005 …` gibi bir yazımda etiketli ad ham kalıp IBAN
+      maskelenirdi (bir garanti türü ötekiyle takas edilirdi) ve 17b değişmezi bozulurdu.
+    - **Yol verme, ad ↔ ad (Adım 19c):** yalnızca yeni iki yolun bulduğu (etiket yolunun
+      bulmadığı) bir ad, başka bir adla örtüştüğü geçişte ona yol verir. Bir madde tek başına adın
+      nasıl bulunduğunu göstermeyebilir; bu yüzden `prepare_contract` bu adları önce bütün
+      sözleşmeden çıkarır (`unlabelled_names`) ve her madde çağrısına verir (`mask(…,
+      unlabelled=…)`). Eşlemede zaten duran bir ad, `unlabelled` ile verilmedikçe başka bir ada
+      yol vermez (iki ad arasında önce başlayan kazanır).
     - **İki aşamalı akışın sonucu:** tanımlı terim sayımı her `mask()` çağrısının kendi metninde
       yapılır. Bütün metinde gövdede 3+ kez geçtiği için reddedilen bir başlık
       ("İş Ortağı\nİmza:"), tek başına maskelenen İmzalar parçasında yeniden bulunup yalnızca orada
@@ -776,16 +788,24 @@ yoktur.**
       + `ahmet.yilmaz@` → "[KISI_1] Ticaret"). Yarım maskeleme: tireli soyad
       ("Ahmet Yılmaz-Kaya" + `ahmet.yilmaz@` → "[KISI_1]-Kaya"); e-posta adın yalnızca bir kısmını
       yazıyorsa o kısım ("Ayşe Nur Kaya" + `nur.kaya@` → "Ayşe [KISI_1]").
-    - **Önceden var olan, Adım 19c'de değişmeyen sınır (açık soru, `spec.md` §10):** (a) etiket
-      yolunun bulduğu ad, boşluksuz bitişik yazılmış bir e-postanın yerini alabilir:
-      `Yetkili: Elif Soylu\nElif Soylu-elif@ornek.com` → `… [KISI_1]-elif@ornek.com` (e-postanın
-      kalanı ham kalır). "Yol verme" yalnızca yeni yolların adlarına uygulanır; etiketli adlarda
-      davranış Adım 19c öncesiyle aynıdır. (b) Avukatın düzenlediği taslak metni kayıtlı eşlemeyle
-      maskelenir (`src/api.py` `_masked_decision`) ve bu çağrıya `unlabelled` listesi verilmez;
-      eşlemedeki ad orada yol vermez. Yeni yolların bulduğu ad, düzenlenen metinde bitişik bir
-      e-postayla yazılırsa e-postanın kalanı ham kalabilir (`Kemal Uçar-kemal@ornek.com` →
-      `[KISI_1]-kemal@ornek.com`). İkisi de adla e-postanın boşluksuz yapıştığı yazımda
-      gösterildi; boşluk ya da noktalamayla ayrıldıklarında ikisi de maskelenir.
+    - **Sınır (bitişik yazım; Adım 19d'den sonra kalan):** (a) yol veren adın e-postaya girmeyen
+      kısmı ham kalır: `Elif Soylu-elif@ornek.com` → `Elif [EPOSTA_1]`. E-posta kalıbının yerel
+      kısmı yalnızca ASCII harf alır, bu yüzden Türkçe harfli bir soyadda e-posta soyadın
+      ortasından başlar ve ham kalan kısım uzar: `Kemal Uçar-kemal@ornek.com` →
+      `Kemal Uç[EPOSTA_1]` (`ar-kemal@ornek.com` e-postadır). Bu kısım ayrıca maskelenmez:
+      yer tutucu–değer eşlemesi ve maske açma birebir kalsın diye. (b) Adın kalkanı kalktı:
+      e-postaya boşluksuz yapışık zayıf bir değer (`… hakan.tore@ornek.com.TR 33 0006 …`), önceden
+      e-postanın yerini alan bitişik ad sayesinde maskelenebiliyordu; şimdi e-posta, ad hiç
+      bilinmeseydi olacağı gibi zayıf değerin başını alır ve zayıf değer ham kalır (aşağıda
+      "Sınır"daki "e-postaya yapışık yeni biçimli değer" sınıfı; adla e-postanın ve e-postayla
+      zayıf değerin ikisinin de yapışık olduğu yazımda; 80.000 rastgele girdinin 4'ünde
+      görüldü). (c) Önceden var olan, değişmeyen: `TR` + boşlukla yazılmış serbest gruplu IBAN'dan
+      hemen önce etiketli bir ad varsa (`Yetkili: Ahmet TR 33 0006 1005 …`) ad dizisi `TR`'yi alır
+      ve IBAN'ın rakamları ham kalır (zayıf biçim ada yol verir). (d) Önceden var olan, ayrı ve bu
+      adımda düzeltilmeyen sınır (`spec.md` §10, açık soru): bir ada boşluksuz yapışık IBAN
+      (`Elif SoyluTR330006100519786457841326`) hiç maskelenmez, ne ad ne IBAN: IBAN'ın önünde harf
+      olmaması, adın ardında harf ya da rakam olmaması gerekir. Ad ile değer boşluk ya da
+      noktalamayla ayrıldığında ikisi de maskelenir.
   - Yer tutucu türleri: `KISI`, `TCKN`, `IBAN`, `TELEFON`, `EPOSTA`.
   - Aynı değer aynı yer tutucuyu alır; "aynı" birebir aynı yazımdır (maske açma metni aynen geri
     vermek zorundadır), farklı yazılmış aynı ad ya da numara ayrı yer tutucu alır. Eşleme yalnızca
@@ -803,7 +823,10 @@ yoktur.**
     ayrıntı `architecture.md` §3 "Avukat kararı"). Orada eşlemede olmayan yeni bir kişi adı,
     üç keşif yolundan biri (etiket, aynı satırdaki e-posta, etiketsiz imza satırı) bulmadıkça
     yakalanmaz; `viewer` onu inceleme yanıtında, raporda ve audit'te görebilir (bilinen sınır).
-    Bu çağrıya `unlabelled` listesi verilmez (yukarıda "Önceden var olan … sınır" (b)).
+    Bu çağrıya `unlabelled` listesi verilmez; adın ad dışı katı değere yol vermesi listeye bağlı
+    olmadığı için orada da geçerlidir (`Kemal Uçar-kemal@ornek.com` eşlemedeki adla
+    `Kemal Uç[EPOSTA_1]` olur), yalnızca iki ad arasındaki yol verme uygulanmaz (yukarıda "Yol
+    verme, ad ↔ ad").
   - Sınır: maskelenmesi garanti edilmeyenler kaçabilir: gövdede geçen ad ve etiketsiz imza
     satırındaki ad (Adım 19c'den sonra e-posta bağı ve imza satırı yolu bunların bir kısmını bulur;
     kaçanlar yukarıda "Kişi adı"), satıra bölünmüş, tireli ya da çift boşluklu IBAN, ayraçsız

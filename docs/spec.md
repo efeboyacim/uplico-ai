@@ -238,8 +238,17 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   işlev posta kutuları ("Müşteri Hizmetleri" + `musteri.hizmetleri@`); tireli soyad yarım
   maskelenir ("[KISI_1]-Kaya"). Ayrıntı ve tam liste: `agent_design.md` "PII maskeleme" → "Kişi
   adı". Sözleşme 5'in iki adı bu yollarla maskelenir ama `pii_best_effort`'ta kalır; garanti
-  iddiası yoktur (`evals.md` §3). Adla e-postanın boşluksuz yapıştığı iki yazımda e-postanın bir
-  kısmı ham kalabilir (aşağıda §10, açık soru).
+  iddiası yoktur (`evals.md` §3).
+- **Ada boşluksuz yapışık değer (Adım 19d'den sonra kalan):** ad, boşluksuz yapışık bir e-postaya
+  ya da başka bir katı değere her zaman yol verir (aşağıda §10, karar); değer maskelenir, adın
+  değere girmeyen kısmı o geçişte ham kalır (`Elif Soylu-elif@ornek.com` → `Elif [EPOSTA_1]`;
+  e-posta kalıbı yalnızca ASCII harf aldığı için `Kemal Uçar-kemal@ornek.com` →
+  `Kemal Uç[EPOSTA_1]`). E-postaya da yapışık zayıf bir değer (`….com.TR 33 0006 …`) ad hiç
+  bilinmiyormuş gibi ham kalabilir. Önceden var olanlar, değişmedi: `TR` + boşlukla yazılmış
+  serbest gruplu IBAN etiketli bir adın hemen ardındaysa (`Yetkili: Ahmet TR 33 0006 …`) IBAN'ın
+  rakamları ham kalır; bir ada boşluksuz yapışık IBAN (`Elif SoyluTR330006100519786457841326`)
+  hiç maskelenmez, ne ad ne IBAN (açık soru, §10). Ayrıntı: `agent_design.md` "Kişi adı" →
+  "Sınır (bitişik yazım …)".
 - **Karar kilidi tek süreç içindir:** aynı incelemeye aynı anda gelen iki karardan yalnızca birinin
   işlenmesini süreç içi bir kilit sağlar; uygulama tek süreç çalışır (`python -m src.api`, tek
   uvicorn worker). Çok süreçli dağıtımda yalnızca veritabanındaki durum şartı kalır.
@@ -371,17 +380,28 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
       8K TPM'li anahtarda 4 ile ilk istek 5 kuraldan 3'ünü `rate_limited` yapıyordu. Bedeli: yüksek
       limitli hesapta inceleme yavaşlar (örnek sözleşmede 49 sn yerine 112 sn); orada
       `MAX_CONCURRENCY=4` verilebilir.
-- [ ] **Bitişik yazılmış ad + e-posta (Adım 19c'de görüldü, kullanıcı kararı bekliyor):** iki
-      durumda e-postanın bir kısmı ham kalır. (a) Önceden var olan, Adım 19c'de değişmeyen:
-      etiket yolunun bulduğu ad, boşluksuz bitişik e-postanın yerini alır
-      (`Yetkili: Elif Soylu\nElif Soylu-elif@ornek.com` → `… [KISI_1]-elif@ornek.com`). (b)
-      Avukatın düzenlediği taslak kayıtlı eşlemeyle maskelenir (`src/api.py` `_masked_decision`) ve
-      oraya "yol verme" listesi (`unlabelled`) verilmez: yeni yolların bulduğu ad aynı bitişik
-      yazımda e-postanın yerini alabilir (`Kemal Uçar-kemal@ornek.com` →
-      `[KISI_1]-kemal@ornek.com`). Boşluk ya da noktalamayla ayrılmış yazımda ikisi de maskelenir.
-      Soru: "yol verme" kuralı etiketli adlara ve karar ucuna da genişletilsin mi ((a) için
-      Adım 19c öncesinde maskelenen aralıklar değişir), yoksa sınır olarak mı kalsın?
-      Ayrıntı: `agent_design.md` "Kişi adı" → "Önceden var olan … sınır".
+- [x] **Bitişik yazılmış ad + e-posta (Adım 19c'de görüldü):** iki durumda e-postanın bir kısmı
+      ham kalıyordu: (a) etiket yolunun bulduğu ad, boşluksuz bitişik e-postanın yerini alıyordu
+      (`Yetkili: Elif Soylu\nElif Soylu-elif@ornek.com` → `… [KISI_1]-elif@ornek.com`); (b)
+      avukatın düzenlediği taslakta (`src/api.py` `_masked_decision`, `unlabelled` listesi
+      verilmez) eşlemedeki ad aynı yazımda e-postanın yerini alıyordu
+      (`Kemal Uçar-kemal@ornek.com` → `[KISI_1]-kemal@ornek.com`).
+      **Karar (2026-11-14, kullanıcı: "kapat"; Adım 19d):** her ad, ad dışı **katı** bir değerle
+      (e-posta, bitişik ya da standart gruplu IBAN, önekli telefon, bitişik TCKN) örtüştüğü yerde
+      ona yol verir; değer ad hiç bilinmeseydi nasıl maskelenecekse öyle maskelenir. Kural `mask`
+      içindedir, listeye ve çağrı yerine bağlı değildir; (a) `… Elif [EPOSTA_1]`, (b)
+      `Kemal Uç[EPOSTA_1]` olur. Zayıf (Adım 17b) biçimlere ve parantezli telefona ad yol vermez.
+      Neden "her ad dışı değere" değil: o seçenek (A) `Yetkili: Ahmet TR 33 0006 1005 …` gibi
+      nadir bir yazımda etiketli adı ham bırakıp IBAN'ı maskeleyerek bir garanti türünü ötekiyle
+      takas ediyor ve Adım 17b'nin "yeni biçimler eski değerin yerini almaz" değişmezini bozuyordu;
+      kapatılmak istenen iki durum e-postayla ilgilidir ve katı değerlerle sınırlı kural (B) ikisini
+      de kapatır. Kalan sınırlar: §8 "Ada boşluksuz yapışık değer".
+- [ ] **Ada boşluksuz yapışık IBAN (Adım 19d'de görüldü, önceden var):**
+      `Elif SoyluTR330006100519786457841326` içinde ne ad ne IBAN maskelenir (IBAN kalıbı önünde
+      harf istemez, ad ardında harf ya da rakam istemez). Etiketli satırdaki ad yine maskelenir;
+      ham kalan, yapışık yazılmış geçişin kendisi ve IBAN'dır. Soru: IBAN kalıbının sol sınırı
+      harfe bitişik `TR` için gevşetilsin mi (bir sözcüğün içindeki `TR` + 24 hanenin yanlış pozitif
+      riski ölçülmeli), yoksa sınır olarak mı kalsın?
 
 ### Adım 12 gözlemleri (2026-11-12, ilk gerçek model denemesi)
 Tek sözleşme (`tests/fixtures/sample_contract.md`: 15 madde, 7 enjeksiyon işareti), `acme`'nin 5

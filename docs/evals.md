@@ -327,12 +327,22 @@
   Tanımlı terim: başlık metinde kendi satırı dışında 2 kez geçiyorsa maskelenir, 3 kez geçiyorsa
   maskelenmez; bütün metinde reddedilen başlık tek başına İmzalar parçasında maskelenir. Etiket
   yolu değişmedi ("Kaşesi" yalnızca imza yolunda form sözcüğü). Şirket koruması 12 sözcük ileri
-  bakar. Yol verme: yalnızca yeni yolların bulduğu ad, bitişik yazılmış e-postanın yerini almaz
-  (e-posta Adım 19c öncesindeki gibi maskelenir), madde düzeyinde de (`prepare_contract`
-  `unlabelled_names`'i her maddeye verir); eşlemedeki ad yalnızca `unlabelled` ile verilince yol
-  verir; `unlabelled_names` etiket yolunun bulduğu adları içermez. Sabitlenen sınırlar: imza
-  satırındaki iki sözcüklü eksiz şirket adı maskelenir; etiketli adın bitişik e-postanın yerini
-  alması Adım 19c öncesiyle aynıdır. Değişmez, tohumlu üretimle (3.000 girdi; adlar, birim / şirket
+  bakar. Yol verme (Adım 19d): her ad, boşluksuz yapışık e-postaya yol verir; e-posta ad hiç
+  bilinmiyormuş gibi maskelenir: etiketli ad (`-`, `.`, `_`, `+`, `%` bağlaçlarıyla), yeni
+  yolların bulduğu ad, madde çağrısında ve düzenlenen taslakta olduğu gibi eşlemeden gelen ad
+  (`unlabelled` listesi olmadan da; `Kemal Uçar-kemal@ornek.com` → `Kemal Uç[EPOSTA_1]`);
+  boşlukla ayrılmış ad ve e-postanın ikisi de maskelenir; etiketli ada yapışık ya da boşlukla
+  ayrılmış TCKN, telefon ve boşlukla ayrılmış IBAN maskelenir (yapışık yazımda adın o geçişi ad
+  sınırını tutmadığı için ad sayılmaz ve ham kalır; Adım 19d öncesiyle aynı); `prepare_contract`
+  testinde bitişik e-posta maddede maskelenir. İki ad arasında yalnızca yeni yolların bulduğu ad
+  yol verir; madde çağrısında eşlemedeki ad bunu yalnızca `unlabelled` ile verilince yapar;
+  `unlabelled_names` etiket yolunun bulduğu adları içermez. Sabitlenen sınırlar: imza satırındaki
+  iki sözcüklü eksiz şirket adı maskelenir; etiketli ad `TR` ile bittiğinde ardındaki boşluklu
+  serbest gruplu IBAN'ın rakamları ham kalır; ada boşluksuz yapışık IBAN hiç maskelenmez. İkinci
+  bir tohumlu değişmez (3.000 girdi; etiketli, etiketsiz ve eşlemeden gelen adlar e-postaya,
+  numaraya ve IBAN'a yapışık ya da boşluklu): ad keşfi testte kapatıldığında maskelenen her katı
+  ad dışı değer, adlarla da birebir aynı maskelenir; hiçbir ad katı bir değerle örtüşmez; maske
+  açma metni aynen geri verir. Değişmez, tohumlu üretimle (3.000 girdi; adlar, birim / şirket
   dizileri, e-postalar, imza satırları ve etiketler karışık) sınanır: iki yeni yol testte
   kapatıldığında maskelenen her (başlangıç, bitiş, ham değer) aralığı, açıkken de aynıdır ya da
   yeni bir `KISI` aralığının içindedir; numara, e-posta ve IBAN aralıkları birebir aynıdır;

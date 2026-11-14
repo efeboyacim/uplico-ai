@@ -493,7 +493,10 @@
   11 / 11, garanti edilmeyen PII 2 / 5 → 0 / 5, sert eşikler tuttu. Ayrıntı Adım 19c "Gerçekleşen"
   ve "Ölçüm sonucu"; açık soru `spec.md` §10 (bitişik ad + e-posta). Groq bu kodla koşulmadı.
 - **`step-19c` `main`'e alındı** (2026-11-14, kullanıcı onayıyla, `--ff-only`).
-- **Sıradaki:** Adım 20 — teslim (kullanıcı onayıyla push).
+- **Adım 19d bitti (2026-11-14):** ad, katı ad dışı bir değerle örtüşürse yol verir (bitişik
+  yazılmış ad + e-posta açığı kapandı). Ayrıntı Adım 19d.
+- **Sıradaki:** Adım 19e (gerçek bir sözleşmenin gösterdiği beş kod sınırı), sonra Adım 20 —
+  teslim (kullanıcı onayıyla push).
 - **Adım 18c'ye başlarken (2026-11-13 oturumunun devri):**
   1. Depo temiz; son commit bu notun commit'i. `origin`'e push yapılmadı (push Adım 20'dir).
   2. Holdout koşusu bitti; eval önbelleği yok. `src/`, `evals/*.py` ve `uv.lock` artık
@@ -2142,6 +2145,33 @@ dosyasına ya da son mesaja; inceleyici boş bulgu listesiyle değil kapsam rapo
 - **Ayrıntı:** `docs/evals.md` §4 "Adım 19c'den sonra". Karşılaştırma betiği ve ham çıktı
   `.claude/plans/19c/compare/` (commit edilmez).
 - **Yapılmayanlar:** Groq koşusu, holdout koşusu (planın "Yapılmayacaklar"ı).
+
+### [x] Adım 19d — Ad, katı ad dışı değere yol verir
+- **Kullanıcının kararı (2026-11-14):** Adım 19c'nin açık bıraktığı bitişik ad + e-posta sorusu
+  ("Elif Soylu-elif@ornek.com": ad e-postanın yerini alıyor, e-postanın kalanı ham kalıyordu;
+  etiket yolunda `main`'de de vardı, avukatın düzenlediği metinde de) kapatılır.
+- **Uygulanan kural (B):** bir KISI aralığı **katı** ad dışı bir değerle (e-posta, bitişik ya da
+  standart gruplu IBAN, önekli telefon, bitişik TCKN) örtüşürse ad kaybeder; etiket yolunun ve
+  eşlemenin adları dahil. Zayıf (Adım 17b) biçimler ve parantezli telefon eskisi gibi ada yol
+  verir. Kullanıcı "ad her zaman kaybeder" (A) demişti; A, etiketli adın `TR` ile bittiği ve
+  ardından boşluklu serbest gruplu IBAN geldiği yazımda adı ham bırakıp 17b değişmezini ve testini
+  bozduğu için uygulanmadı; B iki hedef durumu da kapatır (kullanıcıya bildirildi).
+- **Kod:** `src/prepare/pii.py` `_resolve` beş tur (katı ad dışı → adlar → zayıf → parantezli →
+  yalnızca yeni yolların bulduğu adlar); `src/api.py` değişmedi. `unlabelled` listesi artık
+  yalnızca ad ↔ ad ve zayıf değer durumları için gerekir.
+- **Doğrulama:** eski kodla fark testi (80.000 rastgele girdi): çıktı yalnızca bir adın katı bir
+  değerle örtüştüğü 11.144 girdide değişti; ham kalan katı değer 11.144 → 0; 7 eval + 2 holdout
+  sözleşmesi ve örnek sözleşmenin hazırlık çıktısı bayt bayt aynı; `--prepare-only` 0 / 5 ve
+  holdout 4 / 4 değişmedi. Bağımsız inceleme (iki Opus; 82.000 girdi, 328.559 çağrı): kritik bulgu
+  yok, 17b değişmezi tuttu, "kural yalnızca etiketsiz adlar" ve "ad zayıf değere de kaybeder"
+  mutantları yakalandı. Model çağrılmadı; eval yeniden koşulmadı (hazırlık çıktısı aynı).
+- **Kalan sınırlar** (`docs/agent_design.md` "Sınır (bitişik yazım)", `docs/spec.md` §8 ve §10):
+  yol veren adın örtüşmeyen kalanı ham kalır ("Elif ", "Kemal Uç"); e-postaya yapışık zayıf IBAN
+  ("…@ornek.com.TR 33 0006 …") ham kalır — eskiden adın örttüğü bu değer, ad hiç bilinmeseydi de
+  hamdı (fark testinde 80.000 girdide 4); ada boşluksuz yapışık IBAN ("Elif SoyluTR33…") önceden
+  olduğu gibi hiç maskelenmez (açık soru).
+- **Commit:** `docs: let names give way to strict non-name values` ·
+  `fix: mask an e-mail glued to a known name`
 
 ### [ ] Adım 20 — Teslim
 - **Ne:** Kullanıcının onayıyla `origin`'e push edilir. AI oturumları bu planın dışındadır: ham
