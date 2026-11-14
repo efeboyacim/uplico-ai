@@ -486,9 +486,29 @@ yoktur.**
 
   | Durum | `code_check` | Kuyruğa etkisi |
   |---|---|---|
-  | Kuralda `check` var; kod taslak metninden tek bir değer çıkarıyor ve değer kurala uyuyor | `passed` | Yok |
-  | Kuralda `check` var; değer kurala uymuyor, çıkarılamıyor, birden çok farklı değer var ya da süre çevirmesinin sonucu belirsiz | `failed` | `proposal_noncompliant` → avukat kuyruğu |
+  | Kuralda `check` var; kod taslak metninden kuralın türünde en az bir değer çıkarıyor, okunamayan değer ifadesi yok ve **her** değer kurala uyuyor ("taslakta kuralı çiğneyen değer yok") | `passed` | Yok |
+  | Kuralda `check` var; değerlerden biri kurala uymuyor, hiç değer çıkarılamıyor, okunamayan değer ifadesi var ya da bir değer için süre çevirmesinin sonucu belirsiz | `failed` | `proposal_noncompliant` → avukat kuyruğu |
   | Kuralda `check` yok (sayısal olmayan ya da sabit eşiği olmayan kural) | `unverifiable` ("kod doğrulayamadı") | `proposal_unverifiable` → avukat kuyruğu; etiket avukata ve raporda gösterilir |
+
+  Taslakta aynı türden birden çok farklı değer olması tek başına `failed` değildir (alıntıdaki
+  `ambiguous_value`'nun karşılığı yoktur). Gerekçe: prompt taslağın maddenin tamamını içermesini
+  ister ve madde kurala uyan başka değerler de taşır; gecikme cezasında günlük oran ile üst sınır
+  ("günlük %1'i … toplamı %10'unu aşamaz", "en çok %10" kuralında okunan `[1, 10]`), ödemede genel
+  süre ile istisna süresi ("otuz (30) gün … ithal ürünlerde 45 gündür", "en çok 45 gün" kuralında
+  `[30, 30, 45]`). Önceki tasarım bütün değerlerin aynı olmasını istiyordu ve böyle uygun bir
+  taslağı reddediyordu (2026-11-13 Sonnet koşusu, `docs/plan.md` Adım 19c). Değerlerin her biri
+  `check` ile karşılaştırılır; biri bile uymuyor ya da belirsizse sonuç `failed`'dir ("günlük %1
+  … üst sınır %20" kalır; "45 gündür (önceki 75 gün yerine)" eski değeri andığı için kalır).
+  Değişiklik tek yönlüdür: önceki tasarımda geçen her taslak yine geçer.
+
+  **Bilinen sınır:** kod taslaktaki hangi değerin kuralın düzenlediği değer olduğunu bilmez ve
+  yalnızca okuyabildiği değerleri denetler. Okunan her değer kurala uyduğu sürece, düzenlenen
+  değeri silen ya da kuralı değer olmayan bir ifadeyle delen taslak geçer ve kuyruğa düşmez:
+  "Geciken her gün için bedelin %1'i ceza uygulanır, ancak 20 günü aşan gecikmede ceza
+  sınırsızdır." ("en çok %10" kuralında okunan `[1]`; "20 gün" başka türdendir) ve "Ödeme, fatura
+  tarihinden itibaren 45 günü izleyen ayın sonunda yapılır." ("en çok 45 gün" kuralında `[45]`)
+  `passed` alır. Aynı açık önceki tasarımda tek değerli taslakta da vardı. Böyle bir taslak
+  avukat kabul etmedikçe ya da düzenlemedikçe değişiklik talebine girmez (`src/report.py`).
 
   Taslak için ikinci bir LLM çağrılmaz. Sayısal olmayan kurallarda taslağın kurala uyduğunu kod
   doğrulayamaz; bu bilinen bir sınırdır. Bu yüzden böyle bir taslak her zaman avukat kuyruğuna

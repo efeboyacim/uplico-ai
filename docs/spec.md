@@ -113,7 +113,7 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   ve birimi alıntıdan **kod kendisi** çıkarır ve kuralla karşılaştırır; modelin verdiği değer yalnızca
   çapraz kontroldür.
 - FR-4: `non_compliant` bulgular için değişiklik önerisi taslağı üretilir. Sabit eşikli kurallarda
-  kod taslaktaki sayıyı kuralla karşılaştırır; diğer kurallarda taslak "kod doğrulayamadı" etiketi alır
+  kod taslaktaki sayıları kuralla karşılaştırır; diğer kurallarda taslak "kod doğrulayamadı" etiketi alır
   ve bulgu avukat kuyruğuna gider (avukat taslağa karar verir).
 - FR-5: Belirsiz ve kanıtsız bulgular avukat kuyruğuna gider; bu kararı deterministik sinyallerle
   **kod** verir. Kuyruk tek bir işaret ve sebep listesidir; öncelik sıralaması yoktur. Her

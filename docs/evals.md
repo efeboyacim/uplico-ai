@@ -220,7 +220,13 @@
   (`unverified_not_found`); `critical` olanda ek sebep `critical_not_found`.
 - **Taslak kontrolü:** "en az 30 gün" kuralı için "15 gün" yazan taslak → `code_check=failed`,
   `proposal_noncompliant`, kuyruk. "45 gün" yazan taslak → `passed`. Aynı kurala karşı "1 ay" yazan
-  taslak (belirsiz sonuç) → `code_check=failed`. `check`'i olmayan kuralda taslak
+  taslak (belirsiz sonuç) → `code_check=failed`. Taslak "kuralı çiğneyen değer yok" ise geçer:
+  birden çok farklı değer tek başına `failed` değildir. "30 ila 60 gün" ("en az 30 gün") → `passed`,
+  "15 ila 60 gün" → `failed`; günlük %1 + üst sınır %10 ("en çok %10") → `passed`, günlük %1 + %20
+  → `failed`; "otuz (30) gün … ithal … 45 gündür" ("en çok 45 gün") → `passed`, aynısı 75 ile,
+  "(önceki 75 gün yerine)" yazan ve "45 iş günüdür" (okunamayan) yazan taslak → `failed`;
+  "%10 (yüzde on)" → `passed`. Bilinen sınırın iki örneği (`agent_design.md` §5) `passed` alır
+  ve testte öyle belgelenir. `check`'i olmayan kuralda taslak
   → `code_check=unverifiable` ve sebep `proposal_unverifiable`, kuyruk; bulgu "uygun değil" de
   "uygun" da olsa. `enabled=False` iken (eval'in "önce" ölçümü) eklenmez; `passed` ve `failed`
   taslakta eklenmez; sebepler `ReviewReason` sırasıyla yazılır (`proposal_noncompliant`'tan hemen
@@ -512,7 +518,7 @@ testlerde sınanır.
 | Alıntı geçerliliği | Kanıt gerçek mi. "Sonra" modunda ölçüm değil bekçidir: alıntısı eşleşmeyen bulgu `quote_not_found` ile kuyruğa gittiği için kuyruğa düşmeyenlerde oran yapı gereği %100 çıkar (ya da payda 0 olur ve ölçülmez); yalnızca sebep yazıp `needs_review` yazmayan bir kod yolunu yakalar. Modelin alıntı kalitesini ham oran gösterir | Alıntı gösterilen maddede geçiyor mu (avukat kuyruğuna düşmeyenlerde). Ham oran = geçerli alıntı / alıntılı bütün kararlar (kuyruğa bakılmadan); komutun tablosunda yoktur, sonuç dosyasındaki satırların `quote_valid` alanından sayılır | %100 |
 | Kritik kural yakalama | Bulunmayan önemli kural sessizce geçmemeli. Her `not_found` zaten kuyruğa gittiği için ayırt edici değildir | Beklenen `not_found` olan `critical` kurallardan `needs_review=true` olanlar / hepsi | Raporlanır |
 | Arama isabeti | Arama yalnızca BM25'tir; dolaylı ifadeyi kaçırma riski ölçülür | Beklenen maddenin `search_contract` sonuçlarında en az bir kez döndüğü kurallar / beklenen maddesi olan kurallar (audit'teki `tool_call` kayıtlarından, kodla) | Raporlanır |
-| **Öneri uygunluğu** | Taslak kuralı gerçekten sağlıyor mu | `code_check=passed` taslaklar / sabit eşikli kurallardaki taslaklar. Kodun doğrulayamadığı (`unverifiable`) taslak sayısı yanında yazılır | Raporlanır |
+| **Öneri uygunluğu** | Taslakta kuralı çiğneyen değer yok mu: kodun okuduğu her değer kurala uyuyor ve okunamayan değer ifadesi yok (kod düzenlenen değeri ayırt etmez; `agent_design.md` §5 "Taslak kontrolü") | `code_check=passed` taslaklar / sabit eşikli kurallardaki taslaklar. Kodun doğrulayamadığı (`unverifiable`) taslak sayısı yanında yazılır | Raporlanır |
 | Doğru madde | Kanıt doğru yerden mi | `clause_no` beklenenle aynı / alıntılı kararlar. Etiketi `not_found` olan (beklenen maddesi olmayan) kuraldaki alıntı hiçbir zaman doğru sayılmaz ama paydada kalır | Raporlanır |
 | Avukata yönlendirme oranı | Güvenliğin bedeli: avukatın iş yükü | `needs_review=true` / tüm kararlar | Raporlanır |
 | Gereksiz yönlendirme | Kuyruktaki satırlardan kaçının `status`'ü avukat değiştirmeden kalacak (boşa giden iş değildir). Tasarım gereği kuyruğa giden satırları da sayar: beklenen `not_found` (her `not_found` kuyruğa düşer) ve enjeksiyon şüpheli sözleşmenin bütün bulguları | Avukat kuyruğuna düşen bulgulardan `status`'ü etiketle aynı olanlar / kuyruğa düşen tüm bulgular | Raporlanır |
@@ -547,6 +553,12 @@ bunlarla karşılaştırılırken bu satır ayrıca gösterilir. Adlar ayrıdır
 `review_reasons` kodudur; **"Öneri uygunluğu (unverifiable)"** satırı (sonuç dosyasında
 `metrics.*.proposal_unverifiable`) kodun denetleyemediği taslakların, kodca denetlenen taslaklara oranıdır ve anlamı
 değişmedi.
+
+**Önceki koşular taslak denetiminin yeni tanımından da öncedir (Adım 19c-2, 2026-11-14).**
+Aşağıdaki "Öneri uygunluğu" sayıları, taslaktaki bütün değerlerin aynı olmasını isteyen eski
+denetimle ölçüldü ve yeniden yazılmadı. Bugünkü denetim ("taslakta kuralı çiğneyen değer yok")
+tek yönlü farklıdır: eskiden geçen her taslak yine geçer, kurala uyan birden çok farklı değer
+taşıyan taslak artık geçer.
 
 ### İlk koşuların sonucu (2026-11-12)
 Groq `openai/gpt-oss-120b`, Docker, `MAX_CONCURRENCY=1`, 7 / 7 sözleşme, 35 karar; iki koşu da
