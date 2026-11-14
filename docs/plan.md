@@ -486,9 +486,15 @@
   alındı; iş `exp/clause-outline` dalında, `main`'de yok. `main`'de 1858 test.
 - **Dokümanlar (2026-11-14):** README, `evals.md`, `plan.md`, `tech_stack.md`, `architecture.md`,
   `spec.md`, `decisions.md` ve `CLAUDE.md` bu duruma göre güncellendi; kod değişmedi.
-- **Sıradaki:** Adım 19c — Sonnet koşusunun gösterdiği üç hatanın düzeltilmesi ve yeniden ölçüm
-  (plan aşağıda, yeni oturumda oradan yürütülür; alt adımlar 19c-1 … 19c-6). Sonra Adım 20 —
-  teslim (kullanıcı onayıyla push).
+- **Adım 19c bitti (2026-11-14, `step-19c` dalında):** sebep `proposal_unverifiable`
+  (`6ee631d`), taslak denetimi "taslakta kuralı çiğneyen değer yok" (`a9cacf1`), ad keşfine iki
+  yol (`04382c0`, inceleme düzeltmesi `7f7cbf9`), koşucuya `--keep-drafts` (`6e2f230`). Sonnet ile
+  tek koşu (kod `7f7cbf9`, sonuç dosyası `8f08ab0`): status 35 / 35, yönlendirme 13 / 35 → 11 / 35, öneri uygunluğu 8 / 11 →
+  11 / 11, garanti edilmeyen PII 2 / 5 → 0 / 5, sert eşikler tuttu. Ayrıntı Adım 19c "Gerçekleşen"
+  ve "Ölçüm sonucu"; açık soru `spec.md` §10 (bitişik ad + e-posta). Groq bu kodla koşulmadı.
+- **Sıradaki:** `step-19c`'nin `main`'e alınması (kullanıcı onayıyla:
+  `git switch main && git merge --ff-only step-19c`), sonra Adım 20 — teslim (kullanıcı onayıyla
+  push).
 - **Adım 18c'ye başlarken (2026-11-13 oturumunun devri):**
   1. Depo temiz; son commit bu notun commit'i. `origin`'e push yapılmadı (push Adım 20'dir).
   2. Holdout koşusu bitti; eval önbelleği yok. `src/`, `evals/*.py` ve `uv.lock` artık
@@ -1774,7 +1780,7 @@ gereksiz yönlendirme satırları bunu gösterir.
   denemeyle değişmedi (testler 1858).
 - **Eksik:** aynı modelde (Groq) son biçimin ölçümü.
 
-### [ ] Adım 19c — Sonnet koşusunun gösterdiği üç hatanın düzeltilmesi ve yeniden ölçüm
+### [x] Adım 19c — Sonnet koşusunun gösterdiği üç hatanın düzeltilmesi ve yeniden ölçüm
 Bu adım yeni bir oturumda, bu metinden çalıştırılmak üzere yazıldı (kullanıcı, 2026-11-14). Önceki
 oturumun konuşması gerekmez; gereken her şey burada ve aşağıdaki dosyalardadır.
 
@@ -2071,6 +2077,72 @@ dosyasına ya da son mesaja; inceleyici boş bulgu listesiyle değil kapsam rapo
   tablosu `docs/evals.md`'de; beklenen satırların her biri için "oldu / olmadı / neden" yazılı;
   hiçbir sayı sonuç dosyasından yeniden hesaplanmadan dokümana girmedi.
 - **Commit:** alt adımlardaki çiftler; sonuç dosyası için `chore:`; kapanış için `docs:`.
+
+#### Gerçekleşen (2026-11-14)
+- **Commit'ler (`step-19c`, `main` = `afb97d5`):** 19c-1 `648b2c1` (docs) + `6ee631d` (feat);
+  19c-2 `f85e5ed` (docs) + `a9cacf1` (fix); 19c-3 `04382c0` (feat) + `7f7cbf9` (fix, inceleme
+  bulguları); 19c-4 `6e2f230` (feat); 19c-3 ve 19c-4'ün dokümanları `40dd4d5`; sonuç dosyası
+  `8f08ab0` (chore); kapanış bu `docs:` commit'i. Testler: 1858 → 1959 (tam takım
+  `8f08ab0`'da koşuldu: 1959 geçti).
+- **Sapma 1 — hızlandırma (kullanıcının talimatı, 2026-11-14, 19c-1'den sonra):** 19c-2, 19c-3 ve
+  19c-4 için alt adım başına değil, tek bir bağımsız inceleme yapıldı. 19c-3 ve 19c-4 paralel
+  uygulandı ve dokümanları koddan sonra yazıldı (`40dd4d5`; planlanan `docs: design two more name
+  discovery paths` commit'i yok). Alt adımlarda yalnızca dokunulan modülün testleri koşuldu; tam
+  takım incelemede bir kez (1932 test, `6e2f230`'da) ve kapanışta bir kez koşuldu.
+- **Sapma 2 — 19c-1:** `test_run_broken_hard_threshold_exits_3_with_table_and_file` planın yazdığı
+  "`liability_cap`'te yanlış uygun" ile kurulamadı (kural yalnızca acme'de var; etiket dört acme sözleşmesinde de `compliant`). Eşik
+  artık sözleşme 2 `governing_law`'da (`check`'siz, etiket `not_found`) yanlış "uygun" ile kırılıyor;
+  test iki sözleşmeyle koşuyor (payda 5 → 10). Eski senaryo (`check`'siz kuralda taslaklı yanlış
+  "uygun değil") yeni `test_run_wrong_noncompliant_with_unverifiable_draft_is_queued_not_unsafe`
+  testinde ters beklentiyle duruyor: satır kuyruğa girer, güvensiz hata eşiği tutar, yanlış bulgu
+  eşiği kırılır. Fark testi: 60.000 girdi, 8.355 farklı satır, hepsi hedeflenen fark; bağımsız
+  inceleme 60.000 + 20.000 çağrıda ihlal 0, mutantlar yakalandı.
+- **Sapma 3 — 19c-2:** fark testi (1) 945 hücrede 8 değişen, hepsi `failed` → `passed`;
+  (2) rastgele 60.000 girdide 876 satır `failed` → `passed`, başka fark yok. Bağımsız inceleme
+  ters yönde 0 fark buldu; "boş değer listesi" mutantı eşdeğer (yakalanamaz, davranış aynı).
+- **Sapma 4 — 19c-3:** planda olmayan daraltıcı korumalar: e-posta yolunda şirket korumasının
+  sonraki sözcüklere uzanması ve unvan reddi; imza yolunda birim sözcükleri, "Adına", iki noktasız
+  etiket sözcükleri. Bağımsız inceleme üç kritik bulgu verdi, `7f7cbf9` ile düzeltildi: (a) yeni
+  bulunan ad bitişik bir e-postanın yerini alıyordu → "yol verme" kuralı (`mask(…, unlabelled=)`,
+  `unlabelled_names`); (b) e-posta yolunda karesel süre (ana döngünün ölçümü: 36 KB girdi
+  83,7 sn → 0,18 sn; koruma en çok 12 sözcük bakar); (c) imza yolu taraf başlıklarını ad
+  sayıyordu → rol sözcükleri ve tanımlı terim koruması. Düzeltme ayrı bir bağımsız incelemeden
+  geçmedi; ana döngü inceleyicinin örnekleri ve ilgili testlerle doğruladı. Açık kalan iki nokta
+  (bitişik ad + e-posta: etiket yolu ve avukatın düzenlediği taslak) `spec.md` §10'da açık soru.
+- **Sapma 5 — 19c-4:** planlandığı gibi uygulandı; bilinen sınırları (çiftlenen satırlar,
+  Windows'a özgü yol biçimleri) `evals.md` §6'da.
+- **Dokümanlar (bu commit):** `evals.md` §4 "Adım 19c'den sonra" alt başlığı (eski koşuların
+  sayıları yerinde), §5 ve §6'da gönderme; README eval bölümü, "Bilinen sınırlar", "Denenmeyenler",
+  "Daha fazla vaktim olsaydı"; `decisions.md` (900 sözcük); `CLAUDE.md` "Şu an"; bu bölüm ve "Durum".
+
+#### Ölçüm sonucu (19c-5, 2026-11-14)
+- **Koşu:** `evals/results/20261114-032329_anthropic_claude-sonnet-5-5.json`, commit etiketi
+  `7f7cbf9`, yukarıdaki "Ölçüm" komutuyla (`LLM_TEMPERATURE=none`, `MAX_CONCURRENCY=1`, `--fresh`,
+  `--keep-drafts /app/evals/drafts/19c-sonnet.jsonl`); çıkış 0, `resumed: false`.
+- **Sonuç (taban → yeni):** status 35 / 35 → 35 / 35; yönlendirme 13 / 35 → 11 / 35; gereksiz
+  yönlendirme 13 / 13 → 11 / 11; öneri uygunluğu 8 / 11 → 11 / 11 (`unverifiable` 1 / 12 iki
+  koşuda da); garanti edilmeyen PII 2 / 5 → 0 / 5; alıntı geçerliliği 22 / 22 → 24 / 24 (ham
+  32 / 32 iki koşuda da); güvensiz hata 0 / 35; PII sızıntısı 0 / 52; token 617.108 → 630.660
+  (girdi 593.334 → 607.134, çıktı 23.774 → 23.526); süre 277,3 → 253,4 sn. Bütün sert eşikler
+  tuttu; eşikler değiştirilmedi.
+- **Beklenen farklar:** hepsi oldu. Çıkan üç satır (02 ve 07 `late_penalty_cap`, 04
+  `payment_term`) ve giren bir satır (05 `governing_law`, tek sebep `proposal_unverifiable`)
+  "Nasıl okunacak"taki koşulla değişikliklere bağlandı: üç taslak `git show main:src/verify.py`'deki
+  `_proposal_check` ile `failed`, bugünkü kodla `passed` (okunan `[%1, %10]`, `[%1, %10]`,
+  `[30, 30, 45, 45 gün]`); 05'te taslak var ve `code_check=unverifiable`. Sözleşme 4 taslağı
+  ithal süresini 45 yazıyor. Tabanın taslak metinleri saklanmadığı için tabanda aynı metnin
+  yazılıp yazılmadığı bilinmiyor.
+- **Beklenmeyen farklar:** 35 satırın 11'i farklı, `status` ve `clause_no` hiçbirinde değişmedi.
+  Altı satırda yalnızca `search_calls` ve 06 `confidentiality`'de `agent_escalated`'in düşmesi
+  (satır `injection_suspected` ile kuyrukta kaldı): koşu oynaklığı. 05 `governing_law`
+  `search_calls` 3 → 2: 19c-3'ün maskeli metni değiştirmesi dışlanamıyor, belirsiz.
+- **Taslaklar:** 12 satır, çift yok; 11 `passed`, 1 `unverifiable`, `failed` yok. 12'si de elle
+  okundu: çok değerli geçen taslaklarda düzenlenen değer (üst sınır, ithal süresi) yazılmış; karar
+  2'deki bilinen sınır bu koşuda gerçekleşmedi. Hiçbir `labels.json` PII değeri sonuç ve taslak
+  dosyalarında yok.
+- **Ayrıntı:** `docs/evals.md` §4 "Adım 19c'den sonra". Karşılaştırma betiği ve ham çıktı
+  `.claude/plans/19c/compare/` (commit edilmez).
+- **Yapılmayanlar:** Groq koşusu, holdout koşusu (planın "Yapılmayacaklar"ı).
 
 ### [ ] Adım 20 — Teslim
 - **Ne:** Kullanıcının onayıyla `origin`'e push edilir. AI oturumları bu planın dışındadır: ham

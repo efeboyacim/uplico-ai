@@ -6,7 +6,7 @@ Her kural için sonuç uygun / uygun değil / bulunamadı olur ve sözleşmeden 
 kanıtlanır; uygun olmayan maddeler için değişiklik taslağı yazılır, belirsiz bulgular avukata
 bırakılır. Python, LangChain `create_agent`, LangGraph ve LangSmith ile kurulur; varsayılan model
 sağlayıcısı Groq, çevrimdışı mod Ollama'dır; başka bir sağlayıcı yalnızca env ile seçilir (kod
-değişmez; Groq üç, Anthropic `claude-sonnet-5-5` bir tam eval koşusuyla ölçüldü). İki kurgusal şirketin (tenant) verisi ayrı tutulur.
+değişmez; Groq üç, Anthropic `claude-sonnet-5-5` iki tam eval koşusuyla ölçüldü). İki kurgusal şirketin (tenant) verisi ayrı tutulur.
 
 ## Ana ilke
 **LLM önerir, kod karar verir, yalnızca avukat onaylar.**
@@ -30,7 +30,7 @@ Uygulama `docs/plan.md`'deki adımlarla, sırayla yazılır. Hangi adımda olund
 bölümünde ve adım kutularında yazar; bir oturuma başlarken önce oraya bak. Bir adım doğrulanıp
 commit edilince dur ve sıradaki adıma geçmeden önce kullanıcıdan onay al.
 
-**Şu an:** Adım 0–19b bitti (Adım 17: `evals/metrics.py` ve `evals/run.py`; tek komut önce/sonra
+**Şu an:** Adım 0–19c bitti (Adım 17: `evals/metrics.py` ve `evals/run.py`; tek komut önce/sonra
 tablosunu basar, `--limit N` ve `--prepare-only` seçenekleri var).
 Adım 17 sonrası: `--resume` (içerik özetli önbellek) ve Adım 17b (maskeleyici üç biçim daha
 yakalar; garanti edilmeyen PII 5 / 5 → 2 / 5).
@@ -62,11 +62,14 @@ bütün sert eşikler tuttu, aynı iki yanlış satır) ve Anthropic `claude-son
 çalışmaz, `none` ile çalıştı (başka değer denenmedi): 0 ile her çağrı yerelde `ValueError` verir, başlangıç kontrolü yakalamaz.
 Adım 19b (madde listesi denemesi) kullanıcının kararıyla geri alındı; iş `exp/clause-outline`
 dalında, `main`'de yok. Sonuçlar `docs/evals.md` §4, `docs/plan.md` Adım 18 "Ek koşular" ve 19b.
-Sıradaki: Adım 19c — Sonnet koşusunun gösterdiği üç hata (kod denetiminden kalan uygun taslaklar,
-maskelenmeyen iki ad, denetlenemeyen taslağın avukata gitmemesi) düzeltilir ve Sonnet ile yeniden
-ölçülür. Plan `docs/plan.md` "Adım 19c"de eksiksiz yazılıdır; `fable-orchestration` skill'iyle,
-`step-19c` dalında yürütülür; araştırma kayıtları `.claude/plans/19c/` altındadır (commit edilmez).
-Sonra Adım 20 — teslim (kullanıcı onayıyla push). Ayrıntı `docs/plan.md` "Durum".
+Adım 19c bitti (2026-11-14, `step-19c` dalında; `main`'e alma kullanıcı onayını bekliyor):
+kodun denetleyemediği taslak avukata gider (sebep `proposal_unverifiable`); taslak denetimi
+"taslakta kuralı çiğneyen değer yok" oldu; ad keşfine e-posta bağı ve etiketsiz imza satırı
+eklendi. Sonnet ile tek koşu (`7f7cbf9`): status 35 / 35, yönlendirme 13 / 35 → 11 / 35, öneri
+uygunluğu 8 / 11 → 11 / 11, garanti edilmeyen PII 2 / 5 → 0 / 5, sert eşikler tuttu; beklenen
+dört satır değişikliklere bağlandı, kalan farklar koşu oynaklığı, biri belirsiz (`docs/evals.md` §4). Açık soru:
+bitişik yazılmış ad + e-posta (`docs/spec.md` §10). Groq bu kodla koşulmadı.
+Sıradaki: Adım 20 — teslim (kullanıcı onayıyla push). Ayrıntı `docs/plan.md` "Durum".
 
 ## Komutlar
 ```bash

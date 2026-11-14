@@ -14,7 +14,7 @@ Python, LangChain `create_agent`, LangGraph ve LangSmith (`evaluate()`) ile kuru
 model sağlayıcısı Groq (`openai/gpt-oss-120b`), çevrimdışı mod Ollama'dır (`qwen3.5:9b`);
 LangChain'in tanıdığı başka bir sağlayıcı da env ile seçilebilir (entegrasyon paketi imajda
 kuruluysa). Varsayılan Groq `openai/gpt-oss-120b` üç tam eval koşusuyla ölçüldü; Anthropic
-`claude-sonnet-5-5` bir tam koşuyla ölçüldü; Gemini (`google_genai`) tek sözleşmede denendi,
+`claude-sonnet-5-5` iki tam koşuyla (Adım 19c'nin düzeltmelerinden önce ve sonra) ölçüldü; Gemini (`google_genai`) tek sözleşmede denendi,
 ölçülmedi; OpenAI denenmedi. Kararların gerekçesi: `docs/decisions.md`
 (karar dokümanı) ve `docs/architecture.md` §7 (ADR'ler).
 
@@ -87,7 +87,7 @@ kullanılabilir: `OLLAMA_BASE_URL=http://host.docker.internal:11434` (`docs/tech
 
 ### Başka bir sağlayıcı
 Sağlayıcı, model, anahtar ve adres yalnızca `.env` ile seçilir; kod değişmez. **Varsayılan Groq
-`openai/gpt-oss-120b` üç tam koşuyla, Anthropic `claude-sonnet-5-5` bir tam koşuyla ölçüldü**
+`openai/gpt-oss-120b` üç tam koşuyla, Anthropic `claude-sonnet-5-5` iki tam koşuyla ölçüldü**
 ([Eval sonuçları](#eval-sonuçları)); başka her sağlayıcı ve model yapısı gereği çalışması
 beklenen ama ölçülmemiş bir yapılandırmadır; çalışacağı garanti değildir (Gemini 3.x OpenAI
 uyumlu adresle çalışmadı; `claude-sonnet-5-5` varsayılan `LLM_TEMPERATURE` ile çalışmaz, aşağıda).
@@ -411,6 +411,10 @@ Koşucu seçenekleri (`uv run python -m evals.run --help` model çağırmaz):
 - **`--prepare-only`:** model çağırmaz; yalnızca maskeleme (PII) ve enjeksiyon taraması ölçülür.
 - **`--dataset-dir`, `--results-dir`, `--commit`:** başka bir veri kümesi (holdout), sonuç klasörü
   ve sonuç dosyasına yazılacak commit.
+- **`--keep-drafts FILE`:** taslağı olan her bulgunun maskeli taslak metnini ve kod denetiminin
+  sonucunu verilen JSONL dosyasına ekler (sonuç klasörünün dışında olmalı; Docker'da
+  `/app/evals/drafts/` altında; `evals/drafts/` commit edilmez). Sonuç dosyası yine metinsizdir.
+  Ayrıntı ve sınırları: `docs/evals.md` §6.
 - `src/` değiştiyse imaj yeniden kurulur: `docker compose build app` (imaj `src/`'yi kopyalar).
 - `LANGSMITH_API_KEY` verilirse tam koşu dataset'i ve `before` / `after` experiment'lerini
   LangSmith'e yükler (sözleşme metni, alıntı ve PII gitmez; `docs/evals.md` §7). Bu yol gerçek
@@ -430,6 +434,12 @@ Groq'ta bir kez daha koşuldu ([Üçüncü Groq koşusu](#üçüncü-groq-koşus
 Anthropic `claude-sonnet-5-5` ile de bir kez koşuldu (ayrı bölüm; başka model, Groq sayılarıyla
 karşılaştırılmaz). Modelsiz ölçüm (`--prepare-only`) düzeltmelerden sonra da aynıdır: garanti
 edilen PII sızıntısı 0 / 52, garanti edilmeyen 2 / 5.
+
+2026-11-14'te Adım 19c üç hatayı düzeltti (kodun denetleyemediği taslak artık avukata gider;
+taslak denetimi "taslakta kuralı çiğneyen değer yok" oldu; ad keşfine iki yol eklendi) ve
+`claude-sonnet-5-5` bir kez daha koşuldu ([Adım 19c'den sonra](#adım-19cden-sonra-claude-sonnet-5-5-yeniden)).
+Groq bu kodla koşulmadı. Aşağıdaki Groq tabloları ve ilk Sonnet koşusu bu değişikliklerden
+öncedir; sayıları yeniden yazılmadı.
 
 ### Önce/sonra: doğrulama katmanı kapalı → açık
 
@@ -500,7 +510,9 @@ geçersiz satırın olası sebebi o günkü `verify` kusurudur, kesin değildir 
 **PII.** Maskelenmesi garanti edilen değerlerde sızıntı 0 / 52; bu sayı yapı gereği 0'dır
 (maskeleme deterministiktir, sayı yalnızca maskelemeyi atlayan bir kod yolunu yakalar).
 Maskeleyicinin kapsamını ikinci sayı gösterir: garanti edilmeyen 5 değerden 2'si modele gitti;
-ikisi de kişi adıdır (sözleşme gövdesindeki ad ve etiketsiz imza satırındaki ad).
+ikisi de kişi adıdır (sözleşme gövdesindeki ad ve etiketsiz imza satırındaki ad). Adım 19c'nin
+iki ad keşfi yolundan sonra 0 / 5'tir (modelsiz ölçüm ve 2026-11-14 Sonnet koşusu); bu iki yol
+da en iyi çabadır, adlar "garanti edilmeyen" listesinde kaldı.
 
 ### İkincil tablo (a): düzeltmelerin etkisi, 1. koşu → 2. koşu
 1. koşu (`evals/results/20261112-173317_groq_openai-gpt-oss-120b.json`, kod `9b6ca9a`) iki hata
@@ -557,7 +569,7 @@ Tek koşu. Ayrıntı: `docs/evals.md` §4 "Üçüncü Groq koşusu".
 
 Status'ler 2. koşuyla aynı; iki yanlış yine sözleşme 4'teki iki `not_found` (arama kaçışı). Kuyruğa
 iki satır eklendi: 02 `late_penalty_cap`'in taslağı kod kontrolünden geçmedi
-(`proposal_noncompliant`; sebebi incelenmedi) ve 03 `termination_notice` bulgudan sonraki bir
+(`proposal_noncompliant`; taslak metni saklanmadığı için sebebi bu koşuda gösterilemedi) ve 03 `termination_notice` bulgudan sonraki bir
 model hatasıyla kesildi (`run_interrupted`, `llm_error`; status doğru, sebebi bilinmiyor). Bütün
 sert eşikler tuttu. Tek koşudur: farklar `langchain-core` 1.8.0'a ya da koda bağlanmaz; aynı
 sağlayıcı `temperature=0`'da da koşudan koşuya farklı çıktı verebilir.
@@ -582,7 +594,38 @@ doğrulanamadı), enjeksiyon sonucu 0, PII 0 / 52 ve 2 / 5. Token 593.334 + 23.7
 Kuyruğun 13 satırında da status doğru: 3 beklenen "bulunamadı", 5 enjeksiyon şüphesi, 3 taslağı
 kod kontrolünden geçmeyen bulgu (02 ve 07 `late_penalty_cap`, 04 `payment_term`), 1
 `ambiguous_value`, 1 modelin kendi devrettiği bulgu. Bu koşuda doğrulamanın yakaladığı yanlış
-sonuç yok; görünen yalnızca bedeli. Bütün sert eşikler tuttu.
+sonuç yok; görünen yalnızca bedeli. Bütün sert eşikler tuttu. Bu koşunun gösterdiği üç hata
+(kod kontrolünden kalan üç taslak, maskelenmeyen iki ad, kodun denetleyemediği taslağın
+avukata gitmemesi) Adım 19c'de düzeltildi; aşağıda.
+
+### Adım 19c'den sonra: claude-sonnet-5-5 yeniden
+`evals/results/20261114-032329_anthropic_claude-sonnet-5-5.json`: 2026-11-14, commit etiketi
+`7f7cbf9` (Adım 19c'nin kodu, `step-19c` dalı), ayarlar yukarıdakiyle aynı (`LLM_TEMPERATURE=none`,
+`MAX_CONCURRENCY=1`), `--fresh`. Tek koşu; taban yukarıdaki koşudur. Ayrıntı ve satır satır
+karşılaştırma: `docs/evals.md` §4 "Adım 19c'den sonra".
+
+| Metrik ("sonra") | Önceki Sonnet koşusu (`a9ad2ed`) | Adım 19c'den sonra (`7f7cbf9`) |
+|---|---|---|
+| Güvensiz hata | 0 / 35 | 0 / 35 |
+| Etiket doğruluğu / arama isabeti | 35 / 35 · 32 / 32 | 35 / 35 · 32 / 32 |
+| Alıntı geçerliliği (bekçi; parantezde ham oran) | 22 / 22 (32 / 32) | 24 / 24 (32 / 32) |
+| Avukata yönlendirme / gereksiz | 13 / 35 · 13 / 13 | 11 / 35 · 11 / 11 |
+| Öneri uygunluğu (doğrulanamayan taslak) | 8 / 11 (1 / 12) | 11 / 11 (1 / 12) |
+| Garanti edilmeyen PII sızıntısı | 2 / 5 | 0 / 5 |
+| Token / süre | 617.108 · 277,3 sn | 630.660 · 253,4 sn |
+
+Status ve madde 35 satırın hiçbirinde değişmedi. Kuyruktan üç satır çıktı (02 ve 07
+`late_penalty_cap`, 04 `payment_term`: taslakları artık kod kontrolünden geçiyor), bir satır girdi
+(05 `governing_law`: kodun denetleyemediği taslak, sebep `proposal_unverifiable`). Bu dört satır
+değişikliğe bağlanabildi: saklanan taslak eski denetimle kalıyor, yenisiyle geçiyor (okunan
+değerler %1 ve %10; 30 ve 45 gün); 05'te taslak var ve kod doğrulayamadı. Taslaklar elle okundu:
+üst sınır %10 ve ithal süresi 45 gün gerçekten yazılmış; kod kontrolünden kalan taslak yok. Önceki
+koşunun taslak metinleri saklanmadığı için orada modelin aynı metni yazıp yazmadığı bilinmiyor.
+Kalan farkların çoğu (altı satırda arama sayısı, sözleşme 6'da bir satırın `agent_escalated`
+sebebinin düşmesi) hiçbir değişikliğin etkileyemeyeceği satırlardadır: koşu oynaklığı. 05
+`governing_law`'daki arama sayısı farkı belirsizdir (sözleşme 5'in maskeli metni değişti). Bütün sert eşikler tuttu. İki koşu da tek koşudur: bu tablo
+düzeltmelerin beklenen satırlarda çalıştığını gösterir, yönlendirmenin genel olarak düştüğünü
+ölçmez.
 
 ## Görülmemiş iki sözleşme (holdout)
 
@@ -724,7 +767,22 @@ Tam tablo: `docs/architecture.md` §6 "Veri nereye gidiyor".
   harfli metinde ("FİYAT 5. AYRICA X.") o cümleyi kesen alıntı eşleşmez. Son `verify` sürümü
   bağımsız bir incelemeden geçmedi (yalnızca eski sürümle 30.000 rastgele girdide karşılaştırıldı).
   Ayrıntı: `docs/agent_design.md` §5.
-- **Maskelenmeyen kimlik bilgileri.** Gövdede geçen ad, etiketsiz imza satırındaki ad, satıra
+- **Ad keşfi en iyi çabadır.** Ad üç yoldan bulunur: etiket ("Ad Soyad:", "Yetkili:",
+  "temsilen"), aynı satırdaki e-postanın yerel kısmı (`elif.soylu@` → "Elif Soylu"; Adım 19c) ve
+  hemen altı "İmza" olan etiketsiz satır (Adım 19c); bulunan ad bütün metinde aranır. Kaçanlar:
+  baş harfli ya da tek sözcüklü e-posta (`a.yilmaz@`, `info@`), e-postası başka satırda ya da
+  farklı yazılmış ad, "İmza"dan önce boş satır, satırında başka metin olan ad, gövdede 3+ kez
+  geçen (tanımlı terim sayılan) ad, hiçbir yolun yakalamadığı gövde adı. Fazla maskeleme: imza
+  satırında şirket eki taşımayan şirket adı ("Acme Teknoloji"), listede olmayan birim ya da rol
+  sözcükleri, işlev posta kutuları ("Müşteri Hizmetleri" + `musteri.hizmetleri@`); tireli soyad
+  yarım maskelenir. Sözleşme 5'in iki adı bu yollarla maskelenir ama "garanti edilmeyen"
+  listesinde kaldı. Tam liste: `docs/agent_design.md` "PII maskeleme" → "Kişi adı".
+- **Bitişik yazılmış ad + e-posta (açık soru).** Ad ile e-posta boşluksuz yapışık yazılırsa
+  (`Elif Soylu-elif@ornek.com`) e-postanın bir kısmı ham kalabilir: etiket yolunun bulduğu adda
+  (Adım 19c'den önce de böyleydi) ve avukatın düzenlediği taslakta (`src/api.py`
+  `_masked_decision`). Yeni iki yolun bulduğu ad, inceleme metninde e-postaya yol verir. Kuralın
+  genişletilip genişletilmeyeceği kullanıcı kararını bekliyor (`docs/spec.md` §10).
+- **Maskelenmeyen diğer kimlik bilgileri.** Satıra
   bölünmüş, tireli ya da çift boşluklu IBAN, ayraçsız öneksiz cep numarası, öneksiz sabit hat,
   öneksiz yazılmış parantezli alan kodu (`(532) 123 45 67`), `+90 (0) 212 555 12 34` yazımı ve
   binlik gibi gruplanmış TCKN maskelenmez. Önekli telefon, alan kodu parantez içinde yazılsa da maskelenir
@@ -738,13 +796,21 @@ Tam tablo: `docs/architecture.md` §6 "Veri nereye gidiyor".
 - **Madde numarası başlıktan maskelemeden önce okunur.** `Madde 12345678901` gibi bir başlık sayıyı
   eval satırına maskesiz taşır (veri kümesinde numaralar 1–14).
 - **Küçük örneklem.** 35 karar (bir satır 2,9 puan); Groq'ta üç koşu (ikisi aynı gün), Anthropic
-  `claude-sonnet-5-5`'te bir koşu. Genel bir Türkçe kalite ölçümü değildir.
+  `claude-sonnet-5-5`'te iki koşu (farklı kodla, her biri tek koşu). Genel bir Türkçe kalite
+  ölçümü değildir.
 - **Sabit eşiği olmayan kurallar** ("sorumluluk sınırı sözleşme bedelini aşamaz"): kod iki değeri
   karşılaştırmaz, yalnızca alıntıyı doğrular; sayısal olmayan kuralda taslak "kod doğrulayamadı"
-  etiketi alır. Bu etiket bulguyu avukata göndermez (eval'de sözleşme 5 `governing_law`).
-- **`late_penalty_cap` taslağı üç modelde kod kontrolünden geçmedi:** Groq 2026-11-13 (sözleşme
-  2), Gemini denemesi (sözleşme 2), Anthropic `claude-sonnet-5-5` (sözleşme 2 ve 7). Bulgu
-  `proposal_noncompliant` ile avukata gider; sebebi incelenmedi.
+  etiketi alır. Adım 19c'den beri böyle bir taslak her zaman avukat kuyruğuna girer (sebep
+  `proposal_unverifiable`) ve avukat taslağa karar vermeden sözleşmeyi kapatamaz; bedeli, eval'de
+  koşu başına bir yönlendirme daha (sözleşme 5 `governing_law`).
+- **Taslak denetimi düzenlenen değeri ayırt etmez.** Adım 19c'den beri taslak, okunan her değer
+  kurala uyuyor ve okunamayan değer ifadesi yoksa geçer (önceden bütün değerlerin aynı olması
+  isteniyordu ve gecikme cezasında günlük %1 + üst sınır %10 gibi uygun taslaklar kalıyordu). Kod
+  hangi değerin kuralın düzenlediği değer olduğunu bilmez: üst sınırı silen ya da kuralı değer
+  olmayan bir ifadeyle delen taslak ("… ancak 20 günü aşan gecikmede ceza sınırsızdır"), ve tek
+  tek kurala uyup toplamda aşan değerler ("%5 … ayrıca %8 ek ceza") geçer ve kuyruğa düşmez.
+  Böyle bir taslak avukat kabul etmedikçe değişiklik talebine girmez. Ayrıntı:
+  `docs/agent_design.md` §5 "Taslak kontrolü".
 - **Audit log dosya düzeyinde korunmaz.** Uygulama üzerinden değiştirilemez (`UPDATE` / `DELETE`'i
   reddeden tetikleyiciler), ama veritabanı dosyasına doğrudan erişen biri değiştirebilir; imza ya
   da hash zinciri yok.
@@ -792,11 +858,12 @@ Tam liste: `docs/spec.md` §8 "Bilinen sınırlar".
 - Docker'da LangSmith experiment'ine git bilgisinin (uzak depo adresi, yazar adı ve e-postası)
   gitmediği konteynerde gerçek yüklemeyle doğrulanmadı (`docs/evals.md` §7).
 - OpenAI'nin kendisi (anahtar yok). Gemini aşağıdaki iki denemeyle sınırlı (tek sözleşme, tek
-  koşu); Anthropic `claude-sonnet-5-5` bir tam eval koşusuyla ölçüldü, başka Anthropic modeli
+  koşu); Anthropic `claude-sonnet-5-5` iki tam eval koşusuyla ölçüldü, başka Anthropic modeli
   denenmedi. Çevrimdışı mod Adım 18c / 18d koduyla çalıştırılmadı (mevcut Ollama testleri
   değiştirilmeden geçiyor); Ollama yolu `langchain-core` 1.8.0'da yalnızca sahte taşıyıcılarla
   karşılaştırıldı.
 - Holdout bugünkü kodla yeniden koşulmadı (tek atış kuralı).
+- Adım 19c'nin kodu Groq'ta koşulmadı (yalnızca `claude-sonnet-5-5` ile bir koşu).
 
 ### Üçüncü bir sağlayıcıyla deneme (Gemini)
 İki deneme yapıldı (2026-11-13), ikisi de Google Gemini ücretsiz katman anahtarıyla, tek eval
@@ -863,8 +930,12 @@ LLM_API_KEY=<Gemini API anahtarı>
   bir talimat her kurala ulaşır. Maddeyi zaten bulan modelde faydası yok, bedeli girdi token'ının
   yaklaşık dörtte biri, Groq'taki tek olumlu gözlem doğrulanmadı: geri alındı. İş
   `exp/clause-outline` dalında duruyor (`docs/plan.md` "Adım 19b"); `main`'de yok.
-- **Taslağın maddesini bulgunun maddesiyle eşleştirmek** ve taslak yazımını kodla zorlamak.
-- **Ad tanıma** (gövdedeki adlar) ve maskeleyicinin kalan biçimleri.
+- **Taslağın maddesini bulgunun maddesiyle eşleştirmek** ve taslak yazımını kodla zorlamak;
+  taslak denetiminde kuralın düzenlediği değeri ayırt etmek (bugün okunan her değer ayrı ayrı
+  denetlenir; Adım 19c).
+- **Gerçek ad tanıma** (etiketsiz gövde adları) ve maskeleyicinin kalan biçimleri. Adım 19c iki
+  kural tabanlı yol ekledi (e-posta bağı, etiketsiz imza satırı); gövdede yalın geçen ve hiçbir
+  yolun bağlamadığı ad hâlâ maskelenmez.
 - **Daha büyük ve bağımsız bir eval seti**, birden çok koşu ve günle; yerel model ile büyük modelin
   aynı sette karşılaştırılması.
 - **Üretimde izleme açıkken uygulamanın başlamayı reddetmesi** (bugün koruma işletim kuralıdır).

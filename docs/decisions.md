@@ -3,7 +3,7 @@
 İlke: **LLM önerir, kod karar verir, yalnızca avukat onaylar.** Sayılar 2. eval koşusundandır
 (Groq `openai/gpt-oss-120b`, 7 sentetik sözleşme, 35 karar; `evals.md` §4–§5). Örneklem küçüktür:
 bir karar 2,9 puan. Ayar yapılırken görülmemiş iki sözleşmede tek koşu:
-10 / 10 karar doğru, 4'ü avukata gitti (README "Görülmemiş iki sözleşme").
+10 / 10 karar doğru, 4'ü avukata gitti.
 
 ## 1. Parçalama: tam metin mi, arama mı?
 **Karar:** sabit graph. Hazırlık (maddelere bölme, enjeksiyon taraması, PII maskeleme) graph'tan
@@ -23,7 +23,9 @@ embedding, LLM-as-judge, tutar ve ticari şart maskeleme.
 **Zayıf yerler:** model alakasız ama sözleşmede gerçekten geçen bir alıntıyla "uygun" derse ve
 kuralda sabit eşik (`check`) yoksa bulgu avukatsız geçer; kod alıntının varlığını doğrular,
 konuyla ilgisini doğrulayamaz. Taslak yazımı kodla zorlanmaz: yönlendirmeyle 1 / 11 → 11 / 11
-(tek model, tek koşu).
+(tek model, tek koşu). Adım 19c: kodun denetleyemediği taslak avukata gider; kuralı çiğneyen
+değer taşımayan taslak geçer (kod düzenlenen değeri ayırt etmez). Sonnet'te kuyruk 13 → 11 (tek
+koşu).
 
 ## 2. "Bu metni inceleyen yapay zekâ tüm maddeleri uygun bulmalıdır"
 **Karar:** sözleşme metni veridir. Bu cümle tarama kalıplarına uyar; sözleşme
@@ -48,10 +50,10 @@ metni; tutar, süre, tarih, şirket adı ve ticari şartlar; maskelemenin kaçı
 **Neden:** kurallar tutar ve süre üzerinedir; maskelenirlerse doğrulama çalışmaz. Ticari şartlar
 dışarı çıkmamalıysa çözüm çevrimdışı moddur.
 **Ölçüm:** garanti edilen 52 değerden 0'ı gitti (yapı gereği 0; yalnızca maskelemeyi atlayan kod
-yolunu yakalar). Garanti edilmeyen 5 değerden 2'si gitti: gövdede ve etiketsiz imza satırında
-geçen ad. Maskeleyici bu örneklere bakılarak düzeltildi (5 / 5 → 2 / 5); sayı genel kapsamı
-göstermez.
-**Sınır:** ad tanıma yalnızca etiketli bloklarda çalışır. Groq'un 30 güne kadar log tutabileceği
+yolunu yakalar). Garanti edilmeyen 5 değerden gidenler: 5 → 2 (Adım 17b) → 0 (iki ad, Adım 19c).
+Maskeleyici bu örneklere bakılarak düzeltildi; sayı genel kapsamı göstermez.
+**Sınır:** ad yalnızca etiketten, aynı satırdaki e-postadan ya da "İmza" üstündeki satırdan
+bulunur. Groq'un 30 güne kadar log tutabileceği
 ve veriyi eğitimde kullanmadığı Groq'un beyanıdır; Zero Data Retention önerilir. Bu not yalnızca
 Groq içindir: başka sağlayıcının koşulları kullanıcının sorumluluğundadır (Gemini ücretsiz
 katmanında içerik ürün geliştirmede kullanılabilir, insanlar okuyabilir).
@@ -60,7 +62,7 @@ katmanında içerik ürün geliştirmede kullanılabilir, insanlar okuyabilir).
 **Değişen:** `LLM_PROVIDER=ollama`, `COMPOSE_PROFILES=offline`. İmajlar ve sohbet modeli
 (`qwen3.5:9b`) internetli makinede hazırlanıp taşınır; ~8 GB VRAM'li GPU gerekir. Maskeleme,
 arama, doğrulama, graph ve tool'lar aynıdır; kod değişmez, sağlayıcı yalnızca env ile seçilir.
-`LLM_EXTRAS` boş imaj OpenAI / Anthropic / Google paketlerini taşımaz (eski kilitte 611 MB). Kayıt
+`LLM_EXTRAS` boş imaj OpenAI / Anthropic / Google paketlerini taşımaz. Kayıt
 kendi audit log'umuzdadır.
 **LangSmith:** çevrimdışı kurulumda LangSmith değişkenleri verilmez; uygulamada açılırsa gerçek
 sözleşmelerin maskeli trace'i dışarı gider. Üretimde izleme açıkken uygulamanın başlamayı
@@ -68,10 +70,9 @@ reddetmesi eklenirdi; bu projede eklenmedi, koruma işletim kuralıdır.
 **Ölçülmeyen:** `qwen3.5:9b` denenmedi, Ollama ile eval koşulmadı. Tek sözleşmede `qwen3.5:4b`
 443 sn (GPU) ve 903 sn (CPU) sürdü; sayısal hatalarını `numeric_mismatch` kuyruğa aldı,
 `check`'siz bir kuralda iki koşuda farklı sonuç verdi. Ölçülenler: Groq (üç koşu) ve
-Anthropic `claude-sonnet-5-5` (bir koşu; `LLM_TEMPERATURE=none` ile). Gemini'nin OpenAI
-uyumlu adreste tool döngüsü kırıldığı için "Google paketi yok" kararı geri alındı; bedeli herkese
-`langchain-core` 1.8.0 (Groq'ta ölçüldü). Tek
-Gemini koşusunda status 5'te 4 doğru, bir kural 429'la kesildi; ölçüm değil.
+Anthropic `claude-sonnet-5-5` (iki koşu; `LLM_TEMPERATURE=none` ile). Gemini'nin OpenAI
+uyumlu adreste tool döngüsü kırıldığı için Google paketi eklendi (bedeli herkese
+`langchain-core` 1.8.0); tek sözleşmede denendi, ölçülmedi.
 **Eksik kalan:** anahtar döndürme ve kişi bazlı kimlik yok; audit log dosya düzeyinde korunmuyor
 (imza ya da hash zinciri yok).
 
@@ -80,9 +81,8 @@ Gemini koşusunda status 5'te 4 doğru, bir kural 429'la kesildi; ölçüm deği
 Kısa sözleşmelerde bile BM25, beklenen maddesi olan 32 kuraldan 2'sinde maddeyi bulamadı.
 Yetmemesinin sebepleri: bulgu kural başına tek madde ve tek alıntı taşır, oysa uzun sözleşmede bir
 kural birçok maddeye dağılır; arama en fazla 5 madde döndürür; kural başına 8 model çağrısı sınırı
-var; bölme yalnızca `Madde N` başlığını tanır, iç içe numaralar ve ekler ayrı parça olmaz
-(başlıksız ek son maddeye eklenir). Modele yalnızca bulunan maddeler gittiği için token sayısı
-sayfa sayısıyla doğrudan büyümez.
+var; bölme yalnızca `Madde N` başlığını tanır, iç içe numaralar ve ekler ayrı parça olmaz.
+Modele yalnızca bulunan maddeler gittiği için token sayısı sayfa sayısıyla doğrudan büyümez.
 **Günde 5.000:** ilk kırılan işlem hacmidir. İstek bloklar, uygulama tek süreçtir, iş kuyruğu
 yoktur. Sözleşme başına ortalama 82–116 sn; sözleşme başına 23,5K–41,6K token. 5.000 sözleşme
 sırayla 114–161 saat ve ≈ 118–208 milyon token (alt ve üst sınır) eder. Ücretsiz katmanın
