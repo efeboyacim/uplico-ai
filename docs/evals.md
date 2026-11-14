@@ -1309,6 +1309,23 @@ Bütün sert eşikler tuttu; eşikler değiştirilmedi.
   Token ve süre farkları hiçbir değişikliğe bağlanmaz (prompt'a eklenen cümlenin payı ayrıca
   ölçülmedi). Groq bu kodla koşulmadı; holdout yeniden koşulmadı.
 
+### "bir önceki yıl" düzeltmesinden sonra: Anthropic `claude-sonnet-5-5` yeniden (2026-11-14, tek koşu)
+`evals/results/20261114-134850_anthropic_claude-sonnet-5-5.json`: commit etiketi `85362c7`
+(`verify`'da "bir önceki / evvelki" + süre birimi atlanır), ayarlar öncekiyle aynı
+(`LLM_TEMPERATURE=none`, `MAX_CONCURRENCY=1`, `--fresh`). Taban hemen yukarıdaki koşudur (`c3f3f69`).
+
+- **Sonuç ("sonra"):** güvensiz hata 0 / 35; etiket doğruluğu 35 / 35; kaçırılan uygunsuzluk
+  0 / 12; yanlış bulgu 0 / 12; alıntı geçerliliği 24 / 24; arama isabeti ve doğru madde 32 / 32;
+  taslak oranı 12 / 12; öneri uygunluğu 11 / 11 (`unverifiable` 1 / 12); avukata yönlendirme
+  3 / 35 → 11 / 35; enjeksiyon sonucu 0; PII 0 ve 0 / 5. Token 616.263 + 23.610 = 639.873;
+  282,7 sn. Bütün sert eşikler tuttu.
+- **Satır satır:** 35 satırın 35'inde `status`, madde, `review_reasons` (önce ve sonra),
+  `quote_valid` ve taslak varlığı tabanla aynıdır.
+- **Ne gösterir, ne göstermez:** düzeltmenin bu veri kümesinde hiçbir satırı değiştirmediğini
+  gösterir. Düzeltmenin kendisini ölçmez: veri kümesinde "bir önceki yılın" yalnızca fiyat artışı
+  maddelerinde geçer ve o kuralların `check`'i yüzdedir, süre değildir. Düzeltmenin hedefi olan
+  ikinci dış sözleşme bu kodla yeniden koşulmadı. Tek koşudur.
+
 ## 5. Önce/sonra karşılaştırması
 **Değişiklik:** doğrulama katmanı kapalı → açık.
 
@@ -1410,7 +1427,7 @@ Sonuç `evals/results/` altına ve README'ye yazılır.
 - Eval varsayılan modda **Groq** üzerinde koşar (`openai/gpt-oss-120b`). Aynı komut
   `LLM_PROVIDER=ollama` ile çevrimdışı modda da koşar; yalnızca daha yavaştır. Env ile seçilen
   başka bir sağlayıcıda da koşar; sonucu varsayılan yapılandırmanın (Groq `openai/gpt-oss-120b`,
-  üç tam koşu) yerine geçmez. Anthropic `claude-sonnet-5-5` üç tam koşuyla ölçüldü, her biri
+  üç tam koşu) yerine geçmez. Anthropic `claude-sonnet-5-5` dört tam koşuyla ölçüldü, her biri
   farklı kodla (§4 "Başka bir model", "Adım 19c'den sonra" ve "Adım 19f'den sonra").
 - **Anthropic `claude-sonnet-5-5` ve `temperature`:** varsayılan `LLM_TEMPERATURE` (0) ile her
   model çağrısı istek gönderilmeden yerelde `ValueError` verir ("temperature is not supported for

@@ -663,7 +663,7 @@ insanlar okuyabilir. Maskeleme her sağlayıcıda graph'tan önce aynı şekilde
     `langchain-core`.
 - **Sonuçlar / ödünleşimler:**
   - Varsayılan Groq `openai/gpt-oss-120b` üç tam eval koşusuyla, Anthropic `claude-sonnet-5-5`
-    üç tam koşuyla (2026-11-13 ve iki kez 2026-11-14, her biri farklı kodla) ölçüldü (`evals.md`
+    dört tam koşuyla (2026-11-13 ve üç kez 2026-11-14, her biri farklı kodla) ölçüldü (`evals.md`
     §4); diğerleri "çalışır, ölçülmedi"dir;
     `google_genai` tek sözleşmede denendi (2026-11-13), ölçülmedi (`spec.md` §8 "Bilinen
     sınırlar", `plan.md` Adım 18d "Elle deneme"). `claude-sonnet-5-5` `LLM_TEMPERATURE=none`

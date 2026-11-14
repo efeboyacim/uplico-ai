@@ -96,7 +96,7 @@ LLM_TEMPERATURE=none
 `LLM_TEMPERATURE=none` bu modelde zorunludur: varsayılan 0 ile her çağrı yerelde reddedilir,
 bütün kurallar "bulunamadı" olarak avukata gider ve uygulama yine de başlar.
 
-Ölçülenler: Groq `openai/gpt-oss-120b` üç, Anthropic `claude-sonnet-5-5` üç tam eval koşusu.
+Ölçülenler: Groq `openai/gpt-oss-120b` üç, Anthropic `claude-sonnet-5-5` dört tam eval koşusu.
 Gemini (`google_genai`) tek sözleşmede denendi, ölçülmedi; OpenAI denenmedi. Ölçülmemiş her
 sağlayıcının çalışması beklenir ama garanti değildir. Ayrıntı: `docs/tech_stack.md` "Ortam
 değişkenleri".
@@ -249,7 +249,7 @@ docker compose run --rm app python -m evals.run --prepare-only                # 
 
 ## Eval sonuçları
 
-Bütün sert eşikler altı tam koşunun altısında da tuttu; eşikler sonuca göre değiştirilmedi.
+Bütün sert eşikler yedi tam koşunun yedisinde de tuttu; eşikler sonuca göre değiştirilmedi.
 Örneklem küçüktür (35 karar; bir satır 2,9 puan) ve her tablo tek koşudur. Ayrıntı, satır satır
 dökümler ve sonuç dosyalarının adları: `docs/evals.md` §4–§5.
 
@@ -296,7 +296,7 @@ tasarım gereğidir: 3 beklenen "bulunamadı" ve enjeksiyon işareti konan sözl
 
 ### İkinci model: Anthropic `claude-sonnet-5-5`
 
-Başka modeldir; Groq sayılarıyla karşılaştırılmaz. Üç koşu, her biri bir öncekinin gösterdiği
+Başka modeldir; Groq sayılarıyla karşılaştırılmaz. Dört koşu; ilk üçü aşağıdadır, her biri bir öncekinin gösterdiği
 hatalar düzeltildikten sonra (`LLM_TEMPERATURE=none`, `MAX_CONCURRENCY=1`):
 
 | Metrik ("sonra") | 1. koşu (`a9ad2ed`) | Adım 19c sonrası (`7f7cbf9`) | Adım 19f sonrası (`c3f3f69`) |
@@ -310,12 +310,16 @@ hatalar düzeltildikten sonra (`LLM_TEMPERATURE=none`, `MAX_CONCURRENCY=1`):
 | Garanti edilmeyen PII sızıntısı | 2 / 5 | 0 / 5 | 0 / 5 |
 | Token / süre | 617.108 · 277 sn | 630.660 · 253 sn | 641.294 · 269 sn |
 
-- Sonnet, Groq'un kaçırdığı iki maddeyi buldu. Üç koşuda da doğrulamanın yakaladığı yanlış sonuç
+- Sonnet, Groq'un kaçırdığı iki maddeyi buldu. Dört koşuda da doğrulamanın yakaladığı yanlış sonuç
   yok; görünen yalnızca bedeli (kuyruktaki her satırda status doğru).
 - 1. koşu üç hata gösterdi, Adım 19c düzeltti: uygun taslakların kod kontrolünden kalması,
   maskelenmeyen iki ad, kodun denetleyemediği taslağın avukata gitmemesi.
 - Son koşu önceki koşuyla satır satır karşılaştırıldı: 35 satırın 34'ünde avukata gitme sebepleri
   aynı; tek fark modelin bir satırı ayrıca kendisinin devretmesi.
+- 4. koşu (2026-11-14, kod `85362c7`: "bir önceki yıl" düzeltmesinden sonra) üçüncüyle satır satır
+  aynıdır: 35 satırın 35'inde sonuç, madde, avukata gitme sebepleri ve taslak durumu değişmedi
+  (639.873 token, 283 sn). Düzeltmenin eskiyi bozmadığını gösterir; veri kümesinde bu ifade
+  yalnızca yüzdeyle denetlenen fiyat maddelerinde geçtiği için düzeltmenin kendisini ölçmez.
 
 ### Görülmemiş sözleşmeler
 
@@ -334,7 +338,7 @@ hatalar düzeltildikten sonra (`LLM_TEMPERATURE=none`, `MAX_CONCURRENCY=1`):
   taslak alt maddelerini korudu; karar yine 9 / 10. Koşu bir sınır daha gösterdi:
   taslak artık maddenin tamamını içerdiği için, başka bir alt maddedeki "bir önceki yılın" ifadesi
   okunamayan değer sayılıyor ve uygun taslak kod kontrolünden kalıp avukata gidiyordu. Bu ifade
-  düzeltildi (modelle yeniden ölçülmedi); aynı türden başka ifadeler ("bir sonraki gün") bilerek
+  düzeltildi (bu sözleşme o kodla yeniden koşulmadı); aynı türden başka ifadeler ("bir sonraki gün") bilerek
   avukata gitmeye devam ediyor. Birinci sözleşme yeniden koşulmadı.
 
 ## Veri nereye gidiyor

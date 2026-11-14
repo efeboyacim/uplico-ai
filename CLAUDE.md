@@ -6,7 +6,7 @@ Her kural için sonuç uygun / uygun değil / bulunamadı olur ve sözleşmeden 
 kanıtlanır; uygun olmayan maddeler için değişiklik taslağı yazılır, belirsiz bulgular avukata
 bırakılır. Python, LangChain `create_agent`, LangGraph ve LangSmith ile kurulur; varsayılan model
 sağlayıcısı Groq, çevrimdışı mod Ollama'dır; başka bir sağlayıcı yalnızca env ile seçilir (kod
-değişmez; Groq üç, Anthropic `claude-sonnet-5-5` üç tam eval koşusuyla ölçüldü). İki kurgusal şirketin (tenant) verisi ayrı tutulur.
+değişmez; Groq üç, Anthropic `claude-sonnet-5-5` dört tam eval koşusuyla ölçüldü). İki kurgusal şirketin (tenant) verisi ayrı tutulur.
 
 ## Ana ilke
 **LLM önerir, kod karar verir, yalnızca avukat onaylar.**

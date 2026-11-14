@@ -15,7 +15,7 @@
 - **Model:** Agent hangi modelle çalıştığını bilmez. Varsayılan Groq `openai/gpt-oss-120b`,
   çevrimdışı modda Ollama `qwen3.5:9b`; env ile seçilen başka bir sağlayıcıda da prompt ve tool'lar
   aynıdır (`tech_stack.md`). Ölçülen yapılandırmalar Groq `openai/gpt-oss-120b` (üç tam eval
-  koşusu) ve Anthropic `claude-sonnet-5-5`'tir (üç tam koşu, her biri farklı kodla,
+  koşusu) ve Anthropic `claude-sonnet-5-5`'tir (dört tam koşu, her biri farklı kodla,
   `LLM_TEMPERATURE=none`; `evals.md` §4).
 
 ### Graph

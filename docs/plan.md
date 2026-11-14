@@ -2405,7 +2405,9 @@ Dokümanlar en sonda tek commit'te (kullanıcının 19c'deki talimatı). Tek ba�
   kritik bulgu yok, her fark hedeflenen türden. İnceleyicinin eşik altı notu (araya noktalama)
   ayrıca kapatıldı; bu son değişiklikten sonra yalnızca testler koşuldu (2425 test, ruff, mypy
   temiz). RULE-03 taslağı yerelde `failed` → `passed`; "bir sonraki gün içinde" hâlâ kalır.
-  Modelle ölçülmedi.
+  Ardından Sonnet ile tam eval (`85362c7`): sert eşikler tuttu, 35 / 35 satır önceki koşuyla
+  aynı; veri kümesi düzeltmenin kendisini sınamaz, dış sözleşme bu kodla koşulmadı
+  (`docs/evals.md` §4).
 - **Ölçülmeyen:** dış sözleşmedeki etki tek koşudur; prompt cümlesinin etkisi başka modelde
   ölçülmedi; Groq bu kodla koşulmadı; holdout ve birinci dış sözleşme yeniden koşulmadı.
 - **Kalan sınırlar** (`docs/agent_design.md` §4–§5, `docs/spec.md` §8): gövdesi kendi alt

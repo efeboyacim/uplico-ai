@@ -353,8 +353,9 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   `proposal_noncompliant` ile avukata gider (güvenli yön, gereksiz yönlendirme). Görülen örnek
   ("bir önceki yılın") düzeltildi: "bir önceki / evvelki" + süre birimi artık atlanır. Aynı sınıfın
   kalanı sürer: "bir sonraki gün", "bir başka gün", "bir tam yıl", "(bir önceki yılın)", "bir
-  önceki takvim yılı". Düzeltme modelle ölçülmedi.
-- **Groq `openai/gpt-oss-120b` (üç tam koşu) ve Anthropic `claude-sonnet-5-5` (üç tam koşu, her biri farklı kodla)
+  önceki takvim yılı". Düzeltmeden sonra tam eval Sonnet ile bir kez koşuldu (hiçbir satır
+  değişmedi; veri kümesi bu ifadeyi süre kuralında sınamaz); dış sözleşme yeniden koşulmadı.
+- **Groq `openai/gpt-oss-120b` (üç tam koşu) ve Anthropic `claude-sonnet-5-5` (dört tam koşu, her biri farklı kodla)
   dışındaki her yapılandırma "çalışır, ölçülmedi"dir (`google_genai` tek sözleşmede denendi,
   ölçülmedi):** ölçümler `evals.md` §4'tedir; iki model ayrı okunur. Ollama "ölçülmedi"
   tarafındadır. `claude-sonnet-5-5` varsayılan `LLM_TEMPERATURE` (0) ile çalışmaz, `none` ile çalıştı (başka değer denenmedi): 0 ile

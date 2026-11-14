@@ -15,7 +15,7 @@
 kodda kapalı bir sağlayıcı listesi yoktur, `init_chat_model`'in tanıdığı başka bir sağlayıcı da env
 ile seçilebilir (aşağıda "Sürüm sabitleri / kısıtlar", "Bilinen sağlayıcı tablosu"). Fark yalnızca
 sohbet modelindedir; graph, tool'lar, maskeleme ve doğrulama her sağlayıcıda aynıdır. **Varsayılan
-Groq `openai/gpt-oss-120b` üç tam eval koşusuyla, Anthropic `claude-sonnet-5-5` üç tam koşuyla
+Groq `openai/gpt-oss-120b` üç tam eval koşusuyla, Anthropic `claude-sonnet-5-5` dört tam koşuyla
 (her biri farklı kodla) ölçüldü** (`evals.md` §4; Sonnet `LLM_TEMPERATURE=none` ister, aşağıda); diğerleri "çalışır,
 ölçülmedi"dir; `google_genai` tek sözleşmede denendi (2026-11-13), ölçülmedi (`plan.md` Adım 18d
 "Elle deneme").
