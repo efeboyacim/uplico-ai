@@ -39,7 +39,7 @@ env ile seçilir; kod değişmez. Kararların gerekçesi: `docs/decisions.md` (k
 **Adımlar**
 
 ```bash
-git clone <depo adresi>
+git clone <depo adresi> case-uplico
 cd case-uplico
 cp .env.example .env          # PowerShell: Copy-Item .env.example .env
 # .env içinde LLM_API_KEY= satırını LLM_API_KEY=sk-ant-... olarak doldur (tırnaksız, boşluksuz).
