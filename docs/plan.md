@@ -521,8 +521,8 @@
   Ayrıntı Adım 19h.
 - **Adım 21 bitti (2026-11-15; `step-21` dalında):** kurulum varsayılanı Anthropic
   `claude-sonnet-5-5` oldu. Yalnızca `.env.example` ve dokümanlar değişti; kod, testler ve kodun
-  varsayılanı (boş `LLM_PROVIDER` → Groq) aynı. Yeni ayarla model çağıran koşu yapılmadı. Ayrıntı
-  Adım 21.
+  varsayılanı (boş `LLM_PROVIDER` → Groq) aynı. Temiz klonda README adımları gerçek modelle baştan
+  sona yürütüldü; yeni ayarla eval koşulmadı. Ayrıntı Adım 21.
 - **Adım 18c'ye başlarken (2026-11-13 oturumunun devri):**
   1. Depo temiz; son commit bu notun commit'i. `origin`'e push yapılmadı (push Adım 20'dir).
   2. Holdout koşusu bitti; eval önbelleği yok. `src/`, `evals/*.py` ve `uv.lock` artık
@@ -2531,7 +2531,9 @@ Dış incelemenin 4. iddiası (Adım 19g tablosu).
   sağlayıcıyı beklerken süreç öldürüldü: satır `running`, son audit satırı `index_built` (iddia
   böylece çalıştırılarak da doğrulandı). Süreç yeniden başlatıldı: log'da kapatma satırı, `GET`
   `failed`, son audit satırı `system` / `review_failed` / `process_interrupted`, öteki tenant 404.
-- **Ölçülmeyen / sınır:** Docker'da (`docker compose` durdur / başlat) denenmedi. Uygulama yeniden başlayana kadar satır `running` görünür. Anahtarı olmayan tenant'ın
+- **Ölçülmeyen / sınır:** Docker'da inceleme sürerken kapsayıcıyı öldürme denenmedi; elle
+  bırakılan `running` satırla kapsayıcıyı yeniden başlatma denendi ve tuttu (Adım 21 "Temiz
+  klonda yürüyüş"). Uygulama yeniden başlayana kadar satır `running` görünür. Anahtarı olmayan tenant'ın
   satırı taranmaz. Aynı veri dizininde ikinci bir süreç başlatmak ilkinin süren incelemesini
   `failed` yapar (tek süreç varsayımı). Yarım thread `checkpoints.db`'de kalır.
 - **Commit:** `fix: fail reviews left running by an interrupted process at startup`
@@ -2570,9 +2572,24 @@ Teslimden sonra, kullanıcının isteğiyle.
   Konteynerde (`docker compose run --env-from-file .env.example`, imaj `604643d`): Compose üç
   değeri ve dört tenant anahtarını dosyadan doğru okudu; anahtar boşken aynı yapılandırma hatası,
   sahte anahtarla ayar yüklendi ve model nesnesi kuruldu (ağ çağrısı yok).
-- **Ölçülmeyen:** yeni `.env.example` ile `docker compose up` ve model çağıran koşu yapılmadı.
-  Aynı üç değer önceki dört Sonnet eval koşusunda `-e` ile verilmişti (`evals.md` §4). Anthropic'in
-  saklama ve kullanım koşulları okunmadı; dokümanlardaki saklama notu yalnızca Groq içindir.
+- **Temiz klonda yürüyüş (2026-11-15, gerçek model):** `step-21` dalı (`1eb43d3`) boş bir klasöre
+  klonlandı; `.env`, `.env.example`'dan yalnızca `LLM_API_KEY` doldurularak kuruldu; imaj
+  sıfırdan adlandırılıp `docker compose up` ile başlatıldı. README "Kullanım"ın dört adımı
+  yazıldığı gibi çalıştırıldı: `POST /reviews` 200 (45 sn; 5 kuralın 5'inde gerçek sonuç,
+  `no_finding` yok, yani sıcaklık tuzağı yok), arayüz incelemeyi gösterdi (tarayıcıda), `viewer`
+  yer tutucuları gördü ve `lawyer` görmedi, öteki tenant 404, karar 200 ve ikinci karar 409,
+  rapor ve audit 200 (75 satır, son satır `review_closed`). İki sapma: geliştirme makinesinde
+  8000 portu dolu olduğu için uygulama 8001'de yayınlandı ve Compose `-p` ile ayrı adla
+  çalıştırıldı; Git Bash'te `python3` yerine `python` yazıldı (README'nin söylediği gibi).
+  Aynı klonda Adım 19h Docker içinde de denendi: veritabanına elle `running` bir inceleme
+  bırakıldı, kapsayıcı yeniden başlatıldı; inceleme `failed` oldu, son audit satırı
+  `system` / `review_failed` / `process_interrupted`, karar verilmiş inceleme değişmedi.
+  Klon, `.env`'i ve imajı sonra silindi.
+- **Ölçülmeyen:** yeni ayarla eval koşulmadı (aynı üç değer önceki dört Sonnet eval koşusunda
+  `-e` ile verilmişti, `evals.md` §4); README'nin Groq ve çevrimdışı blokları yalnızca ayar
+  yüklenerek denendi, o sağlayıcılarla çalıştırılmadı; GitHub'dan değil yerel depodan
+  klonlandı (dal henüz push edilmemişti). Anthropic'in saklama ve kullanım koşulları okunmadı;
+  dokümanlardaki saklama notu yalnızca Groq içindir.
 - **Commit:** `docs: make Sonnet the setup default in .env.example and the README`
 
 ## CASE.md teslimatları → adımlar
