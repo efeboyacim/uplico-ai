@@ -499,7 +499,7 @@
   gerçek bir sözleşmenin gösterdiği beş kod sınırı (numaralı Markdown başlıkları, eval ön
   kontrolü, modelin "takvim günü" birimi, yazıyla tekrarlanan tutar, saat birimi). Modelle
   ölçülmedi. Ayrıntı Adım 19e "Gerçekleşen".
-- **Adım 19f bitti (2026-11-14; `step-19f` dalında, `main`'e henüz alınmadı):** ikinci dış
+- **Adım 19f bitti (2026-11-14; `step-19f` dalı kullanıcı onayıyla `main`'e alındı):** ikinci dış
   sözleşmenin Sonnet koşusunun gösterdiği dört kod sınırı dört commit'le düzeltildi (yazıyla
   tekrarlanan yüzde `c4dfc8d`, düz numaralı başlık `d8efef6`, etiketli TCKN ve akan metinde ad
   `55222fb`, sebep `proposal_partial` `c3f3f69`). Dış sözleşme önce yerelde modelsiz
@@ -2406,7 +2406,7 @@ Dokümanlar en sonda tek commit'te (kullanıcının 19c'deki talimatı). Tek ba�
   sözcükler ve az geçen terimler fazla maskelenir; avukatın düzenlediği taslakta akan metin
   çapaları yalnızca taslağın kendi metniyle çalışır (`src/api.py` liste vermez); eksik alt maddeyi
   cümle başında anan taslak `proposal_partial`'dan kaçar, `3.1)` ya da kalın numaralar okunmaz.
-- **Dal:** `step-19f`, `main`'e alınmadı (kullanıcı onayı bekler). Sıradaki adım yine Adım 20.
+- **Dal:** `step-19f`, kullanıcı onayıyla `main`'e alındı (2026-11-14). Sıradaki adım Adım 20.
 
 ### [ ] Adım 20 — Teslim
 - **Ne:** Kullanıcının onayıyla `origin`'e push edilir. AI oturumları bu planın dışındadır: ham

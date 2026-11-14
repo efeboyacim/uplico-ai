@@ -78,7 +78,7 @@ etiketlerdeki madde numaralarını model çağrısından önce denetler; modelin
 süre biçimi tanınır; bir TL tutarının rakam ve yazıyla aynen tekrarı (biri parantezde) tek değerdir;
 `saat` kural birimidir (yalnızca saat birimli kuralda okunur). Modelle ölçülmedi; kalan sınırlar
 `docs/plan.md` Adım 19e "Gerçekleşen" ve `docs/spec.md` §8'de.
-Adım 19f bitti (2026-11-14; `step-19f` dalında, `main`'e alınmadı): ikinci dış sözleşmenin
+Adım 19f bitti (2026-11-14; `step-19f` dalı `main`'e alındı): ikinci dış sözleşmenin
 gösterdiği dört kod sınırı — rakamlı yüzdenin aynı ekle yazıyla tekrarı ("%25'i (yüzde yirmi
 beşi)") tek değerdir, birler sözcüğünden sonra çekimli `yüz` ("yüzde iki yüzü") okunamayandır;
 başka başlık yoksa hemen altında kendi alt maddesi olan büyük harfli "7. BAŞLIK" satırları 1..n
