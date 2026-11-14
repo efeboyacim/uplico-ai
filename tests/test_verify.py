@@ -693,6 +693,66 @@ def test_extract_placeholder_one_word_not_a_number(text: str, expected: Extracti
     assert extract(text, "duration") == expected
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "bir önceki yılın TÜFE oranında",
+        "Bir önceki ay",
+        "bir evvelki ayın faturası",
+        "bir önceki günü",
+        "bir önceki saat",
+    ],
+)
+def test_extract_bir_onceki_past_period_not_a_value(text: str) -> None:
+    for hours in (False, True):
+        assert extract(text, "duration", hours=hours) == Extraction((), ())
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        ("1 önceki yıl", Extraction((), ("1 önceki yıl",))),
+        ("iki önceki yılın", Extraction((), ("iki önceki yılın",))),
+        ("yirmi bir önceki yıl", Extraction((), ("yirmi bir önceki yıl",))),
+        ("bir sonraki gün içinde", Extraction((), ("bir sonraki gün",))),
+        ("bir başka gün", Extraction((), ("bir başka gün",))),
+        ("bir iş günü", Extraction((), ("bir iş günü",))),
+        ("30 gün veya bir önceki yıl", Extraction((_days(30),), ("bir önceki yıl",))),
+        ("(bir önceki yılın)", Extraction((), ("bir önceki yılın",))),
+        ("bir yılın sonunda", Extraction((Quantity(1, "yıl"),), ())),
+        ("bir takvim yılı", Extraction((Quantity(1, "yıl"),), ())),
+    ],
+)
+def test_extract_bir_onceki_rule_stays_narrow(text: str, expected: Extraction) -> None:
+    assert extract(text, "duration") == expected
+
+
+AT_LEAST_45_DAYS = _rule(">=", 45, "gün")
+
+
+@pytest.mark.parametrize(
+    ("tail", "code_check"),
+    [
+        ("Her yenileme döneminde bir önceki yılın TÜFE oranında artış uygulanır.", "passed"),
+        ("İtiraz bir sonraki gün içinde bildirilir.", "failed"),
+    ],
+)
+def test_verify_bir_onceki_in_draft_proposal_check(tail: str, code_check: str) -> None:
+    draft = f"Ödeme en az 45 (kırk beş) takvim günü içerisinde yapılır. {tail}"
+    finding = _finding(
+        "Ödeme 30 gün içinde yapılır.", status="non_compliant", proposal=_proposal(draft)
+    )
+    result = _run(finding, AT_LEAST_45_DAYS)
+    assert result.proposal is not None
+    assert result.proposal.code_check == code_check
+
+
+def test_verify_bir_onceki_in_compliant_clause_not_ambiguous() -> None:
+    clause = "Ödeme 45 gün içinde yapılır. Fiyata bir önceki yılın TÜFE oranında artış uygulanır."
+    finding = _finding("Ödeme 45 gün içinde yapılır.", value=45, unit="gün")
+    assert _reasons(finding, AT_LEAST_45_DAYS, clause) == []
+
+
 def test_verify_placeholder_digit_not_read_as_value() -> None:
     finding = _finding("[TELEFON_2] gün içinde bildirilir")
     # The placeholder is not read; the compliant finding's clause holds a TELEFON placeholder.
@@ -3298,7 +3358,8 @@ def test_extract_expression_starting_new_sentence_not_swallowed(
         # Known limit: the stem match stays wide with no boundary (safe-side over-capture).
         ("bir aykırılık", "duration", Extraction((), ("bir aykırılık",))),
         ("bir kez güncellenebilir", "duration", Extraction((), ("bir kez güncellenebilir",))),
-        ("bir önceki yılın", "duration", Extraction((), ("bir önceki yılın",))),
+        # "bir önceki" + unit names a past period: neither value nor unreadable (step 19g).
+        ("bir önceki yılın", "duration", Extraction((), ())),
         # A sentence starting with a word that is no unit leaves the link as it was.
         ("30 gün veya 15. Bu", "duration", Extraction((_days(30), _days(15)), ())),
     ],

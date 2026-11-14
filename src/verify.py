@@ -149,6 +149,8 @@ _BRIDGES: dict[Kind, frozenset[str]] = {
 # A unit-less number joined by one of these to a number with a unit gets that unit.
 _CONNECTORS = frozenset({"ila", "ile", "veya", "-"})
 _MAX_GROUP = 6  # longest parenthesized group skipped between a number and its unit
+# "bir önceki yılın" / "bir evvelki ay" names a past period, not a quantity (`_past_period`).
+_PAST_WORDS = frozenset({"önceki", "evvelki"})
 
 # --- Number words ---------------------------------------------------------------------------------
 _ONES: dict[str, int] = {
@@ -1026,8 +1028,36 @@ class _Reader:
             return
         self._record([i], None, i, match[2])
 
+    def _past_period(self, i: int) -> bool:
+        """Number `i` is the "bir" of "bir önceki yılın" / "bir evvelki ay": a past period.
+
+        Only the word "bir" on its own (not the tail of a longer number, not in or after a
+        parenthesis, not after a connector or a number), directly followed by "önceki" / "evvelki"
+        and a duration unit the reader reads. It is neither a value nor an unreadable expression.
+        Any other middle word ("bir sonraki gün"), a digit ("1 önceki yıl") or another number word
+        stays unreadable.
+        """
+        toks = self.tokens
+        tok = toks[i]
+        if self.kind != "duration" or not tok.spelled or tok.continued or tok.text != "bir":
+            return False
+        if i + 2 >= len(toks) or toks[i + 1].kind != "word" or toks[i + 1].text not in _PAST_WORDS:
+            return False
+        if _gap(self.norm, tok, toks[i + 1]) != " ":  # "bir; önceki", "bir/önceki" are not it
+            return False
+        unit = _classify(toks, i + 2, "duration")
+        if unit is None or unit[0] != "read" or _crosses(toks, i + 1, i + 2):
+            return False
+        if i > 0:
+            prev = toks[i - 1]
+            if prev.kind == "number" or prev.text in _CONNECTORS or prev.text in ("(", ")"):
+                return False
+        return True
+
     def _suffixed(self, i: int) -> None:
         toks = self.tokens
+        if self._past_period(i):
+            return
         if self.kind == "amount":
             prefix = _prefix(toks, i)
             if prefix == "TL":

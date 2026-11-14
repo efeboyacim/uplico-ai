@@ -575,8 +575,16 @@ yoktur.**
     olur (`numeric_mismatch`); taslakta `code_check=failed`. Bedeli gereksiz yönlendirmedir
     ("5 ayrı teslimat" süre kuralında kuyruğa düşürür); hata güvenli yöndedir. Bilinen sınır: kök
     eşleşmesi bilinçli olarak geniştir ve cümle sınırı olmayan yazımda sürer; ilk eval koşusunun
-    maddelerinde görülen örnekler: "5 ayrı", "bir aykırılık", "bir kez güncellenebilir", "bir
-    önceki yılın" okunamayan süre ifadesidir (güvenli yönde aşırı yakalama).
+    maddelerinde görülen örnekler: "5 ayrı", "bir aykırılık", "bir kez güncellenebilir"
+    okunamayan süre ifadesidir (güvenli yönde aşırı yakalama).
+  - **"bir önceki" geçmiş dönemdir (2026-11-14):** tek başına yazıyla "bir", hemen ardından (arada
+    yalnızca boşluk) "önceki" ya da "evvelki" ve kodun okuduğu bir süre birimi gelirse ("bir önceki
+    yılın", "bir evvelki ay") geçmiş bir döneme gönderme sayılır; ne değer ne de okunamayan değer
+    ifadesidir. Rakam ("1 önceki yıl"), başka sayı sözcüğü ("iki önceki", "yirmi bir önceki"),
+    başka ara sözcük ("bir sonraki gün": gerçek bir süre olabilir), araya noktalama ya da önünde
+    bağlaç / sayı / parantez varsa eski okuma (okunamayan) sürer. Sebep: Adım 19f'den beri taslak
+    maddenin tamamını içerir ve maddenin başka bir alt maddesindeki bu ifade, uygun taslağı
+    `code_check=failed` yapıyordu (ikinci dış sözleşmenin yeniden koşusu, `evals.md` §4).
   - **Bilinen sınır:** birimi hiç yazılmamış sayı ("30, gecikme halinde 90 gün içinde" ifadesindeki
     30), araya iki ya da daha çok sözcük girmiş ifade ve sayı içermeyen yükümlülük ("derhal
     feshedebilir") kod tarafından görülmez; bunlar modelin `status`'üne ve avukata kalır.
