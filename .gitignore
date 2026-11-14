@@ -9,3 +9,8 @@ evals/results/.cache/
 evals/results/*/.cache/
 body.json
 evals/drafts/
+review.json
+decision.json
+decided.json
+report.json
+audit.json
