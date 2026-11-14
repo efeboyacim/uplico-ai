@@ -29,8 +29,13 @@ Design (`docs/agent_design.md` §5 "Doğrulama katmanı"):
 - A quote match may not cut a word, a number or a value expression of any kind: an occurrence
   that does is skipped.
 - `align` is the one duration conversion. Within a family (gün/hafta, ay/yıl) it is exact; across
-  families it turns ay/yıl into a day interval (28n-31n, 365n-366n). The check, the "same value?"
-  test, the cross-check against the model's value and the proposal check all go through it.
+  families it turns ay/yıl into a day interval (28n-31n, 365n-366n). With saat on one side both
+  are turned into hours: gün and hafta exactly (24, 168), ay and yıl as 24 times their day
+  interval. The check, the "same value?" test, the cross-check against the model's value and the
+  proposal check all go through it.
+- An hour ("72 saat") is a value only for a rule whose unit is saat (`extract(..., hours=True)`);
+  for every other rule it stays an unreadable expression, as it was before saat was a unit. A
+  clock time ("08:30 saatinde") is never an hour value.
 - Comparisons are on intervals; an exact value is a one-point interval.
 """
 
@@ -65,6 +70,7 @@ _KIND_OF_UNIT: dict[CheckUnit, Kind] = {
     "hafta": "duration",
     "ay": "duration",
     "yıl": "duration",
+    "saat": "duration",
     "%": "percent",
     "TL": "amount",
 }
@@ -73,6 +79,7 @@ _KIND_OF_UNIT: dict[CheckUnit, Kind] = {
 _DAY_FAMILY: dict[CheckUnit, float] = {"gün": 1.0, "hafta": 7.0}
 _MONTH_FAMILY: dict[CheckUnit, float] = {"ay": 1.0, "yıl": 12.0}
 _DAYS_IN: dict[CheckUnit, Interval] = {"ay": (28.0, 31.0), "yıl": (365.0, 366.0)}
+_HOURS_PER_DAY = 24.0
 
 # --- Closed list of duration forms --------------------------------------------------------------
 # Bare stem, -lik, possessive, dative, locative, ablative, genitive, plural, possessive + case,
@@ -94,13 +101,21 @@ _DURATION_FORM_LISTS: dict[CheckUnit, tuple[str, ...]] = {
         "yıl", "yıllık", "yılı", "yıla", "yılda", "yıldan", "yılın", "yıllar",
         "yılına", "yılında", "yılından", "yıldır",
     ),
+    # Not "saatine", "saatinde", "saatinden": they name a clock time ("17 saatine kadar"), so
+    # they stay unreadable.
+    "saat": (
+        "saat", "saatlik", "saati", "saate", "saatte", "saatten", "saatin", "saatler",
+        "saattir",
+    ),
 }  # fmt: skip
 _DURATION_FORMS: dict[str, CheckUnit] = {
     form: unit for unit, forms in _DURATION_FORM_LISTS.items() for form in forms
 }
-_DURATION_STEMS: tuple[str, ...] = ("gün", "hafta", "ay", "yıl")
+_DURATION_STEMS: tuple[str, ...] = ("gün", "hafta", "ay", "yıl", "saat")
+# The one duration unit read only for a rule in that unit (`_Reader.hours`).
+_HOUR: CheckUnit = "saat"
 # Time units the code does not convert: after a number they are unreadable, never dropped.
-_OTHER_TIME_STEMS: tuple[str, ...] = ("sene", "saat", "dakika")
+_OTHER_TIME_STEMS: tuple[str, ...] = ("sene", "dakika")
 
 _TL_SYMBOL = "₺"
 _TL_WORDS = frozenset({"tl", "try"})
@@ -214,7 +229,9 @@ def align(a: Quantity, b: Quantity) -> tuple[Interval, Interval]:
     """The one duration conversion: express `a` and `b` in a common unit, as intervals.
 
     Same unit, or both gün/hafta, or both ay/yıl: exact points. One ay/yıl and one gün/hafta: both
-    in days, ay = 28-31 and yıl = 365-366 days. Units of different kinds raise `ValueError`.
+    in days, ay = 28-31 and yıl = 365-366 days. One saat and another duration: both in hours, the
+    other one's day value (point or interval) times 24 - gün = 24, hafta = 168, ay = 672-744 and
+    yıl = 8760-8784 hours. Units of different kinds raise `ValueError`.
     """
     if a.unit == b.unit:
         return (a.amount, a.amount), (b.amount, b.amount)
@@ -231,6 +248,15 @@ def align(a: Quantity, b: Quantity) -> tuple[Interval, Interval]:
         lo, hi = _DAYS_IN[q.unit]
         return q.amount * lo, q.amount * hi
 
+    if _HOUR in (a.unit, b.unit):
+
+        def in_hours(q: Quantity) -> Interval:
+            if q.unit == _HOUR:
+                return q.amount, q.amount
+            lo, hi = in_days(q)
+            return lo * _HOURS_PER_DAY, hi * _HOURS_PER_DAY
+
+        return in_hours(a), in_hours(b)
     return in_days(a), in_days(b)
 
 
@@ -696,9 +722,11 @@ def _amount_words(text: str) -> float | None:
 
 
 class _Reader:
-    def __init__(self, text: str, kind: Kind) -> None:
+    def __init__(self, text: str, kind: Kind, hours: bool = False) -> None:
         self.norm, self.tokens = _tokenize(text)
         self.kind = kind
+        # An hour is read only for a rule in hours; otherwise it is unreadable (`_record`).
+        self.hours = hours
         self.read: dict[int, Quantity] = {}
         self.unreadable: dict[int, str] = {}
         self.done: set[int] = set()
@@ -720,6 +748,8 @@ class _Reader:
         toks = self.tokens
         # A separator ending the last token is sentence punctuation ("%15."), not the expression.
         self.spans.append((toks[first].start, toks[last].end - toks[last].trailing))
+        if unit == _HOUR and (not self.hours or self._clock_time(members)):
+            unit = None
         values: list[float] = []
         if unit is not None:
             for m in members:
@@ -736,6 +766,16 @@ class _Reader:
                 self.value_until[last] = values[0]
         else:
             self.unreadable[first] = self.norm[toks[first].start : toks[last].end]
+
+    def _clock_time(self, members: Sequence[int]) -> bool:
+        """A member is the minutes of a clock time: a digit and ":" stand right before it
+        ("08:30 saati"). Such a number is no hour value."""
+        return any(
+            self.tokens[m].start >= 2
+            and self.norm[self.tokens[m].start - 1] == ":"
+            and self.norm[self.tokens[m].start - 2].isdigit()
+            for m in members
+        )
 
     def _value(
         self, m: int, members: Sequence[int], unit: CheckUnit, first: int, last: int
@@ -968,9 +1008,18 @@ class _Reader:
         )
 
 
-def extract(text: str, kind: Kind) -> Extraction:
-    """Read the values of one kind (duration / percent / amount) from a quote or proposal text."""
-    return _Reader(text, kind).run()
+def extract(text: str, kind: Kind, *, hours: bool = False) -> Extraction:
+    """Read the values of one kind (duration / percent / amount) from a quote or proposal text.
+
+    `hours` is True only for a rule whose unit is saat: then an hour ("72 saat") is a value;
+    otherwise it is an unreadable expression with the same span.
+    """
+    return _Reader(text, kind, hours).run()
+
+
+def _extract_for(text: str, check: Check) -> Extraction:
+    """`extract` in the kind of the rule's unit, hours read only for a rule in hours."""
+    return extract(text, _KIND_OF_UNIT[check.unit], hours=check.unit == _HOUR)
 
 
 # --- Quote matching -------------------------------------------------------------------------------
@@ -1034,22 +1083,29 @@ def _model_unit(raw: str | None, rule_unit: CheckUnit) -> CheckUnit | None:
     kind's bridge word and one of the closed duration forms ("takvim günü", "Takvim Ayı") give
     that form's unit. Nothing else is a unit: "iş günü" (no bridge word), a form alone ("günlük",
     "günü"), "TRY", "yüzde".
+
+    saat is a unit only for a rule in hours, as the reader reads hours only there: for any other
+    rule "saat", "Saat" and "takvim saati" are unknown.
     """
     if raw is None or not raw.strip():
         return rule_unit
     wanted = _lower(raw.strip())
-    for unit in _CHECK_UNITS:
-        if _lower(unit) == wanted:
-            return unit
+    unit: CheckUnit | None = None
+    for candidate in _CHECK_UNITS:
+        if _lower(candidate) == wanted:
+            unit = candidate
+            break
     kind = _KIND_OF_UNIT[rule_unit]
     words = wanted.split()
-    if kind == "duration" and len(words) == 2 and words[0] in _BRIDGES[kind]:
-        return _DURATION_FORMS.get(words[1])
-    return None
+    if unit is None and kind == "duration" and len(words) == 2 and words[0] in _BRIDGES[kind]:
+        unit = _DURATION_FORMS.get(words[1])
+    if unit == _HOUR and rule_unit != _HOUR:
+        return None
+    return unit
 
 
 def _numeric_reasons(finding: Finding, check: Check, quote: str) -> set[ReviewReason]:
-    extraction = extract(quote, _KIND_OF_UNIT[check.unit])
+    extraction = _extract_for(quote, check)
     if not extraction.values:
         return {"numeric_mismatch"}
     if not _single(extraction):
@@ -1094,7 +1150,7 @@ def _outside_reasons(check: Check, clause_text: str, start: int, end: int) -> se
     """
     reasons: set[ReviewReason] = set()
     for text in (clause_text, clause_text[:start], clause_text[end:]):
-        extraction = extract(text, _KIND_OF_UNIT[check.unit])
+        extraction = _extract_for(text, check)
         if extraction.unreadable:
             reasons.add("ambiguous_value")
         for value in extraction.values:
@@ -1123,7 +1179,7 @@ def _proposal_check(text: str, check: Check | None) -> CodeCheck:
     the cap). The code does not know which value is the regulated one."""
     if check is None:
         return "unverifiable"
-    extraction = extract(text, _KIND_OF_UNIT[check.unit])
+    extraction = _extract_for(text, check)
     if not extraction.values or extraction.unreadable:
         return "failed"
     return "passed" if _evaluate(extraction.values, check) is True else "failed"

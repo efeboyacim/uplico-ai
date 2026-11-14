@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Severity = Literal["critical", "normal"]
 CheckOp = Literal[">=", "<=", ">", "<", "=="]
-CheckUnit = Literal["gün", "hafta", "ay", "yıl", "%", "TL"]
+CheckUnit = Literal["gün", "hafta", "ay", "yıl", "saat", "%", "TL"]
 FindingStatus = Literal["compliant", "non_compliant", "not_found"]
 CodeCheck = Literal["passed", "failed", "unverifiable"]
 NoFindingReason = Literal["no_submit", "step_limit", "rate_limited", "llm_error"]

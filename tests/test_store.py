@@ -428,6 +428,12 @@ def test_load_rules_missing_check_is_none(data_dir: Path) -> None:
     assert rules["governing_law"].check is None
 
 
+def test_load_rules_hour_unit_loads(data_dir: Path) -> None:
+    _write_rules(data_dir, '- id: a\n  text: "x"\n  check: {op: "<=", value: 48, unit: saat}\n')
+    (rule,) = Store(data_dir, "acme").load_rules()
+    assert rule.check == Check(op="<=", value=48, unit="saat")
+
+
 @pytest.mark.parametrize(
     ("content", "expected_in_message"),
     [

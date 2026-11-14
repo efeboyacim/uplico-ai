@@ -22,6 +22,7 @@ from src.models import (
     Severity,
 )
 from src.prepare.pii import mask
+from src.store import Store
 from src.text import ALL_STEPS, normalize
 from src.verify import Extraction, Kind, Quantity, align, extract, verify
 
@@ -1448,6 +1449,200 @@ def test_extract_kinds_kept_apart() -> None:
     assert extract(text, "duration").values == (_days(30),)
     assert extract(text, "percent").values == (Quantity(15, "%"),)
     assert extract(text, "amount").values == (Quantity(1000, "TL"),)
+
+
+# --- Hours: read only for a rule in saat ---------------------------------------------------------
+
+_HOUR_FORMS = (
+    "saat", "saatlik", "saati", "saate", "saatte", "saatten", "saatin", "saatler", "saattir",
+)  # fmt: skip
+AT_MOST_48_HOURS = _rule("<=", 48, "saat")
+
+
+def test_unit_tables_cover_every_check_unit() -> None:
+    # A unit added to CheckUnit alone would raise KeyError in `_KIND_OF_UNIT` / `align`.
+    units = set(get_args(CheckUnit))
+    assert set(verify_module._KIND_OF_UNIT) == units
+    durations = {u for u in units if verify_module._KIND_OF_UNIT[u] == "duration"}
+    assert set(verify_module._DURATION_FORM_LISTS) == durations
+    assert set(verify_module._DURATION_STEMS) == durations
+    for a in units:
+        for b in units:
+            if verify_module._KIND_OF_UNIT[a] == verify_module._KIND_OF_UNIT[b]:
+                align(Quantity(1, a), Quantity(1, b))
+            else:
+                with pytest.raises(ValueError):
+                    align(Quantity(1, a), Quantity(1, b))
+
+
+@pytest.mark.parametrize("form", _HOUR_FORMS)
+def test_extract_hour_form_read_only_for_hours(form: str) -> None:
+    text = f"Müdahale 48 {form} içinde"
+    assert extract(text, "duration", hours=True) == Extraction((Quantity(48, "saat"),), ())
+    assert extract(text, "duration") == Extraction((), (f"48 {form}",))
+    assert extract(text, "duration").spans == extract(text, "duration", hours=True).spans
+
+
+@pytest.mark.parametrize(
+    ("text", "expression"),
+    [
+        ("17 saatine kadar", "17 saatine"),
+        ("72 saatinde", "72 saatinde"),
+        ("24 saatinden", "24 saatinden"),
+        ("8 iş saati", "8 iş saati"),
+        ("8 mesai saati", "8 mesai saati"),
+        ("48. saatte", "48. saatte"),
+        ("7/24 saat", "7/24 saat"),
+        ("9,30 saatinde", "9,30 saatinde"),
+        ("08:30 saatinde", "30 saatinde"),
+        ("17:00 saatine", "00 saatine"),
+        ("24:00 saatinden", "00 saatinden"),
+        ("08:30 saati", "30 saati"),
+        ("08:30 saat", "30 saat"),
+    ],
+)
+def test_extract_hour_clock_time_or_other_form_unreadable(text: str, expression: str) -> None:
+    assert extract(f"Bildirim {text} yapılır", "duration", hours=True) == Extraction(
+        (), (expression,)
+    )
+
+
+@pytest.mark.parametrize(
+    "text", ["saat 17:00'ye kadar", "17.00'ye kadar", "saat başı", "saatlik ücret 500 TL"]
+)
+def test_extract_hour_word_without_number_nothing(text: str) -> None:
+    assert extract(text, "duration", hours=True) == Extraction((), ())
+
+
+def test_extract_hour_restatement_range_and_minutes() -> None:
+    hours = [Quantity(72, "saat")] * 2
+    assert extract("yetmiş iki (72) saat", "duration", hours=True).values == tuple(hours)
+    assert extract("48 ila 72 saat", "duration", hours=True).values == (
+        Quantity(48, "saat"),
+        Quantity(72, "saat"),
+    )
+    assert extract("1 saat 30 dakika", "duration", hours=True) == Extraction(
+        (Quantity(1, "saat"),), ("30 dakika",)
+    )
+    # The bridge word holds for hours as for days (known oddity, harmless).
+    assert extract("72 takvim saati", "duration", hours=True).values == (Quantity(72, "saat"),)
+
+
+def test_extract_clock_time_never_an_hour_value_seeded() -> None:
+    rng = random.Random(19_005)
+    forms = [*_HOUR_FORMS, "saatine", "saatinde", "saatinden", "saatleri", "Saat", "SAATTE"]
+    fillers = ["Teslim", "en geç", "içinde", "30 gün", "veya", "Ayrıca", "%5", "", "(", ")"]
+    for _ in range(10_000):
+        hh, mm = rng.randrange(25), rng.randrange(60)
+        before = " ".join(rng.choice(fillers) for _ in range(rng.randint(0, 3)))
+        after = " ".join(rng.choice(fillers) for _ in range(rng.randint(0, 3)))
+        text = f"{before} {hh:02d}:{mm:02d} {rng.choice(forms)} {after}"
+        values = extract(text, "duration", hours=True).values
+        assert all(q.unit != "saat" for q in values), text
+
+
+def test_align_hours_exact_for_days_and_weeks_interval_for_months_and_years() -> None:
+    assert align(Quantity(72, "saat"), Quantity(3, "gün")) == ((72, 72), (72, 72))
+    assert align(Quantity(1, "hafta"), Quantity(168, "saat")) == ((168, 168), (168, 168))
+    assert align(Quantity(1, "ay"), Quantity(720, "saat")) == ((672, 744), (720, 720))
+    assert align(Quantity(720, "saat"), Quantity(1, "yıl")) == ((720, 720), (8760, 8784))
+
+
+@pytest.mark.parametrize(
+    ("quote", "status", "rule", "expected"),
+    [
+        ("Müdahale 48 saat içinde yapılır.", "compliant", AT_MOST_48_HOURS, []),
+        ("Müdahale 2 gün içinde yapılır.", "compliant", AT_MOST_48_HOURS, []),
+        ("Müdahale 1 hafta içinde yapılır.", "compliant", AT_MOST_48_HOURS, ["numeric_mismatch"]),
+        ("Müdahale 96 saat içinde yapılır.", "compliant", AT_MOST_48_HOURS, ["numeric_mismatch"]),
+        ("Müdahale 3 iş günü içinde yapılır.", "compliant", AT_MOST_48_HOURS, ["numeric_mismatch"]),
+        ("Müdahale 1 saat 30 dakika içinde.", "compliant", AT_MOST_48_HOURS, ["ambiguous_value"]),
+        ("Müdahale 08:30 saatinde yapılır.", "compliant", AT_MOST_48_HOURS, ["numeric_mismatch"]),
+        ("Müdahale 1 ay içinde yapılır.", "compliant", _rule(">=", 720, "saat"),
+         ["unit_conversion_uncertain"]),
+        ("Süre bir gündür.", "compliant", _rule("==", 24, "saat"), []),
+    ],
+)  # fmt: skip
+def test_verify_hour_rule_quote(quote: str, status: str, rule: Rule, expected: list[str]) -> None:
+    assert _reasons(_finding(quote, status=status), rule) == expected
+
+
+def test_verify_hour_rule_value_outside_quote_queued() -> None:
+    clause = "Müdahale 48 saat içinde yapılır. Teslimat 5 gün sürer."
+    finding = _finding("Müdahale 48 saat içinde yapılır.")
+    assert _reasons(finding, AT_MOST_48_HOURS, clause) == ["numeric_mismatch"]
+
+
+@pytest.mark.parametrize(
+    ("draft", "code_check"),
+    [
+        ("Müdahale 48 saat içinde yapılır.", "passed"),
+        ("Müdahale 2 gün içinde yapılır.", "passed"),
+        ("Müdahale kırk sekiz (48) saat içinde yapılır.", "passed"),
+        ("Müdahale 5 gün içinde yapılır.", "failed"),
+        ("Müdahale saat 17:00'ye kadar yapılır.", "failed"),
+        ("Müdahale 08:30 saatinde yapılır.", "failed"),
+        ("Müdahale 72 saatinde yapılır.", "failed"),
+        ("Müdahale 8 iş saati içinde yapılır.", "failed"),
+    ],
+)
+def test_verify_hour_rule_proposal_check(draft: str, code_check: str) -> None:
+    finding = _finding(
+        "Müdahale 72 saat içinde yapılır.", status="non_compliant", proposal=_proposal(draft)
+    )
+    result = _run(finding, AT_MOST_48_HOURS)
+    assert result.proposal is not None
+    assert result.proposal.code_check == code_check
+
+
+@pytest.mark.parametrize("unit", ["saat", "Saat", "SAAT", "takvim saati", "gün"])
+def test_verify_hour_rule_model_unit_read(unit: str) -> None:
+    value = 2 if unit == "gün" else 48
+    finding = _finding("Müdahale 48 saat içinde yapılır.", value=value, unit=unit)
+    assert _reasons(finding, AT_MOST_48_HOURS) == []
+
+
+@pytest.mark.parametrize("unit", ["saat", "Saat", "takvim saati"])
+def test_verify_hour_unit_in_day_rule_unknown(unit: str) -> None:
+    # Only a rule in saat knows the hour: elsewhere the model's "saat" is no unit.
+    finding = _finding("30 gün önceden", value=720, unit=unit)
+    assert _reasons(finding, AT_LEAST_30_DAYS) == ["numeric_mismatch"]
+    assert verify_module._model_unit(unit, "gün") is None
+    assert verify_module._model_unit(unit, "saat") == "saat"
+
+
+def test_verify_hour_in_day_rule_still_unreadable() -> None:
+    assert extract("itiraz 48 saat içinde", "duration") == Extraction((), ("48 saat",))
+    clause = "30 gün içinde ödenir; itiraz 48 saat içinde yapılır."
+    assert _reasons(_finding("30 gün içinde ödenir"), AT_LEAST_30_DAYS, clause) == [
+        "ambiguous_value"
+    ]
+
+
+def test_verify_hour_rule_loaded_from_rules_file_end_to_end(data_dir: Path) -> None:
+    rules_file = data_dir / "tenants" / "acme" / "rules.yaml"
+    rules_file.write_text(
+        '- id: response_time\n  text: "Müdahale en geç 48 saat içinde."\n'
+        '  check: {op: "<=", value: 48, unit: saat}\n',
+        encoding="utf-8",
+    )
+    (rule,) = Store(data_dir, "acme").load_rules()
+    assert rule.check == Check(op="<=", value=48, unit="saat")
+    clause = _clause("Arızaya 72 saat içinde müdahale edilir.")
+    finding = _finding(
+        "Arızaya 72 saat içinde müdahale edilir.",
+        status="non_compliant",
+        rule_id="response_time",
+        value=72,
+        unit="saat",
+        proposal=_proposal("Arızaya 48 saat içinde müdahale edilir."),
+    )
+    (result,) = verify([finding], [rule], [clause], False)
+    assert result.review_reasons == []
+    assert result.proposal is not None and result.proposal.code_check == "passed"
+    wrong = finding.model_copy(update={"proposal": _proposal("Arızaya 3 gün içinde.")})
+    (result,) = verify([wrong], [rule], [clause], False)
+    assert result.review_reasons == ["proposal_noncompliant"]
 
 
 # --- Critical rule, not_found, no_finding ---------------------------------------------------------
