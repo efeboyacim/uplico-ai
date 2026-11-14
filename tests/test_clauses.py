@@ -1,7 +1,7 @@
 import pytest
 
 from src.models import Check, Clause, Finding, MaskedText, RawClause, Rule
-from src.prepare.clauses import split_clauses
+from src.prepare.clauses import _PLAIN_HEADING, split_clauses
 from src.verify import verify
 
 
@@ -390,3 +390,147 @@ def test_split_clauses_numbered_heading_lets_verify_see_breaking_sub_item(
     (result,) = verify([finding], [rule], clauses, False, enabled=True)
     assert result.needs_review
     assert "numeric_mismatch" in result.review_reasons
+
+
+# --- Plain numbered headings ("7. SORUMLULUK"), only when there is no other heading form ---------
+
+PLAIN = (
+    "HİZMET SÖZLEŞMESİ\n\n"
+    "1. TARAFLAR VE TEMSİLCİLER\n1.1. A ile B arasında.\n1.2. Temsilci C.\n\n"
+    "2. ÜCRET (KDV HARİÇ)\n2.1. Bedel 1.200.000 TL'dir.\n\n"
+    "3. SORUMLULUĞUN SINIRLANDIRILMASI\n3.1. Sorumluluk %25 ile sınırlıdır."
+)
+
+
+def test_split_clauses_plain_numbered_headings_number_paragraph_spans() -> None:
+    clauses = _split(PLAIN)
+    assert [c.clause_no for c in clauses] == [None, "1", "2", "3"]
+    # The spans are the paragraphs HEAD produced; only the numbers are new.
+    assert [c.text for c in clauses] == PLAIN.split("\n\n")
+
+
+def test_split_clauses_plain_numbered_sub_items_and_paragraphs_stay_inside() -> None:
+    text = "1. FESİH\n1.1. 45 gün.\n\n1.2. 10 gün.\n\n2. SON\n2.1 x"
+    clauses = _split(text)
+    assert [(c.clause_no, c.text) for c in clauses] == [
+        ("1", "1. FESİH\n1.1. 45 gün.\n\n1.2. 10 gün."),
+        ("2", "2. SON\n2.1 x"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        # A party block: each numbered all-caps item has a plain detail line, not its sub-item.
+        "SÖZLEŞME\n\n1. ALICI\nUnvan: Ares A.Ş.\n\n2. SATICI\nUnvan: Beta Ltd.\n\nÖDEME\n\n90 gün.",
+        "EKLER\n\n1. TEKNİK ŞARTNAME\nEk-1 olarak eklidir.\n\n2. FİYAT LİSTESİ\nEk-2'dedir.",
+        "1. KONU\n2.1. A\n\n2. SÜRE\n1.1. B",  # another section's sub-item
+        "1. KONU\n1. A\n\n2. SÜRE\n2. B",  # no sub-number
+    ],
+)
+def test_split_clauses_plain_numbered_needs_own_sub_item_on_next_line(text: str) -> None:
+    clauses = _split(text)
+    assert all(c.clause_no is None for c in clauses)
+    assert [c.text for c in clauses] == text.split("\n\n")
+
+
+def test_split_clauses_plain_numbered_title_trailing_spaces_are_not_title() -> None:
+    clauses = _split("1. KONU \t\n1.1. A\n\n2. SÜRE  \n2.1. B")
+    assert [(c.clause_no, c.text) for c in clauses] == [
+        ("1", "1. KONU \t\n1.1. A"),
+        ("2", "2. SÜRE  \n2.1. B"),
+    ]
+
+
+def test_split_clauses_plain_numbered_long_space_run_is_one_line() -> None:
+    # A long space run inside a numbered line: the title (all of it, trimmed) is over the length
+    # cap, so the line is not a heading; the text splits into paragraphs.
+    # No lazy title before an optional space run (that form backtracks quadratically).
+    assert "*?" not in _PLAIN_HEADING.pattern
+    text = "1. A" + " " * 5_000 + "B\n1.1 x\n\n2. C\n2.1 y"
+    clauses = _split(text)
+    assert [(c.clause_no, c.text) for c in clauses] == [
+        (None, "1. A" + " " * 5_000 + "B\n1.1 x"),
+        (None, "2. C\n2.1 y"),
+    ]
+
+
+def test_split_clauses_plain_numbered_turkish_capitals_are_upper_case() -> None:
+    clauses = _split("1. IĞDIR ŞUBESİ\n1.1 x\n\n2. GİZLİLİK ÇÖÜ\n2.1 y")
+    assert [c.clause_no for c in clauses] == ["1", "2"]
+
+
+def test_split_clauses_plain_numbered_signature_block_and_list_inside_clause() -> None:
+    text = "1. KONU\n1.1. Tedarikçi:\n1. kurar,\n2. LİSTE\n\n2. SÜRE\n2.1. y\n\nİMZALAR\nA Ltd."
+    clauses = _split(text)
+    assert [c.clause_no for c in clauses] == ["1", "2", None]
+    assert clauses[0].text.endswith("2. LİSTE")
+    assert clauses[2].text.startswith("İMZALAR")
+
+
+@pytest.mark.parametrize("newline", ["\r\n", "\r"])
+def test_split_clauses_plain_numbered_crlf_and_cr(newline: str) -> None:
+    text = newline.join(["1. A", "1.1 x", " ", "2. B", "2.1 y"])
+    clauses = _split(text)
+    assert [(c.clause_no, c.text) for c in clauses] == [
+        ("1", newline.join(["1. A", "1.1 x"])),
+        ("2", newline.join(["2. B", "2.1 y"])),
+    ]
+
+
+def test_split_clauses_plain_numbered_heading_after_bom_and_indent() -> None:
+    clauses = _split(BOM + "  1. TARAFLAR\n  1.1. A\n\n\t2. KONU\n\t2.1. B")
+    assert [c.clause_no for c in clauses] == ["1", "2"]
+    assert clauses[0].text[0] == BOM
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "1. Taraflar\nA\n\n2. Konu\nB",  # lowercase letter in the title
+        "1. TARAFLAr\nA\n\n2. KONU\nB",
+        "1. KONU\nA\n\n2. ıI\nB",  # dotless ı is lowercase
+        "1. ARES TEKNOLOJİ A.Ş.\n\n2. NOVA YAZILIM LTD. ŞTİ.",  # a party list
+        "1. TANIMLAR:\nA\n\n2. KONU:\nB",
+        "1. KONU\nA\n\n3. SÜRE\nB",  # a gap
+        "2. KONU\nA\n\n3. SÜRE\nB",  # does not start at 1
+        "1. KONU\nA\n\n2. SÜRE\nB\n\n1. TEKNİK ŞARTNAME\nC",  # numbering restarts
+        "1. KONU\nA\n\n2. SÜRE\nB\n\n2. EK\nC",
+        "1. KONU\nA ve B.",  # a single heading
+        "Giriş\n1. KONU\nA\n\n2. SÜRE\nB",  # "1." not at the start of a paragraph
+        "1. KONU\nA\n\n2. " + "X" * 101 + "\nB",
+        "1.KONU\nA\n\n2.SÜRE\nB",
+        "1. 2026\nA\n\n2. %25\nB",
+        "1. Taraflar\n1.1. A\n\n2. Konu\n2.1. C",
+        "Tedarikçi:\n1. Teslim eder.\n2. Kurar.\n\n3. Bakım yapar.",
+        "14.11.2026 tarihinde imzalandı.\n\n1.200.000 TL bedel.",
+        # Not followed directly by a body line: a blank line or the end of the text comes next.
+        "1. KONU\n\nA\n\n2. SÜRE\n\nB",
+        "1. KONU\nA\n\n2. SÜRE",
+        # An all-caps annex list and a party list at paragraph starts (review of step 19f).
+        "TEDARİK SÖZLEŞMESİ\n\nTARAFLAR\n\nA ile B arasında.\n\nÖDEME\n\n"
+        "Ödeme 90 gün içinde yapılır.\n\nFESİH\n\nFesih bildirimi 10 gün öncedir.\n\n"
+        "EKLER\n\n1. TEKNİK ŞARTNAME\n\n2. FİYAT LİSTESİ\n",
+        "SÖZLEŞME\n\n1. ARES TEKNOLOJİ ANONİM ŞİRKETİ\n\n2. BETA LOJİSTİK LİMİTED ŞİRKETİ\n\n"
+        "Ödeme 90 gün içinde yapılır.\n\nFesih bildirimi 10 gün öncedir.\n",
+    ],
+)
+def test_split_clauses_not_plain_numbered_heading_falls_back_to_paragraphs(text: str) -> None:
+    clauses = _split(text)
+    assert all(c.clause_no is None for c in clauses)
+    assert [c.text for c in clauses] == [p.strip() for p in text.split("\n\n") if p.strip()]
+
+
+@pytest.mark.parametrize(
+    ("text", "numbers"),
+    [
+        ("Madde 1 - A\nx\n\n1. KONU\ny\n\n2. SÜRE\nz", ["1"]),
+        ("## 1. A\nx\n\n1. KONU\ny\n\n2. SÜRE\nz", ["1"]),
+    ],
+)
+def test_split_clauses_plain_numbered_ignored_when_other_heading_exists(
+    text: str, numbers: list[str]
+) -> None:
+    clauses = _split(text)
+    assert [c.clause_no for c in clauses] == numbers
+    assert clauses[0].text == text

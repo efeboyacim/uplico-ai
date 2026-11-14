@@ -39,6 +39,17 @@ _NUMBERED_HEADING = re.compile(
     + r")"
 )
 
+# "7. SORUMLULUĞUN SINIRLANDIRILMASI": a plain line with a top-level number, a "." not followed by
+# a digit, and a title. Used only when the text has neither a "Madde N" nor a numbered Markdown
+# heading; see `_plain_headings` for which lines count. Not a heading: a numbered list, a
+# sentence, "4.1. Alt", "14.11.2026", "1.200 TL", "4. Başlık" with a lowercase letter.
+# The title runs greedily to the line end and trailing spaces / tabs are trimmed in Python: a lazy
+# title followed by an optional space run backtracks quadratically on a long run of spaces.
+_PLAIN_HEADING = re.compile(_HEADING_START + r"[ \t]*(\d{1,3})\.(?!\d)[ \t]+(\S[^\r\n]*)")
+_PLAIN_TITLE_MAX = 100
+# The section body starts on the next line: one line break, then a line that is not blank.
+_BODY_NEXT_LINE = re.compile(_NEWLINE + r"[^\S\r\n]*[^\s]")
+
 _PARAGRAPH_BREAK = re.compile(_NEWLINE + r"[^\S\r\n]*" + _NEWLINE)
 
 _SPECIAL_CASE = {"i": "[iİ]", "İ": "[iİ]", "ı": "[ıI]", "I": "[ıI]"}
@@ -116,9 +127,63 @@ def _numbered_headings(text: str) -> list[re.Match[str]]:
     return [heading for heading in headings if _heading_level(heading) == level]
 
 
+def _starts_paragraph(text: str, start: int) -> bool:
+    """True if the line at `start` is the first line of the text or follows a blank line."""
+    if start == 0:
+        return True
+    position = start
+    if text[position - 1] == "\n":
+        position -= 1
+    if position > 0 and text[position - 1] == "\r":
+        position -= 1
+    while position > 0 and text[position - 1] not in "\r\n" and text[position - 1].isspace():
+        position -= 1
+    return position == 0 or text[position - 1] in "\r\n"
+
+
+def _is_plain_title(title: str) -> bool:
+    return (
+        len(title) <= _PLAIN_TITLE_MAX
+        and any(ch.isalpha() for ch in title)
+        and not any(ch.islower() for ch in title)
+        and title[-1] not in ".,;:!?"
+    )
+
+
+def _first_sub_item(text: str, heading: re.Match[str]) -> bool:
+    """The line right after the heading starts with the heading's own sub-item ("7.1")."""
+    body = _BODY_NEXT_LINE.match(text, heading.end())
+    if body is None:
+        return False
+    marker = heading.group(1) + "."
+    start = body.end() - 1
+    after = start + len(marker)
+    return text.startswith(marker, start) and after < len(text) and text[after].isdigit()
+
+
+def _plain_headings(text: str) -> list[re.Match[str]]:
+    """Plain numbered headings: lines with an all-caps title without closing punctuation at the
+    start of a paragraph, directly followed by a line that starts with the heading's own sub-item
+    ("7. BAŞLIK" then "7.1. ..."). A numbered list item followed by a blank line, by the end of
+    the text or by a plain detail line ("1. ALICI" then "Unvan: ...") is not a heading. All or
+    nothing: at least two, numbered 1, 2, 3 ... in order."""
+    headings = [
+        heading
+        for heading in _PLAIN_HEADING.finditer(text)
+        if _is_plain_title(heading.group(2).rstrip(" \t"))
+        and _starts_paragraph(text, heading.start())
+        and _first_sub_item(text, heading)
+    ]
+    if len(headings) < 2:
+        return []
+    if [int(heading.group(1)) for heading in headings] != list(range(1, len(headings) + 1)):
+        return []
+    return headings
+
+
 def split_clauses(text: str) -> list[RawClause]:
     """Split `text` into clauses; each clause satisfies `text == original[start:end]`."""
-    headings = list(_HEADING.finditer(text)) or _numbered_headings(text)
+    headings = list(_HEADING.finditer(text)) or _numbered_headings(text) or _plain_headings(text)
     spans = _split_by_headings(text, headings) if headings else _split_paragraphs(text)
     clauses: list[RawClause] = []
     for raw_start, raw_end, clause_no in spans:
