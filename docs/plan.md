@@ -495,7 +495,7 @@
 - **`step-19c` `main`'e alındı** (2026-11-14, kullanıcı onayıyla, `--ff-only`).
 - **Adım 19d bitti (2026-11-14):** ad, katı ad dışı bir değerle örtüşürse yol verir (bitişik
   yazılmış ad + e-posta açığı kapandı). Ayrıntı Adım 19d.
-- **Adım 19e bitti (2026-11-14, `step-19e` dalında; `main`'e alma kullanıcı onayını bekliyor):**
+- **Adım 19e bitti (2026-11-14; `step-19e` dalı kullanıcı onayıyla `main`'e alındı):**
   gerçek bir sözleşmenin gösterdiği beş kod sınırı (numaralı Markdown başlıkları, eval ön
   kontrolü, modelin "takvim günü" birimi, yazıyla tekrarlanan tutar, saat birimi). Modelle
   ölçülmedi. Ayrıntı Adım 19e "Gerçekleşen".
