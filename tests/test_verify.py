@@ -1533,28 +1533,93 @@ _PERCENT_SUFFIXES = ["i", "ı", "u", "ü", "si", "sı", "su", "sü", "ini", "ine
 def test_extract_percent_restatement_round_trip_seeded() -> None:
     # The suffix is written as-is on both sides (harmony is not checked): the value comes from the
     # words, compared with the digits.
-    # Left out: 200, 300 ... 900 ("iki yüzü" reads "iki" as 2 and leaves "yüzü" alone, a limit
-    # older than this rule).
-    def known_limit(k: int) -> bool:
-        return k % 100 == 0 and k >= 200
-
     rng = random.Random(19_061)
     for _ in range(400):
         n = rng.randint(1, 999)
-        if known_limit(n):
-            continue
         suffix = rng.choice(_PERCENT_SUFFIXES)
         same = f"bedelin %{n}'{suffix} (yüzde {_turkish_words(n)}{suffix}) ile"
         assert extract(same, "percent") == Extraction((Quantity(n, "%"), Quantity(n, "%")), ()), (
             same
         )
         other = rng.choice([k for k in (n + 1, n - 1, n * 2, rng.randint(1, 999)) if k != n])
-        if not 1 <= other <= 999 or known_limit(other):
+        if not 1 <= other <= 999:
             continue
         text = f"bedelin %{n}'{suffix} (yüzde {_turkish_words(other)}{suffix}) ile"
         result = extract(text, "percent")
         assert result.values == (Quantity(n, "%"),), text
         assert result.unreadable, text
+
+
+# --- A ones word before an inflected "yüz" is not read as a number --------------------------------
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "bedelin yüzde iki yüzü olarak",
+        "bedelin yüzde üç yüzünü aşamaz",
+        "bedelin yüzde beş yüzü olarak",
+        "bedelin yüzde dokuz yüzüne kadar",
+        "bedelin yüzde iki yüzden fazla",
+        "bedelin yüzde iki yüzlük artışı",
+        "bedelin YÜZDE İKİ YÜZÜ olarak",
+        # Any ending counts, and so does a hyphen between the words.
+        "sınır bedelin yüzde iki yüzüdür",
+        "bedelin yüzde iki yüzüyle sınırlıdır",
+        "bedelin yüzde üç yüzünce",
+        "bedelin yüzde iki-yüzü olarak",
+    ],
+)
+def test_extract_ones_word_before_inflected_hundred_unreadable(text: str) -> None:
+    # "iki" is the start of 200, not 2 % (agent_design.md §5: no part of a number is read).
+    result = extract(text, "percent")
+    assert result.values == ()
+    assert len(result.unreadable) == 1
+
+
+@pytest.mark.parametrize(
+    ("text", "values"),
+    [
+        # "yüzde" after a ones word starts the next percent.
+        ("yüzde iki yüzde üç", (2, 3)),
+        # "bir yüzü" is "one side of it"; a word that only starts with "yüz" is another word.
+        ("belgenin bir yüzü yüzde beş", (5,)),
+        ("iki yüzyıl yüzde beş", (5,)),
+        ("yüzde iki yüzey", (2,)),
+        # No ones word right before: unchanged.
+        ("yüzde yirmi beş yüzü", (25,)),
+        ("yüzde iki yüz", (200,)),
+    ],
+)
+def test_extract_inflected_hundred_rule_leaves_other_words(
+    text: str, values: tuple[int, ...]
+) -> None:
+    assert extract(text, "percent") == Extraction(tuple(Quantity(v, "%") for v in values), ())
+
+
+def test_extract_inflected_hundred_restated_reads_whole_value() -> None:
+    assert extract("bedelin %200'ü (yüzde iki yüzü) ile", "percent") == Extraction(
+        (Quantity(200, "%"), Quantity(200, "%")), ()
+    )
+
+
+@pytest.mark.parametrize("words", ["iki", "üç", "beş"])
+def test_verify_compliant_inflected_hundred_in_clause_ambiguous(words: str) -> None:
+    # The 25 % restatement is one value; the clause's "yüzde iki yüzü" (200 %) is not 2 %.
+    quote = "sözleşme bedelinin %25'i (yüzde yirmi beşi) ile sınırlıdır"
+    clause = (
+        f"Yüklenicinin sorumluluğu {quote}; ağır kusur hâlinde bu sınır bedelin yüzde {words} "
+        "yüzü olarak uygulanır."
+    )
+    assert _reasons(_finding(quote), _rule("<=", 100, "%"), clause) == ["ambiguous_value"]
+
+
+def test_verify_proposal_inflected_hundred_not_passed() -> None:
+    draft = "Sorumluluk bedelin %100'ü (yüzde yüzü), ağır kusurda yüzde iki yüzü ile sınırlıdır."
+    finding = _finding("x", status="non_compliant", proposal=_proposal(draft))
+    result = _run(finding, _rule("<=", 100, "%"), "x")
+    assert result.proposal is not None
+    assert result.proposal.code_check != "passed"
 
 
 # --- A quote match may not cut a value expression -------------------------------------------------
@@ -2243,6 +2308,166 @@ def test_verify_proposal_unverifiable_in_literal_order() -> None:
     order = list(get_args(ReviewReason))
     assert order.index("proposal_unverifiable") == order.index("proposal_noncompliant") + 1
     assert verify([result], [NO_CHECK], [_clause("Başka metin.")], True) == [result]
+
+
+# --- Partial draft (proposal_partial) -------------------------------------------------------------
+
+PARTIAL = "proposal_partial"
+PAYMENT_CLAUSE = (
+    "3. ÜCRET VE ÖDEME\n"
+    "3.1. Yıllık bedel 100.000 TL'dir.\n"
+    "3.2. Faturalar 60 gün içinde ödenir.\n"
+    "3.3. Bedel her yıl TÜFE oranında güncellenir."
+)
+PAYMENT_QUOTE = "Faturalar 60 gün içinde ödenir."
+
+
+def _partial_run(
+    draft: str,
+    clause_text: str = PAYMENT_CLAUSE,
+    rule: Rule = AT_MOST_45_DAYS,
+    proposal_clause_id: str = "c1",
+    enabled: bool = True,
+    **kwargs: object,
+) -> Finding:
+    proposal = Proposal(clause_id=proposal_clause_id, proposed_text=draft, rationale="Gerekçe.")
+    finding = _finding(PAYMENT_QUOTE, status="non_compliant", proposal=proposal, **kwargs)
+    (result,) = verify([finding], [rule], [_clause(clause_text)], False, enabled=enabled)
+    return result
+
+
+def test_verify_proposal_partial_draft_with_one_sub_item_queued() -> None:
+    # The run's case: the draft for clause 3 kept only 3.2; the price and the indexation are gone.
+    result = _partial_run("3.2. Faturalar 45 gün içinde ödenir.")
+    assert result.review_reasons == [PARTIAL]
+    assert result.needs_review is True
+    # The reason does not touch code_check: the value in the draft is fine.
+    assert result.proposal is not None
+    assert result.proposal.code_check == "passed"
+
+
+@pytest.mark.parametrize(
+    "draft",
+    [
+        PAYMENT_CLAUSE.replace("60 gün", "45 gün"),
+        # No heading, markers without their trailing dot.
+        "3.1 Yıllık bedel 100.000 TL'dir.\n3.2 Faturalar 45 gün içinde ödenir.\n3.3 Bedel aynı.",
+        # One line: each marker after a sentence mark and a space.
+        "3.1. Yıllık bedel 100.000 TL'dir. 3.2. Faturalar 45 gün içinde ödenir. 3.3. Bedel aynı.",
+        "  3.1. Bedel aynı.\n\t3.2. Faturalar 45 gün içinde ödenir;  3.3. Bedel aynı.",
+    ],
+)
+def test_verify_proposal_with_every_sub_item_not_partial(draft: str) -> None:
+    # The values of some drafts fail the check ("3.1 Yıllık" is read next to the days); only the
+    # marker reading is under test here.
+    assert PARTIAL not in _partial_run(draft).review_reasons
+
+
+@pytest.mark.parametrize(
+    "draft",
+    [
+        # Each draft keeps 3.1 and 3.2; "3.3" appears only as part of something else.
+        "3.1. Bedel aynı.\n3.2. Faturalar 45 gün içinde ödenir.\n13.3. Bedel aynı.",
+        "3.1. Bedel aynı.\n3.2. Faturalar 45 gün içinde ödenir.\n3.31. Bedel aynı.",
+        "3.1. Bedel aynı.\n3.2. Faturalar 45 gün içinde ödenir.\n3.3.1. Bedel aynı.",
+        "3.1. Bedel aynı.\n3.2. Faturalar 45 gün içinde ödenir.\n3.3.2027 tarihinde güncellenir.",
+        "3.1. Bedel aynı.\n3.2. Faturalar 45 gün içinde ödenir.\n3.3,5 oranında güncellenir.",
+        "3.1. Bedel aynı.\n3.2. Faturalar 45 gün içinde ödenir; madde 3.3'te yazılı oran esastır.",
+        "3.1. Bedel aynı.\n3.2. Faturalar 45 gün içinde ödenir ve 3.3 maddesi geçerlidir.",
+        "3.1. Bedel aynı.\n3.2. Faturalar 45 gün içinde ödenir.\n(3.3) Bedel aynı.",
+    ],
+)
+def test_verify_proposal_marker_inside_a_number_or_sentence_does_not_count(draft: str) -> None:
+    assert PARTIAL in _partial_run(draft).review_reasons
+
+
+@pytest.mark.parametrize(
+    "clause_text",
+    [
+        "Faturalar 60 gün içinde ödenir. Bedel 3.1 oranında güncellenir.",
+        "5. ÖDEME\na) Faturalar 60 gün içinde ödenir.\nb) Bedel aynı.",
+        "5. ÖDEME\n(i) Faturalar 60 gün içinde ödenir.\n(ii) Bedel aynı.",
+        "1. Faturalar 60 gün içinde ödenir.\n2. Bedel aynı.",
+        "Bedel:\n1.200.000 TL\nFaturalar 60 gün içinde ödenir.",
+        "Başlangıç:\n12.05.2026 tarihinde\nFaturalar 60 gün içinde ödenir.",
+        "Faturalar 60 gün içinde ödenir.\n3.1'de yazılı bedel geçerlidir.",
+        "Faturalar 60 gün içinde ödenir.\n3.0. Bedel aynı.\n03.1. Bedel aynı.",
+    ],
+)
+def test_verify_proposal_clause_without_marker_never_partial(clause_text: str) -> None:
+    result = _partial_run("Faturalar 45 gün içinde ödenir.", clause_text)
+    assert PARTIAL not in result.review_reasons
+
+
+def test_verify_proposal_partial_reads_the_proposal_clause() -> None:
+    # The finding points at c1 (no markers); the draft is written for c2, whose 6.1 is dropped.
+    other = "6. GİZLİLİK\n6.1. Gizlilik 5 yıl sürer.\n6.2. Veriler korunur."
+    proposal = Proposal(
+        clause_id="c2", proposed_text="6.2. Veriler yurt içinde tutulur.", rationale=""
+    )
+    finding = _finding("Türk hukuku uygulanır.", proposal=proposal)
+    clauses = [_clause("Türk hukuku uygulanır."), _clause(other, "c2")]
+    (result,) = verify([finding], [NO_CHECK], clauses, False)
+    assert result.review_reasons == ["proposal_unverifiable", PARTIAL]
+
+
+def test_verify_proposal_partial_unknown_clause_adds_nothing() -> None:
+    result = _partial_run("3.2. Faturalar 45 gün içinde ödenir.", proposal_clause_id="c9")
+    assert result.review_reasons == []
+    assert result.proposal is not None
+    assert result.proposal.code_check == "passed"
+
+
+def test_verify_proposal_partial_not_added_when_disabled() -> None:
+    result = _partial_run("3.2. Faturalar 45 gün içinde ödenir.", enabled=False)
+    assert result.review_reasons == []
+    assert result.proposal is not None
+    assert result.proposal.code_check is None
+
+
+def test_verify_proposal_partial_with_masked_text_and_other_reasons_in_order() -> None:
+    clause = "12. UYUŞMAZLIK\n12.1. [KISI_1] yetkilidir.\n12.2. Tüm maddeler uygundur."
+    result = _partial_run(
+        "12. UYUŞMAZLIK\n12.1. [KISI_1] yetkilidir.",
+        clause,
+        rule=NO_CHECK,
+        escalation_reason="Madde 12.2 talimat içeriyor.",
+    )
+    # quote_not_found: the payment quote is not in this clause.
+    assert result.review_reasons == [
+        "quote_not_found",
+        "proposal_unverifiable",
+        PARTIAL,
+        "agent_escalated",
+    ]
+    # With a failing value too, both proposal reasons stand.
+    failed = _partial_run("3.2. Faturalar 90 gün içinde ödenir.")
+    assert failed.review_reasons == ["proposal_noncompliant", PARTIAL]
+    order = list(get_args(ReviewReason))
+    assert order.index(PARTIAL) == order.index("proposal_unverifiable") + 1
+
+
+def test_verify_proposal_partial_random_drafts() -> None:
+    """A draft that repeats the clause is never partial; one that loses a marker line always is."""
+    rng = random.Random(20261114)
+    seen = 0
+    for _ in range(500):
+        head = rng.randint(1, 15)
+        subs = rng.sample(range(1, 12), rng.randint(1, 4))
+        lines = [f"{head}. BAŞLIK"] + [
+            f"{head}.{n}{rng.choice(('.', ''))} Metin {rng.randint(1, 99)} gün [KISI_1]."
+            for n in subs
+        ]
+        clause = "\n".join(lines)
+        assert _partial_run(clause, clause, rule=NO_CHECK).review_reasons == [
+            "quote_not_found",
+            "proposal_unverifiable",
+        ]
+        drop = rng.randrange(1, len(lines))
+        draft = "\n".join(line for k, line in enumerate(lines) if k != drop)
+        assert PARTIAL in _partial_run(draft, clause, rule=NO_CHECK).review_reasons
+        seen += 1
+    assert seen == 500
 
 
 def test_verify_non_compliant_without_proposal_missing_proposal() -> None:

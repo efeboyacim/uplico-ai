@@ -108,7 +108,7 @@ Tek etkileri agent state'ine bir öneri yazmaktır; dış sisteme dokunmazlar.
 | Ad | Açıklama | Girdi | Etki | İnsan onayı? | Geri alınabilir mi? |
 |---|---|---|---|---|---|
 | `submit_finding` | Kural için sonucunu bildir. Sonuç `non_compliant` ise ardından `propose_change` çağır. | `status`, `clause_id?`, `quote?`, `value?`, `unit?`, `reasoning` | Bulgu önerisi kaydedilir | Kod doğrular | Evet (son çağrı geçerli) |
-| `propose_change` | Uygun olmayan madde için yeni metin taslağı öner. `non_compliant` sonuçta zorunludur; `submit_finding`'den sonra çağır. | `clause_id`, `proposed_text`, `rationale` | Taslak kaydedilir | Kod kontrol eder; avukat kabul eder, düzenler ya da reddeder | Evet |
+| `propose_change` | Uygun olmayan madde için yeni metin taslağı öner. Taslak maddenin tamamının yerine geçer: başlığı ve bütün alt maddeleri yaz, değişmeyenleri aynen kopyala. `non_compliant` sonuçta zorunludur; `submit_finding`'den sonra çağır. | `clause_id`, `proposed_text`, `rationale` | Taslak kaydedilir | Kod kontrol eder; avukat kabul eder, düzenler ya da reddeder | Evet |
 | `escalate_to_lawyer` | Emin değilsen ya da madde belirsizse avukata bırak. | `reason` | Bulgu avukat kuyruğuna gider | — | Hayır |
 
 `status` ∈ `compliant` / `non_compliant` / `not_found`. İlk ikisinde `clause_id` ve `quote` zorunlu.

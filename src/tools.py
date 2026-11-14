@@ -152,7 +152,7 @@ def submit_finding(
 def propose_change(
     clause_id: str, proposed_text: str, rationale: str, runtime: ToolRuntime[ReviewContext]
 ) -> Command[Any] | ToolMessage:
-    """Uygun olmayan madde için yeni metin taslağı öner. `non_compliant` sonuçta zorunludur; `submit_finding`'den sonra çağır."""  # noqa: E501
+    """Uygun olmayan madde için yeni metin taslağı öner. Taslak maddenin tamamının yerine geçer: başlığı ve bütün alt maddeleri yaz, değişmeyenleri aynen kopyala. `non_compliant` sonuçta zorunludur; `submit_finding`'den sonra çağır."""  # noqa: E501
     try:
         proposal = Proposal(clause_id=clause_id, proposed_text=proposed_text, rationale=rationale)
     except ValidationError as exc:

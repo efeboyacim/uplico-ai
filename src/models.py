@@ -24,6 +24,7 @@ ReviewReason = Literal[
     "missing_proposal",
     "proposal_noncompliant",
     "proposal_unverifiable",
+    "proposal_partial",
     "agent_escalated",
     "no_finding",
     "run_interrupted",

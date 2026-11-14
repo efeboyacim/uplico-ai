@@ -45,6 +45,9 @@ Design (`docs/agent_design.md` §5 "Doğrulama katmanı"):
   a clock time with no minutes ("17 saati itibarıyla" reads 17 hours) and the hours of a clock
   time a connector links to an hour value ("14 saat veya 12:00" reads 12 hours, so two values).
 - Comparisons are on intervals; an exact value is a one-point interval.
+- A draft replaces the whole clause its `clause_id` names. `proposal_partial` queues a draft that
+  leaves out a sub-item marker ("3.1.", "12.2") starting a line of that masked clause; it does not
+  change `code_check` and a clause without such markers never gives it.
 """
 
 import re
@@ -158,6 +161,9 @@ _TENS: dict[str, int] = {
 _HUNDRED = "yüz"
 _PERCENT_WORD = "yüzde"
 _NUMBER_WORDS: tuple[str, ...] = (*_ONES, *_TENS, _HUNDRED)
+# Words that start with "yüz" but are not the hundreds word inflected ("iki yüzyıl", "iki yüzey").
+_NOT_HUNDRED: tuple[str, ...] = ("yüzyıl", "yüzey", "yüzük", "yüzölç")
+_HYPHENS = frozenset("-" + chr(0x2010) + chr(0x2011) + chr(0x2013))
 # A word starting with one of these right after a number continues it ("1,5 milyon", "bir buçuk",
 # "1 milyonluk"); after the bare word itself a following number belongs to it too ("1 milyon 500
 # bin", "iki virgül beş").
@@ -187,6 +193,14 @@ _TOKEN_RE = re.compile(
 )
 # Placeholder kinds that can stand for a number taken for personal data (masked_value_in_clause).
 _NUMBER_PLACEHOLDERS = ("[TCKN_", "[TELEFON_")
+# A sub-item marker that starts a line of the clause (proposal_partial): two or more levels of
+# one or two digits, no leading zero ("3.1.", "12.2", "4.1.3"), then an optional dot and a space or
+# the line's end. Not "a)", "(i)", a bare "1." or a line that starts with "1.200.000" or a date.
+_SUBITEM_MARKER_RE = re.compile(r"\s*([1-9][0-9]?(?:\.[1-9][0-9]?)+)\.?(?=\s|$)")
+# A whole dotted number in the draft: no digit or dot before it, no digit after it.
+_DOTTED_NUMBER_RE = re.compile(r"(?<![0-9.])[0-9]+(?:\.[0-9]+)+(?![0-9])")
+_MARKER_END_RE = re.compile(r"\.?(?:\s|$)")
+_SENTENCE_END_MARKS = ".!?:;"
 # Dot is the thousands separator, comma the decimal separator, in every kind.
 _DIGITS_RE = re.compile(r"\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:,\d+)?")
 # A number as a quote match may not cut it: digits joined by single dots or commas.
@@ -396,6 +410,22 @@ def _spelled_number(norm: str, raw: Sequence[_Token], i: int) -> tuple[float | N
     w = word(j)
     if w is not None and any(w.startswith(tuple(place)) for place in open_places):
         return None, j + 1
+    # A lone ones word (not "bir": "bir yüzü" is "one side of it") right before a longer word that
+    # starts with "yüz" ("iki yüzü", "iki yüzüdür", "beş yüzlük", "iki-yüzü") is the start of a
+    # hundreds number, not a number of its own: unreadable, the inflected word included. Any
+    # ending counts; not "yüzde" ("yüzde iki yüzde üç": two percents), nor another word that only
+    # starts with "yüz" ("iki yüzyıl", "iki yüzey").
+    if j == i + 1 and raw[i].text in _ONES and raw[i].text != "bir":
+        k = j
+        if k + 1 < len(raw) and raw[k].text in _HYPHENS and raw[k + 1].kind == "word":
+            k, w = k + 1, raw[k + 1].text
+        if (
+            w is not None
+            and w.startswith(_HUNDRED)
+            and w not in (_HUNDRED, _PERCENT_WORD)
+            and not w.startswith(_NOT_HUNDRED)
+        ):
+            return None, k + 1
     return float(total), j
 
 
@@ -1310,6 +1340,39 @@ def _proposal_check(text: str, check: Check | None) -> CodeCheck:
     return "passed" if _evaluate(extraction.values, check) is True else "failed"
 
 
+def _subitem_markers(clause_text: str) -> set[str]:
+    """The sub-item markers that start a line of the clause, without their trailing dot."""
+    markers: set[str] = set()
+    for line in clause_text.splitlines():
+        m = _SUBITEM_MARKER_RE.match(line)
+        if m is not None:
+            markers.add(m.group(1))
+    return markers
+
+
+def _drafted_markers(text: str) -> set[str]:
+    """The dotted numbers that stand as a marker of their own in the draft: a whole number (not
+    part of "13.2", "3.21", "3.1.2024" or "3.1,5") followed by an optional dot and a space or the
+    line's end, at the start of a line or after a sentence mark and a space ("... . 3.2. ...").
+    A reference inside a sentence ("3.1 maddesi uyarınca") is not a marker."""
+    markers: set[str] = set()
+    for line in text.splitlines():
+        for m in _DOTTED_NUMBER_RE.finditer(line):
+            if _MARKER_END_RE.match(line, m.end()) is None:
+                continue
+            before = line[: m.start()]
+            head = before.rstrip()
+            if not head or (head != before and head[-1] in _SENTENCE_END_MARKS):
+                markers.add(m.group())
+    return markers
+
+
+def _drops_subitem(clause_text: str, draft: str) -> bool:
+    """The draft leaves out a sub-item marker of the clause it is written for. Only the masked
+    texts are read; a clause without markers never gives it."""
+    return bool(_subitem_markers(clause_text) - _drafted_markers(draft))
+
+
 def _verify_one(
     finding: Finding,
     rule: Rule,
@@ -1360,6 +1423,11 @@ def _verify_one(
                 reasons.add("proposal_noncompliant")
             elif code_check == "unverifiable":
                 reasons.add("proposal_unverifiable")
+            # The draft replaces the whole clause it names: one that drops a sub-item is queued,
+            # whatever code_check says. An unknown clause adds nothing here.
+            target = clauses.get(proposal.clause_id)
+            if target is not None and _drops_subitem(target.text, proposal.proposed_text):
+                reasons.add("proposal_partial")
         if injection_suspected:
             reasons.add("injection_suspected")
 

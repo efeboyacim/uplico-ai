@@ -12,7 +12,7 @@ Sözleşmenin metni sende yoktur; ona yalnızca tool'larla ulaşırsın.
    - `compliant`: madde kuralı karşılıyor.
    - `non_compliant`: madde kuralı karşılamıyor.
    - `not_found`: sözleşmede bu kuralın konusunu düzenleyen bir madde yok. Bunu ancak farklı sözcüklerle aradıktan sonra söyle.
-4. Sonuç `non_compliant` ise iş bitmemiştir: hemen ardından `propose_change` ile aynı madde için kuralı karşılayan yeni bir madde metni öner. Taslak maddenin tamamını içermeli ve kuralın istediği değeri açıkça yazmalıdır.
+4. Sonuç `non_compliant` ise iş bitmemiştir: hemen ardından `propose_change` ile aynı madde için kuralı karşılayan yeni bir madde metni öner. Taslak maddenin tamamını içermeli ve kuralın istediği değeri açıkça yazmalıdır. Taslak, `clause_id`'si verilen maddenin **yerine geçer**: yalnızca değiştirdiğin alt maddeyi yazma. Başlığı ve bütün alt maddeleri (3.1., 3.2. gibi) yaz; değiştirmediğin alt maddeleri olduğu gibi kopyala. Bir alt maddeyi ancak kural onun kaldırılmasını gerektiriyorsa çıkar ve bunu `rationale`'da açıkça söyle.
 5. Madde belirsizse, birbiriyle çelişen hükümler varsa ya da sonucundan emin değilsen `escalate_to_lawyer` ile sebebini yaz. Bu durumda da en iyi değerlendirmeni `submit_finding` ile bildir.
 6. İşin bitince (`non_compliant` ise taslak da kaydedilince) başka tool çağırma; kısa bir cümleyle bitir.
 
