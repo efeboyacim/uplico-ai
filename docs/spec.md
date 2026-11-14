@@ -59,7 +59,8 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
 - **Avukat kuyruğuna düşen durumlar:** alıntı doğrulanamadı · kod alıntıdan değer çıkaramadı ya da
   model ile kod çelişti · alıntıda aynı
   türden birden çok farklı değer var · süre çevirmesi kesin sonuç vermiyor ("1 ay" ile "en az 30
-  gün") · her bulunamadı · taslak eksik ya da kurala uymuyor ·
+  gün") · her bulunamadı · taslak eksik ya da kurala uymuyor · taslak kodca doğrulanamıyor
+  (kuralda sabit eşik yok) ·
   agent devretti ya da sonuç üretemedi · sözleşmede enjeksiyon şüphesi var.
 - **Kenar durumlar:** sayı/birim farklı yazılmış ("otuz (30) gün" tek değerdir; "bir ay" gün eşikli
   kuralda 28–31 gün aralığıdır ve sonuç kesin değilse kuyruğa düşer).
@@ -112,7 +113,8 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
   ve birimi alıntıdan **kod kendisi** çıkarır ve kuralla karşılaştırır; modelin verdiği değer yalnızca
   çapraz kontroldür.
 - FR-4: `non_compliant` bulgular için değişiklik önerisi taslağı üretilir. Sabit eşikli kurallarda
-  kod taslaktaki sayıyı kuralla karşılaştırır; diğer kurallarda taslak "kod doğrulayamadı" etiketi alır.
+  kod taslaktaki sayıyı kuralla karşılaştırır; diğer kurallarda taslak "kod doğrulayamadı" etiketi alır
+  ve bulgu avukat kuyruğuna gider (avukat taslağa karar verir).
 - FR-5: Belirsiz ve kanıtsız bulgular avukat kuyruğuna gider; bu kararı deterministik sinyallerle
   **kod** verir. Kuyruk tek bir işaret ve sebep listesidir; öncelik sıralaması yoktur. Her
   `not_found` sonucu kuyruğa gider (kanıtsız sonuç avukatsız geçmez); kuralın `critical` olması
@@ -211,7 +213,9 @@ Hepsi eval setinde ölçülür (`evals.md`). Eşikler ilk hedeftir; ilk eval ko�
 
 ### Bilinen sınırlar (bilerek çözülmedi)
 - **Sayısal olmayan kurallarda taslak doğrulaması:** kod taslağın kurala uyduğunu doğrulayamaz;
-  taslak "kod doğrulayamadı" etiketi alır ve karar avukatındır. İkinci bir LLM kullanılmaz.
+  taslak "kod doğrulayamadı" etiketi alır, bulgu bu sebeple avukat kuyruğuna girer
+  (`proposal_unverifiable`) ve taslağın kararı avukatındır. İkinci bir LLM kullanılmaz. Bedeli:
+  böyle bir kuralda taslağı olan her bulgu, doğru olsa da avukata gider.
 - **Sabit eşiği olmayan sayısal kurallar** (ör. "sorumluluk sınırı sözleşme bedelini aşamaz"): kod
   iki sözleşme değerini birbiriyle karşılaştırmaz; yalnızca alıntı doğrulanır.
 - **Kaydın dosya düzeyinde korunması:** kayıt uygulama üzerinden değiştirilemez, ama veritabanı

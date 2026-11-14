@@ -221,7 +221,12 @@
 - **Taslak kontrolü:** "en az 30 gün" kuralı için "15 gün" yazan taslak → `code_check=failed`,
   `proposal_noncompliant`, kuyruk. "45 gün" yazan taslak → `passed`. Aynı kurala karşı "1 ay" yazan
   taslak (belirsiz sonuç) → `code_check=failed`. `check`'i olmayan kuralda taslak
-  → `unverifiable` etiketi, bu yüzden kuyruğa düşmez.
+  → `code_check=unverifiable` ve sebep `proposal_unverifiable`, kuyruk; bulgu "uygun değil" de
+  "uygun" da olsa. `enabled=False` iken (eval'in "önce" ölçümü) eklenmez; `passed` ve `failed`
+  taslakta eklenmez; sebepler `ReviewReason` sırasıyla yazılır (`proposal_noncompliant`'tan hemen
+  sonra). Karar ucu kuyruktaki `unverifiable` taslak için `proposal_action` ister
+  (`missing_proposal_action`, 422). Arayüzün sebep etiketleri her `ReviewReason` için bir etiket
+  taşır.
 - **`submit_finding` yanıtı (`tests/test_tools.py`):** `non_compliant` + taslak yok → yanıt
   `propose_change`'i ve maddeyi (`(c2)`) söyleyen sabit yönlendirmedir (tool'un reddettiği bir
   taslaktan sonra da); diğer durumlarda (`compliant`, `not_found`, taslaktan sonra gelen ya da
@@ -532,6 +537,16 @@ eşiklerin yanına sayılarıyla yazılır (aşağıda). Taslak oranına sert e�
 Üçüncü Groq koşusu ve Anthropic koşusu (2026-11-13, aşağıda) da bütün sert eşikleri tuttu;
 eşikler değiştirilmedi.
 Sözleşme 7'de eşik tutmazsa bu dürüstçe raporlanır; tarama kalıbı eklemek yerine sınır olarak yazılır.
+
+**Önceki koşular sebep `proposal_unverifiable`'dan öncedir (Adım 19c-1, 2026-11-14).** Aşağıdaki
+bütün koşularda kodun denetleyemediği taslak (`code_check=unverifiable`) kuyruğa sokulmuyordu;
+sayıları o kodla ölçüldüğü gibi bırakıldı, yeniden yazılmadı. Bugünkü kodla aynı satırlar
+kuyruğa girer (bu dosyalarda yalnızca sözleşme 5 `governing_law`: 2026-11-12'nin ikinci ve
+2026-11-13'ün iki tam koşusunda); yeni bir koşunun yönlendirme ve gereksiz yönlendirme sayıları
+bunlarla karşılaştırılırken bu satır ayrıca gösterilir. Adlar ayrıdır: **sebep `proposal_unverifiable`** bir
+`review_reasons` kodudur; **"Öneri uygunluğu (unverifiable)"** satırı (sonuç dosyasında
+`metrics.*.proposal_unverifiable`) kodun denetleyemediği taslakların, kodca denetlenen taslaklara oranıdır ve anlamı
+değişmedi.
 
 ### İlk koşuların sonucu (2026-11-12)
 Groq `openai/gpt-oss-120b`, Docker, `MAX_CONCURRENCY=1`, 7 / 7 sözleşme, 35 karar; iki koşu da

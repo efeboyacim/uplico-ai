@@ -258,6 +258,7 @@ yoktur.**
 | `critical_not_found` | `severity: critical` bir kural `not_found` çıktı. Yalnızca sebep etiketidir; kuyruğa ayrıca etkisi yoktur |
 | `missing_proposal` | `non_compliant` ama değişiklik taslağı yok |
 | `proposal_noncompliant` | Kuralda `check` var ve taslak kod kontrolünden geçmiyor (aşağıda) |
+| `proposal_unverifiable` | Bulgunun taslağı var ama kuralda `check` yok: kod taslağı denetleyemez (`code_check=unverifiable`, aşağıda). Bulgunun `status`'üne bakılmaz; taslağı olan "uygun" bulgu da kuyruğa girer. Avukat bu taslağa karar vermek zorundadır (`architecture.md` §3 "Avukat kararı") |
 | `agent_escalated` | Agent `escalate_to_lawyer` çağırdı |
 | `no_finding` | Agent `submit_finding` çağırmadı, adım limitine takıldı ya da hata verdi. Sebep kaydedilir: `no_submit` / `step_limit` / `rate_limited` / `llm_error`. Bulgu `status=not_found` ve dolu `no_finding_reason` ile temsil edilir; böyle bir bulguya `unverified_not_found`, `critical_not_found` ve `missing_proposal` eklenmez (kural "bulunamadı" değil, incelenemedi) |
 | `run_interrupted` | Agent bulgu bildirdi ama koşu kendiliğinden bitmedi: adım limitine takıldı ya da sonraki bir model çağrısı hata verdi. Bulgu korunur, `interrupted_by` alanı sebebi taşır (`step_limit` / `rate_limited` / `llm_error`) ve bulgu **her zaman** kuyruğa girer: kod, agent'ın bulguyu düzeltmeyeceğini, taslak yazmayacağını ya da avukata devretmeyeceğini bilemez. Diğer sinyaller yine hesaplanır. `no_finding` ile birlikte bulunmaz; doğrulama kapalıyken de (`enabled=False`) eklenir |
@@ -487,10 +488,15 @@ yoktur.**
   |---|---|---|
   | Kuralda `check` var; kod taslak metninden tek bir değer çıkarıyor ve değer kurala uyuyor | `passed` | Yok |
   | Kuralda `check` var; değer kurala uymuyor, çıkarılamıyor, birden çok farklı değer var ya da süre çevirmesinin sonucu belirsiz | `failed` | `proposal_noncompliant` → avukat kuyruğu |
-  | Kuralda `check` yok (sayısal olmayan ya da sabit eşiği olmayan kural) | `unverifiable` ("kod doğrulayamadı") | **Yok**; etiket avukata ve raporda gösterilir |
+  | Kuralda `check` yok (sayısal olmayan ya da sabit eşiği olmayan kural) | `unverifiable` ("kod doğrulayamadı") | `proposal_unverifiable` → avukat kuyruğu; etiket avukata ve raporda gösterilir |
 
   Taslak için ikinci bir LLM çağrılmaz. Sayısal olmayan kurallarda taslağın kurala uyduğunu kod
-  doğrulayamaz; bu bilinen bir sınırdır.
+  doğrulayamaz; bu bilinen bir sınırdır. Bu yüzden böyle bir taslak her zaman avukat kuyruğuna
+  girer ve avukat taslağa karar vermeden sözleşmeyi kapatamaz: kodun denetlemediği bir taslak
+  avukatın da bakmadığı bir taslak olarak kalmaz. Aynı sebep, `check`'i olmayan kuralda taslakla
+  birlikte gelen **yanlış** bir "uygun değil" bulgusunu da kuyruğa sokar (taslaksız olanı zaten
+  `missing_proposal` sokar). Bedeli: böyle bir kuralda doğru "uygun değil" bulgusu da kuyruğa
+  girer (eval'de "gereksiz yönlendirme" sayılır).
 - **`verify(findings, ..., enabled=True)` saf fonksiyondur.** Uygulamada her zaman açıktır; kapatan
   bir ayar yoktur. `enabled=False` yalnızca eval'deki "önce" ölçümünde kullanılır; o durumda yalnızca
   `agent_escalated` ve `no_finding` kuyruğa düşer; alıntı değiştirilmez ve `code_check` boş kalır
@@ -827,7 +833,7 @@ kural için avukattan taslak kararı istenmez); ikisi de audit'teki `tool_call` 
 | Alıntıda birden çok farklı değer | Kod seçim yapmaz; `ambiguous_value` → avukat kuyruğu |
 | Süre çevirmesinin uçları farklı sonuç veriyor | Kod seçim yapmaz; `unit_conversion_uncertain` → avukat kuyruğu |
 | Taslak kurala uymuyor (`check` var) | Taslak silinmez; `proposal_noncompliant` → avukat kuyruğu |
-| Taslak kodla doğrulanamıyor (`check` yok) | "Kod doğrulayamadı" etiketi; kuyruğa sokmaz |
+| Taslak kodla doğrulanamıyor (`check` yok) | Taslak silinmez; "kod doğrulayamadı" etiketi ve `proposal_unverifiable` → avukat kuyruğu |
 | Kural bulunamadı (`not_found`) | Her zaman `unverified_not_found` → avukat kuyruğu; kural `critical` ise ek sebep `critical_not_found` |
 | Enjeksiyon şüphesi | İnceleme devam eder; ifade silinmez, tüm bulgular avukat kuyruğuna gider |
 

@@ -84,6 +84,8 @@ flowchart LR
    koyar (LLM değil). Sebep kodlarının tamamı ve koşulları `agent_design.md` §5 sinyal tablosundadır
    (`models.ReviewReason` ile aynı sırada); "uygun" bulgunun gösterdiği maddede `TCKN` / `TELEFON`
    yer tutucusu varsa `masked_value_in_clause` de bunlardandır (maskelenmiş bir sayı kodca okunamaz).
+   Kuralında `check` olmayan bir bulgunun taslağı varsa kod taslağı denetleyemez
+   (`code_check=unverifiable`) ve bulgu `proposal_unverifiable` ile kuyruğa girer.
 6. **human_review:** Graph `interrupt()` ile durur. Graph döndükten sonra API doğrulanmış bulguları
    ve taslakları (maskeli) `reviews` tablosuna yazar, durumu `awaiting_lawyer` yapar, `awaiting_lawyer`
    audit satırını aynı transaction'da ekler, indeksi siler ve incelemeyi HTTP 200 ile döner (yanıt
@@ -325,7 +327,11 @@ Son sonuç (raporda ve `reviews` kaydında):
 - Bulgunun son sonucu: `action = correct` ise avukatın `status`'ü; değilse (`accept` ya da karar
   verilmemiş) modelin önerdiği `status`.
 - Karar verilmeyen taslak (yalnızca kuyruk dışında olabilir) "karar verilmedi" (`proposal_action:
-  null`) olarak görünür ve talep edilen değişikliklere **girmez**.
+  null`) olarak görünür ve talep edilen değişikliklere **girmez**. Kodun denetleyemediği taslak
+  (`code_check=unverifiable`) her zaman kuyruktadır (`proposal_unverifiable`), bu yüzden kararsız
+  kalamaz; kuyruk dışındaki taslak kodun denetimini geçmiş (`passed`) taslaktır. (Kuyruk
+  `awaiting_lawyer`'a geçerken kaydedilir; bu sebepten önce kaydedilmiş bir incelemede
+  `unverifiable` taslak kuyruk dışında kalmış olabilir.)
 - Son sonucu `non_compliant` olmayan bir bulgunun taslağı talep edilen değişikliklere girmez.
 - `request_changes`, talep edilen değişiklik listesi boş olsa da kabul edilir.
 
@@ -498,8 +504,9 @@ insanlar okuyabilir. Maskeleme her sağlayıcıda graph'tan önce aynı şekilde
 - **Sonuç:** Davranış test edilebilir ve tekrarlanabilir. Uygulamada doğrulamayı kapatan bir ayar yoktur.
 - **Sınır (bilerek çözülmedi):** Kod yalnızca sabit eşikli kuralları (`check`) sayısal olarak
   doğrulayabilir. Sabit eşiği olmayan sayısal kurallarda (ör. "sorumluluk sınırı sözleşme bedelini
-  aşamaz") yalnızca alıntı doğrulanır; sayısal olmayan kurallarda taslak "kod doğrulayamadı"
-  etiketi alır. İkinci bir LLM kullanılmaz.
+  aşamaz") yalnızca alıntı doğrulanır; `check`'i olmayan her kuralda (sayısal olsun olmasın) taslak "kod doğrulayamadı"
+  etiketi alır ve bulgu `proposal_unverifiable` ile avukat kuyruğuna girer: kodun denetleyemediği
+  taslağa avukat karar verir. İkinci bir LLM kullanılmaz.
 
 ### ADR-004: Onay bir tool değil, graph'ta tek interrupt
 - **Karar:** Agent'ın onay verebileceği tool yok. İnsan kararı `human_review` düğümünde alınır ve
