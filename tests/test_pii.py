@@ -1062,26 +1062,96 @@ def test_mask_unlabelled_name_glued_to_email_email_keeps_its_place(
     assert unmask(masked, mapping) == text
 
 
-def test_mask_labelled_name_glued_to_email_name_wins_as_before_documented_limit() -> None:
-    # Unchanged since before step 19c (agent_design.md "PII maskeleme"): a labelled name is
-    # strict and wins, so the e-mail's tail stays raw.
-    text = "Yetkili: Elif Soylu\nYedek adres: Elif Soylu-elif@ornek.com"
+# --- Every name gives way to a value that is not a name (step 19d) -------------------------------
+
+
+@pytest.mark.parametrize("joint", ["-", ".", "_", "+", "%"])
+def test_mask_labelled_name_glued_to_email_email_masked_as_without_names(joint: str) -> None:
+    # The e-mail is masked as if no name were known; the labelled line keeps its placeholder and
+    # the part of the name outside the e-mail ("Elif") stays raw.
+    text = f"Yetkili: Elif Soylu\nYedek adres: Elif Soylu{joint}elif@ornek.com"
     masked, mapping = mask(text, {})
-    assert masked == "Yetkili: [KISI_1]\nYedek adres: [KISI_1]-elif@ornek.com"
-    assert mapping == {"[KISI_1]": "Elif Soylu"}
+    assert masked == "Yetkili: [KISI_1]\nYedek adres: Elif [EPOSTA_1]"
+    assert mapping == {"[KISI_1]": "Elif Soylu", "[EPOSTA_1]": f"Soylu{joint}elif@ornek.com"}
+    assert unmask(masked, mapping) == text
+    assert mask(masked, mapping) == (masked, mapping)
 
 
-def test_mask_unlabelled_name_from_mapping_gives_way_only_when_listed() -> None:
-    # The clause call of `prepare_contract`: the name comes from the mapping of the whole text.
+def test_mask_labelled_name_spaced_from_email_both_masked() -> None:
+    text = "Yetkili: Elif Soylu\nYedek: Elif Soylu - elif@ornek.com"
+    masked, _ = mask(text, {})
+    assert masked == "Yetkili: [KISI_1]\nYedek: [KISI_1] - [EPOSTA_1]"
+
+
+def test_mask_name_from_mapping_glued_to_email_gives_way_without_list() -> None:
+    # The clause call of `prepare_contract` and the lawyer's edited text (`_masked_decision`):
+    # the name comes from the mapping and no `unlabelled` list is needed.
     whole = "Kemal Ozturk\nİmza:\nYedek: Kemal Ozturk_kemal@ornek.com"
     _, mapping = mask(whole, {})
     assert mapping == {"[KISI_1]": "Kemal Ozturk", "[EPOSTA_1]": "Ozturk_kemal@ornek.com"}
-    clause = "Yedek: Kemal Ozturk_kemal@ornek.com"
-    listed, _ = mask(clause, mapping, pii.unlabelled_names(whole))
-    assert listed == "Yedek: Kemal [EPOSTA_1]"
-    assert pii.unlabelled_names(whole) == frozenset({"Kemal Ozturk"})
-    # Without the list a name in the mapping is masked as before step 19c.
-    assert mask(clause, mapping)[0] == "Yedek: [KISI_1]_kemal@ornek.com"
+    clause = "Yedek: Kemal Ozturk_kemal@ornek.com, Kemal Ozturk onaylar."
+    expected = "Yedek: Kemal [EPOSTA_1], [KISI_1] onaylar."
+    assert mask(clause, mapping, pii.unlabelled_names(whole))[0] == expected
+    assert mask(clause, mapping)[0] == expected
+    # A name only in the mapping, as in an edited draft; the e-mail is new there.
+    edited = "Bildirim Kemal Uçar-kemal@ornek.com adresine; Kemal Uçar onaylar."
+    masked, result = mask(edited, {"[KISI_1]": "Kemal Uçar"})
+    assert masked == "Bildirim Kemal Uç[EPOSTA_1] adresine; [KISI_1] onaylar."
+    assert result == {"[KISI_1]": "Kemal Uçar", "[EPOSTA_1]": "ar-kemal@ornek.com"}
+    assert unmask(masked, result) == edited
+
+
+@pytest.mark.parametrize(
+    ("line", "expected"),
+    [
+        ("Elif Soylu21473873960", "Elif Soylu[TCKN_1]"),
+        ("Elif Soylu 214 738 739 60", "[KISI_1] [TCKN_1]"),
+        ("Elif Soylu0532 123 45 67", "Elif Soylu[TELEFON_1]"),
+        ("Elif Soylu-0532 123 45 67", "[KISI_1]-[TELEFON_1]"),
+        ("Elif Soylu533 555 05 30", "Elif Soylu[TELEFON_1]"),
+        ("Elif Soylu TR33 0006 1005 1978 6457 8413 26", "[KISI_1] [IBAN_1]"),
+    ],
+    ids=["tckn-glued", "tckn-spaced", "phone-glued", "phone-hyphen", "bare-mobile", "iban-spaced"],
+)
+def test_mask_labelled_name_next_to_number_number_masked(line: str, expected: str) -> None:
+    # A name ends only before a character that is not a letter or digit, so a glued number never
+    # overlaps it: the number is masked and that occurrence of the name stays raw (as before
+    # step 19d).
+    text = f"Yetkili: Elif Soylu\n{line}"
+    masked, mapping = mask(text, {})
+    assert masked == f"Yetkili: [KISI_1]\n{expected}"
+    assert unmask(masked, mapping) == text
+
+
+def test_mask_labelled_name_ending_in_tr_keeps_place_before_weak_iban_documented_limit() -> None:
+    # Documented in agent_design.md "PII maskeleme": the label run "Ahmet TR" overlaps the freely
+    # grouped IBAN "TR 33 …", a weak (step 17b) spelling, which still gives way to a name; the
+    # IBAN's digits stay raw, as before step 19d.
+    text = "Yetkili: Ahmet TR 33 0006 1005 1978 6457 8413 26"
+    masked, mapping = mask(text, {})
+    assert masked == "Yetkili: [KISI_1] 33 0006 1005 1978 6457 8413 26"
+    assert unmask(masked, mapping) == text
+
+
+def test_mask_name_glued_to_iban_neither_masked_documented_limit() -> None:
+    # Documented in agent_design.md "PII maskeleme" (before step 19d too): the IBAN needs a
+    # character that is not a letter before it, and the name one that is not a letter or digit
+    # after it, so neither is found.
+    text = "Yetkili: Elif Soylu\nElif SoyluTR330006100519786457841326"
+    masked, _ = mask(text, {})
+    assert masked == "Yetkili: [KISI_1]\nElif SoyluTR330006100519786457841326"
+
+
+def test_mask_unlabelled_name_gives_way_to_labelled_name_only_when_listed() -> None:
+    # Between two names, a name only the e-mail or signature path found gives way; in a clause
+    # call the mapping alone does not show how a name was found, so the list is still needed.
+    whole = "Yetkili: Ahmet Yılmaz\nCan Ahmet\nİmza:\nNot: Can Ahmet Yılmaz"
+    masked, mapping = mask(whole, {})
+    assert masked == "Yetkili: [KISI_1]\n[KISI_2]\nİmza:\nNot: Can [KISI_1]"
+    assert pii.unlabelled_names(whole) == frozenset({"Can Ahmet"})
+    clause = "Not: Can Ahmet Yılmaz"
+    assert mask(clause, mapping, pii.unlabelled_names(whole))[0] == "Not: Can [KISI_1]"
+    assert mask(clause, mapping)[0] == "Not: [KISI_2] Yılmaz"
 
 
 def test_mask_unlabelled_names_excludes_names_the_label_path_finds() -> None:
@@ -1907,3 +1977,66 @@ def test_mask_email_and_signature_names_never_take_place_of_old_value(
     # The generator must reach both paths, or the test proves nothing.
     assert by_email > 50
     assert by_signature > 50
+
+
+def _gen_glued_name(rng: random.Random) -> str:
+    """A name, labelled or not, glued to an e-mail or a number (step 19d)."""
+    name = rng.choice(_GEN_NAMES)
+    head = rng.choice(("Ad Soyad: ", "Yetkili: ", "temsilen ", "", ""))
+    glue = rng.choice("-._+% ") if rng.random() < 0.8 else ""
+    tail = rng.choice(
+        (
+            rng.choice(_GEN_LOCALS) + "@ornek.com",
+            "elif@ornek.com",
+            "0532 123 45 67",
+            "21473873960",
+            "TR33 0006 1005 1978 6457 8413 26",
+        )
+    )
+    return head + name + glue + tail
+
+
+def test_mask_names_never_take_place_of_strict_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Step 19d: every strict value that is not a name (e-mail, compact or standard-grouped
+    # IBAN, prefixed phone, compact TCKN) masked with no name known is masked byte for byte the
+    # same with names, whether a name is labelled, found by a step 19c path or given in the
+    # mapping. Text that is raw with names but masked without them belongs to a name that gave
+    # way.
+    rng = random.Random(1904)
+    joints = (" ", ", ", "\n", "\n\n", " (", ") ", "", "-", ".", "_", "+", "%")
+    gave_way = 0
+    for i in range(3_000):
+        parts = [
+            _gen_glued_name(rng) if rng.random() < 0.5 else _gen_name_token(rng)
+            for _ in range(rng.randint(2, 6))
+        ]
+        text = "".join(part + rng.choice(joints) for part in parts)
+        mapping = {"[KISI_1]": rng.choice(_GEN_NAMES)} if i % 3 == 0 else {}
+        with monkeypatch.context() as patched:
+            for path in ("_names_from_labels", "_names_from_emails", "_names_from_signature_lines"):
+                patched.setattr(pii, path, lambda _text: iter(()))
+            plain_masked, plain_mapping = mask(text, {})
+        masked, result = mask(text, mapping)
+        plain = _masked_spans(text, plain_masked, plain_mapping)
+        spans = _masked_spans(text, masked, result)
+        kinds = {value: key[1 : key.rindex("_")] for key, value in result.items()}
+        plain_kinds = {value: key[1 : key.rindex("_")] for key, value in plain_mapping.items()}
+        strict = {
+            s
+            for s in plain
+            if not pii._is_weak(plain_kinds[s[2]], s[2])
+            and not pii._in_parentheses(plain_kinds[s[2]], s[2])
+        }
+        assert strict <= spans, (text, sorted(strict - spans))
+        assert unmask(masked, result) == text
+        name_spans = [s for s in spans if kinds[s[2]] == "KISI"]
+        assert not any(a < e and s < b for a, b, _ in name_spans for s, e, _ in strict), text
+        # A known name written into a strict value: the case the rule decides.
+        gave_way += any(
+            text.startswith(name, p)
+            for name in _GEN_NAMES
+            for s, _, _ in strict
+            for p in range(max(s - len(name) + 1, 0), s)
+        )
+    # The generator must write names into strict values, or the test proves nothing.
+    assert gave_way > 100

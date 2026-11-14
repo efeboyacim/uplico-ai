@@ -176,7 +176,8 @@ def prepare_contract(store: Store, text: str, *, provider: str, model: str) -> P
         # call is threaded into the next one: a value found only at clause level is kept too.
         # Names found only by the e-mail and signature paths are told to every clause call: a
         # clause alone does not show how a name was found, and such a name gives way to an
-        # overlapping e-mail or number there too (see `mask`).
+        # overlapping labelled name, weak value or parenthesised phone there too (every name
+        # gives way to a strict value without the list; see `mask`).
         source = strip_invisible(text)
         _, mapping = mask(source, {})
         unlabelled = unlabelled_names(source)

@@ -817,14 +817,25 @@ def _resolve(
     spans: list[_Span],
     weak: set[str],
     last: frozenset[str] = frozenset(),
+    names: frozenset[str] = frozenset(),
     unlabelled: frozenset[str] = frozenset(),
 ) -> list[_Span]:
-    """Strict spans first; a weak span (see `_is_weak`) only takes text that no kept strict span
-    covers; a span of `last` (see `_in_parentheses`) only takes text that no kept span of the
-    two rounds before covers; a span of `unlabelled` (a name only the e-mail or signature path
-    found, see `mask`) only takes text that no kept span of the three rounds before covers."""
-    later = last | unlabelled
-    strong = _greedy((s for s in spans if s[2] not in weak and s[2] not in later), [])
+    """Overlapping spans are resolved in five rounds; each round only takes text that no span
+    kept in an earlier round covers, and within a round the earliest start wins (the longer span
+    on equal start).
+
+    1. Strict values that are not names (e-mail, compact or standard-grouped IBAN, prefixed
+       phone, compact TCKN).
+    2. Names (`names`, every name spelling) other than those of `unlabelled`: a name glued to
+       an e-mail ("Elif Soylu-elif@ornek.com") gives way, and the e-mail is masked as if no name
+       were known (step 19d).
+    3. Weak values (see `_is_weak`): they still give way to names and to strict values.
+    4. Spans of `last` (see `_in_parentheses`).
+    5. Names of `unlabelled` (one only the e-mail or signature path found, see `mask`)."""
+    later = last | names
+    strict = _greedy((s for s in spans if s[2] not in weak and s[2] not in later), [])
+    labelled = (s for s in spans if s[2] in names and s[2] not in unlabelled)
+    strong = sorted(strict + _greedy(labelled, strict))
     kept = sorted(strong + _greedy((s for s in spans if s[2] in weak), strong))
     if last:
         kept = sorted(kept + _greedy((s for s in spans if s[2] in last), kept))
@@ -936,12 +947,17 @@ def mask(
     value (exact spelling) always gets the same placeholder. Placeholders already in `text` are
     left untouched, so masking masked text with the returned mapping changes nothing.
 
-    A name only the e-mail or signature path finds (step 19c) gives way: where one of its
-    occurrences overlaps any other value (an e-mail in "Elif Soylu-elif@ornek.com", a number,
-    a labelled name), that occurrence is left as it is and the other value is masked as without
-    the name; its other occurrences are masked. Such a name is one these paths find in `text`
-    and the label path does not, unless `mapping` already holds it (then it is masked as
-    `mapping` says, as before step 19c), or one listed in `unlabelled` (see `unlabelled_names`).
+    A name gives way to a strict value that is not a name (step 19d; see `_resolve`): where one
+    of its occurrences overlaps an e-mail, a compact or standard-grouped IBAN, a prefixed phone
+    number or a compact TCKN ("Elif Soylu-elif@ornek.com", where the e-mail is
+    "Soylu-elif@ornek.com"), that value is masked exactly as if no name were known and the
+    occurrence of the name is left as it is ("Elif [EPOSTA_1]"); its other occurrences are
+    masked. This holds for every name: labelled, found by the e-mail or signature path, or given
+    in `mapping`. The step 17b spellings and the phone with its area code in parentheses still
+    give way to a name, as before. Between two names, a name only the e-mail or
+    signature path finds (step 19c) gives way to the other one: such a name is one these paths
+    find in `text` and the label path does not, unless `mapping` already holds it, or one listed
+    in `unlabelled` (see `unlabelled_names`).
     """
     counters = {kind: n + 1 for kind, n in _validate(mapping).items()}
     result: dict[str, str] = dict(mapping)
@@ -963,7 +979,7 @@ def mask(
     # what it was before this spelling existed.
     for m in _PHONE_PARENS.finditer(scan):
         kind_of.setdefault(m.group(1), "TELEFON")
-    # The two step 19c paths: their names give way to every value found without them.
+    # The two step 19c paths: between two names, theirs gives way (see `_resolve`).
     yielding_keys = {_name_key(name) for name in unlabelled}
     for name in (*_names_from_emails(scan), *_names_from_signature_lines(scan)):
         kind_of.setdefault(name, "KISI")
@@ -997,7 +1013,8 @@ def mask(
     last = frozenset(value for value, kind in kind_of.items() if _in_parentheses(kind, value))
     parts: list[str] = []
     position = 0
-    for start, end, value in _resolve(spans, weak, last, frozenset(yielding)):
+    names = frozenset(value for value, kind in kind_of.items() if kind == "KISI")
+    for start, end, value in _resolve(spans, weak, last, names, frozenset(yielding)):
         assigned = placeholder_of.get(value)
         if assigned is None:
             kind = kind_of[value]
