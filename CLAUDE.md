@@ -62,7 +62,7 @@ bütün sert eşikler tuttu, aynı iki yanlış satır) ve Anthropic `claude-son
 çalışmaz, `none` ile çalıştı (başka değer denenmedi): 0 ile her çağrı yerelde `ValueError` verir, başlangıç kontrolü yakalamaz.
 Adım 19b (madde listesi denemesi) kullanıcının kararıyla geri alındı; iş `exp/clause-outline`
 dalında, `main`'de yok. Sonuçlar `docs/evals.md` §4, `docs/plan.md` Adım 18 "Ek koşular" ve 19b.
-Adım 19c bitti (2026-11-14, `step-19c` dalında; `main`'e alma kullanıcı onayını bekliyor):
+Adım 19c bitti (2026-11-14; `step-19c` dalı `main`'e alındı):
 kodun denetleyemediği taslak avukata gider (sebep `proposal_unverifiable`); taslak denetimi
 "taslakta kuralı çiğneyen değer yok" oldu; ad keşfine e-posta bağı ve etiketsiz imza satırı
 eklendi. Sonnet ile tek koşu (`7f7cbf9`): status 35 / 35, yönlendirme 13 / 35 → 11 / 35, öneri

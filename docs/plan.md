@@ -492,9 +492,8 @@
   tek koşu (kod `7f7cbf9`, sonuç dosyası `8f08ab0`): status 35 / 35, yönlendirme 13 / 35 → 11 / 35, öneri uygunluğu 8 / 11 →
   11 / 11, garanti edilmeyen PII 2 / 5 → 0 / 5, sert eşikler tuttu. Ayrıntı Adım 19c "Gerçekleşen"
   ve "Ölçüm sonucu"; açık soru `spec.md` §10 (bitişik ad + e-posta). Groq bu kodla koşulmadı.
-- **Sıradaki:** `step-19c`'nin `main`'e alınması (kullanıcı onayıyla:
-  `git switch main && git merge --ff-only step-19c`), sonra Adım 20 — teslim (kullanıcı onayıyla
-  push).
+- **`step-19c` `main`'e alındı** (2026-11-14, kullanıcı onayıyla, `--ff-only`).
+- **Sıradaki:** Adım 20 — teslim (kullanıcı onayıyla push).
 - **Adım 18c'ye başlarken (2026-11-13 oturumunun devri):**
   1. Depo temiz; son commit bu notun commit'i. `origin`'e push yapılmadı (push Adım 20'dir).
   2. Holdout koşusu bitti; eval önbelleği yok. `src/`, `evals/*.py` ve `uv.lock` artık
