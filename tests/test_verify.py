@@ -1157,7 +1157,6 @@ def test_verify_proposal_meeting_threshold_passed() -> None:
     [
         "Bildirim süresi 1 ay olacaktır.",
         "Bildirim süresi bir ay olacaktır.",
-        "Bildirim 30 ila 60 gün önceden yapılır.",
         "Bildirim makul bir süre önceden yapılır.",
         "Bildirim 45 iş günü önceden yapılır.",
         "Satıcı 45 gün, Alıcı 5 iş günü önceden bildirir.",
@@ -1191,6 +1190,115 @@ def test_verify_proposal_spelled_and_digits_or_copula_passed(text: str) -> None:
     result = _run(_non_compliant_with(text), AT_LEAST_30_DAYS)
     assert result.proposal is not None
     assert result.proposal.code_check == "passed"
+
+
+# "No value in the draft breaks the rule" (agent_design.md §5 "Taslak kontrolü"): a whole-clause
+# draft keeps the clause's other values of the rule's kind, so several different values are fine
+# as long as every one of them complies and nothing is unreadable.
+AT_MOST_10_PERCENT = _rule("<=", 10, "%")
+AT_MOST_45_DAYS = _rule("<=", 45, "gün")
+
+
+def _draft_result(text: str, rule: Rule) -> Finding:
+    # The finding itself is a correct "non_compliant" one, so only the draft can add a reason.
+    if rule == AT_MOST_10_PERCENT:
+        quote = "cezanın toplamı teslimat bedelinin %20'sini aşamaz"
+    elif rule == AT_MOST_45_DAYS:
+        quote = "ithal ürünlerde bu süre 75 gündür"
+    else:
+        assert rule == AT_LEAST_30_DAYS
+        quote = "15 gün önceden"
+    return _run(_finding(quote, status="non_compliant", proposal=_proposal(text)), rule)
+
+
+@pytest.mark.parametrize(
+    ("text", "rule"),
+    [
+        # Both ends are at least 30 days.
+        ("Bildirim 30 ila 60 gün önceden yapılır.", AT_LEAST_30_DAYS),
+        # Daily rate next to the cap, both within 10 %.
+        (
+            "Geciken her gün için teslimat bedelinin günlük %1'i oranında ceza uygulanır; "
+            "cezanın toplamı teslimat bedelinin %10'unu aşamaz.",
+            AT_MOST_10_PERCENT,
+        ),
+        # The general term next to the corrected exception term: 30, 30, 45.
+        (
+            "Ödeme, fatura tarihinden itibaren otuz (30) gün içinde yapılır. "
+            "İthal ürünlerde bu süre 45 gündür.",
+            AT_MOST_45_DAYS,
+        ),
+        ("Gecikme cezası %10 (yüzde on) ile sınırlıdır.", AT_MOST_10_PERCENT),
+    ],
+)
+def test_verify_proposal_several_compliant_values_passed(text: str, rule: Rule) -> None:
+    result = _draft_result(text, rule)
+    assert result.proposal is not None
+    assert result.proposal.code_check == "passed"
+    assert result.review_reasons == []
+    assert result.needs_review is False
+
+
+@pytest.mark.parametrize(
+    ("text", "rule"),
+    [
+        # One end is below 30 days.
+        ("Bildirim 15 ila 60 gün önceden yapılır.", AT_LEAST_30_DAYS),
+        # The cap still breaks the rule; the compliant daily rate does not save it.
+        (
+            "Geciken her gün için teslimat bedelinin günlük %1'i oranında ceza uygulanır; "
+            "cezanın toplamı teslimat bedelinin %20'sini aşamaz.",
+            AT_MOST_10_PERCENT,
+        ),
+        # The exception term is kept at 75.
+        (
+            "Ödeme, fatura tarihinden itibaren otuz (30) gün içinde yapılır. "
+            "İthal ürünlerde bu süre 75 gündür.",
+            AT_MOST_45_DAYS,
+        ),
+        # The draft quotes the old value, which the code reads like any other.
+        (
+            "Ödeme 30 gün içinde yapılır. "
+            "İthal ürünlerde bu süre 45 gündür (önceki 75 gün yerine).",
+            AT_MOST_45_DAYS,
+        ),
+        # "45 iş günü" is unreadable: the compliant 30 next to it does not save the draft.
+        ("Ödeme 30 gün içinde yapılır. İthal ürünlerde bu süre 45 iş günüdür.", AT_MOST_45_DAYS),
+    ],
+)
+def test_verify_proposal_one_value_breaking_or_unreadable_failed(text: str, rule: Rule) -> None:
+    result = _draft_result(text, rule)
+    assert result.proposal is not None
+    assert result.proposal.code_check == "failed"
+    assert result.review_reasons == ["proposal_noncompliant"]
+    assert result.needs_review is True
+
+
+@pytest.mark.parametrize(
+    ("text", "rule"),
+    [
+        # The cap is gone and "sınırsızdır" is not a value; "20 gün" is of another kind.
+        (
+            "Geciken her gün için bedelin %1'i ceza uygulanır, ancak 20 günü aşan gecikmede "
+            "ceza sınırsızdır.",
+            AT_MOST_10_PERCENT,
+        ),
+        # "45 günü izleyen ayın sonunda" can exceed 45 days, but the code reads only 45.
+        (
+            "Ödeme, fatura tarihinden itibaren 45 günü izleyen ayın sonunda yapılır.",
+            AT_MOST_45_DAYS,
+        ),
+    ],
+)
+def test_verify_proposal_known_limit_draft_that_drops_the_rule_passed(
+    text: str, rule: Rule
+) -> None:
+    # Documented limit (agent_design.md §5): the code does not know which value is the regulated
+    # one and checks only the values it reads. These drafts pass and are not queued.
+    result = _draft_result(text, rule)
+    assert result.proposal is not None
+    assert result.proposal.code_check == "passed"
+    assert result.review_reasons == []
 
 
 def test_verify_proposal_rule_without_check_unverifiable_queued() -> None:

@@ -986,10 +986,14 @@ def _masked_number(clause_text: str) -> bool:
 
 
 def _proposal_check(text: str, check: Check | None) -> CodeCheck:
+    """`passed` when no value in the draft breaks the rule: at least one value of the rule's kind,
+    nothing unreadable, and every value satisfies the check. Several different values are fine,
+    because a whole-clause draft keeps the clause's other compliant values (a daily rate next to
+    the cap). The code does not know which value is the regulated one."""
     if check is None:
         return "unverifiable"
     extraction = extract(text, _KIND_OF_UNIT[check.unit])
-    if not _single(extraction):
+    if not extraction.values or extraction.unreadable:
         return "failed"
     return "passed" if _evaluate(extraction.values, check) is True else "failed"
 
